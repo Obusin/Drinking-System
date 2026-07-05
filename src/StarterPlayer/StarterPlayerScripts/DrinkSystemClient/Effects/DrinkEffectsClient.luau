@@ -1,72 +1,81 @@
--- Client-side drink effects (visuals only)
+-- Client-side drink effects (visuals only — no ragdoll, handled separately)
 
-local Lighting = game:GetService("Lighting")
-local RunService = game:GetService("RunService")
+local Lighting      = game:GetService("Lighting")
+local RunService    = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local SoundService = game:GetService("SoundService")
+local SoundService  = game:GetService("SoundService")
 
-local DrinkSystem = ReplicatedStorage:WaitForChild("DrinkSystem")
-local ConfigFolder = DrinkSystem:WaitForChild("Config")
-local Settings = require(ConfigFolder:WaitForChild("Settings"))
+local DrinkSystem   = ReplicatedStorage:WaitForChild("DrinkSystem")
+local ConfigFolder  = DrinkSystem:WaitForChild("Config")
+local Settings      = require(ConfigFolder:WaitForChild("Settings"))
 
 local DrinkEffectsClient = {}
 DrinkEffectsClient.__index = DrinkEffectsClient
 
 local function getOrCreateEffect(name: string, className: string)
 	local existing = Lighting:FindFirstChild(name)
-	if existing and existing:IsA(className) then
-		return existing
-	end
-	if existing then
-		existing:Destroy()
-	end
+	if existing and existing:IsA(className) then return existing end
+	if existing then existing:Destroy() end
 	local inst = Instance.new(className)
-	inst.Name = name
+	inst.Name   = name
 	inst.Parent = Lighting
 	return inst
 end
 
 function DrinkEffectsClient.new(player: Player, maxDrunkness: number)
 	local self = setmetatable({}, DrinkEffectsClient)
-	self.Player = player
+	self.Player       = player
 	self.MaxDrunkness = maxDrunkness
-	self.VisualMaxDrunkness = Settings.DrunknessVisualMax or math.max(8, math.floor(maxDrunkness * 0.15))
-	self.VisualRisePerSecond = Settings.DrunknessVisualRisePerSecond or 4.5
-	self.VisualFallPerSecond = Settings.DrunknessVisualFallPerSecond or 1.5
-	self.LastOffset = CFrame.new()
-	self.LastFovOffset = 0
-	self.WobbleSpeed = 1.55
-	self.Intensity = Settings.DrunkEffectIntensity or 1
-	self.DebugEnabled = Settings.EnableDrunkDebug == true
-	self.DebugInterval = Settings.DrunkDebugInterval or 0.5
-	self.LastDebugAt = 0
-	self.LastDrunkness = 0
-	self.DisplayDrunkness = 0
-	self.SipKick = 0
-	self.SipKickDecayPerSecond = 1.75
-	self.NextHiccupAt = 0
+
+	-- VisualMaxDrunkness = drunkness value where effects hit full intensity.
+	-- Set to 70 so you feel fully hammered well before the 100 cap.
+	self.VisualMaxDrunkness    = Settings.DrunknessVisualMax             or 70
+	self.VisualRisePerSecond   = Settings.DrunknessVisualRisePerSecond   or 12
+	self.VisualFallPerSecond   = Settings.DrunknessVisualFallPerSecond   or 1.5
+	self.WobbleSpeed           = 1.6
+	self.Intensity             = Settings.DrunkEffectIntensity           or 1.25
+	self.DebugEnabled          = Settings.EnableDrunkDebug               == true
+	self.DebugInterval         = Settings.DrunkDebugInterval             or 0.5
+	self.LastDebugAt           = 0
+	self.DisplayDrunkness      = 0
+
+	self.NextHiccupAt          = 0
+	self.LastOffset            = CFrame.new()
+	self.LastFovOffset         = 0
 
 	self.Blur = getOrCreateEffect("DS_DrunkBlur", "BlurEffect")
-	self.Color = getOrCreateEffect("DS_DrunkColor", "ColorCorrectionEffect")
-	self.DOF = getOrCreateEffect("DS_DrunkDOF", "DepthOfFieldEffect")
-	self.Bloom = getOrCreateEffect("DS_DrunkBloom", "BloomEffect")
-	self.SunRays = getOrCreateEffect("DS_DrunkSunRays", "SunRaysEffect")
+	self.DOF  = getOrCreateEffect("DS_DrunkDOF",  "DepthOfFieldEffect")
 
-	self.Blur.Size = 0
-	self.Color.Saturation = 0
-	self.Color.Contrast = 0
-	self.Color.Brightness = 0
-	self.Color.TintColor = Color3.fromRGB(255, 255, 255)
-	self.DOF.Enabled = false
-	self.Bloom.Enabled = true
-	self.Bloom.Intensity = 0
-	self.Bloom.Size = 0
-	self.Bloom.Threshold = 1.2
-	self.SunRays.Intensity = 0
-	self.SunRays.Spread = 0
-	self.DOF.FarIntensity = 0.2
-	self.DOF.NearIntensity = 0.4
-	self.DOF.FocusDistance = 12
+	self.Blur.Size        = 0
+	self.DOF.Enabled      = false
+
+	-- Audio muffle: reduce highs and mids the drunker you get
+	local eq = SoundService:FindFirstChild("DS_DrunkEQ")
+	if not eq or not eq:IsA("EqualizerSoundEffect") then
+		if eq then eq:Destroy() end
+		eq = Instance.new("EqualizerSoundEffect")
+		eq.Name      = "DS_DrunkEQ"
+		eq.HighGain  = 0
+		eq.MidGain   = 0
+		eq.LowGain   = 0
+		eq.Parent    = SoundService
+	end
+	self.EQ = eq
+	self.DOF.FarIntensity = 0
+	self.DOF.NearIntensity= 0
+	self.DOF.FocusDistance= 12
+	self.DOF.InFocusRadius= 8
+
+	-- Remove any leftover effects from old sessions.
+	for _, name in { "DS_DrunkColor", "DS_DrunkBloom", "DS_DrunkSunRays" } do
+		local e = Lighting:FindFirstChild(name)
+		if e then e:Destroy() end
+	end
+	local gui = player:FindFirstChild("PlayerGui")
+	if gui then
+		local vig = gui:FindFirstChild("DS_DrunkVignette")
+		if vig then vig:Destroy() end
+	end
 
 	return self
 end
@@ -88,21 +97,16 @@ end
 
 function DrinkEffectsClient:_playHiccup()
 	local soundId = Settings.DrunkHiccupSoundId
-	if typeof(soundId) ~= "number" and typeof(soundId) ~= "string" then
-		return
-	end
-
-	local character = self.Player.Character
+	if not soundId then return end
+	local character  = self.Player.Character
 	local parentPart = character and (character:FindFirstChild("Head") or character:FindFirstChild("HumanoidRootPart"))
 	local sound = Instance.new("Sound")
-	sound.SoundId = "rbxassetid://" .. tostring(soundId)
-	sound.Volume = 0.65
-	sound.PlaybackSpeed = 0.94 + math.random() * 0.16
-	sound.Parent = parentPart or SoundService
+	sound.SoundId       = "rbxassetid://" .. tostring(soundId)
+	sound.Volume        = 0.7
+	sound.PlaybackSpeed = 0.92 + math.random() * 0.18
+	sound.Parent        = parentPart or SoundService
 	sound:Play()
-	sound.Ended:Connect(function()
-		sound:Destroy()
-	end)
+	sound.Ended:Once(function() sound:Destroy() end)
 end
 
 function DrinkEffectsClient:_resetCamera()
@@ -118,101 +122,122 @@ function DrinkEffectsClient:_resetCamera()
 	end
 end
 
+function DrinkEffectsClient:_clearEffects()
+	self:_resetCamera()
+	self.Blur.Size   = 0
+	self.DOF.Enabled = false
+	self.EQ.HighGain = 0
+	self.EQ.MidGain  = 0
+end
+
 function DrinkEffectsClient:Update(dt: number)
 	local cam = workspace.CurrentCamera
 	if not cam then return end
 
 	local drunkness = self:_getDrunkness()
-	local delta = drunkness - self.LastDrunkness
-	if delta > 0 then
-		-- Consume pulse: extra wobble kick right after a successful drink.
-		local kick = math.clamp(delta / math.max(self.VisualMaxDrunkness, 1), 0.12, 0.4)
-		self.SipKick = math.clamp(self.SipKick + kick, 0, 0.55)
-		if self.DebugEnabled then
-			print("[DrinkSystem][DrinkDetected]", "Delta=", delta, "SipKick=", self.SipKick, "Drunkness=", drunkness)
-		end
-	end
-	self.LastDrunkness = drunkness
-	self.SipKick = math.max(0, self.SipKick - (self.SipKickDecayPerSecond * dt))
 
+	-- DisplayDrunkness: gradual rise and slow fall — no instant spikes on sip.
 	if self.DisplayDrunkness < drunkness then
-		self.DisplayDrunkness = math.min(drunkness, self.DisplayDrunkness + (self.VisualRisePerSecond * dt))
+		self.DisplayDrunkness = math.min(drunkness, self.DisplayDrunkness + self.VisualRisePerSecond * dt)
 	else
-		self.DisplayDrunkness = math.max(drunkness, self.DisplayDrunkness - (self.VisualFallPerSecond * dt))
+		self.DisplayDrunkness = math.max(drunkness, self.DisplayDrunkness - self.VisualFallPerSecond * dt)
 	end
 
-	local t = math.clamp(self.DisplayDrunkness / math.max(self.VisualMaxDrunkness, 1), 0, 1)
-	local effectiveT = math.clamp(t + self.SipKick, 0, 1.35)
+	local t          = math.clamp(self.DisplayDrunkness / math.max(self.VisualMaxDrunkness, 1), 0, 1)
+	local effectiveT = t
 
-	if t <= 0 and self.SipKick <= 0 then
-		self:_resetCamera()
-		self.Blur.Size = 0
-		self.Color.Saturation = 0
-		self.Color.Contrast = 0
-		self.Color.Brightness = 0
-		self.Color.TintColor = Color3.fromRGB(255, 255, 255)
-		self.DOF.Enabled = false
-		self.Bloom.Intensity = 0
-		self.Bloom.Size = 0
-		self.SunRays.Intensity = 0
-		self.SunRays.Spread = 0
+	if t <= 0 then
+		self:_clearEffects()
 		return
 	end
 
-	local time = os.clock()
-	local moveAlpha = self:_getMoveAlpha()
-	local collapsed = self:_isCollapsed()
-	local distortionBoost = math.clamp(moveAlpha * 0.65 + (collapsed and 0.4 or 0), 0, 1)
-	local amp = (0.022 + (0.056 * effectiveT) + (0.038 * distortionBoost)) * self.Intensity
-	local roll = (0.018 + (0.07 * effectiveT) + (0.026 * distortionBoost)) * self.Intensity
-	local yaw = (0.007 + (0.028 * effectiveT)) * self.Intensity
-	local fovOffset = 0
+	local time       = os.clock()
+	local moveAlpha  = self:_getMoveAlpha()
+	local collapsed  = self:_isCollapsed()
+	local motionBoost = math.clamp(moveAlpha * 0.6 + (collapsed and 0.45 or 0), 0, 1)
 
-	local offset = CFrame.new(
-		(math.sin(time * self.WobbleSpeed) + math.sin(time * self.WobbleSpeed * 1.7) * 0.3) * amp,
-		(math.sin(time * self.WobbleSpeed * 0.75) + math.cos(time * self.WobbleSpeed * 1.2) * 0.18) * amp * 0.9,
-		0
-	) * CFrame.Angles(
+	-- ─── CAMERA WOBBLE ─────────────────────────────────────────────────────
+	-- Amplitudes are deliberately punchy — you should FEEL every sip.
+	local primaryAmp = (0.04 + 0.18 * effectiveT + 0.06 * motionBoost) * self.Intensity
+
+	local ox = (math.sin(time * self.WobbleSpeed)              + math.sin(time * self.WobbleSpeed * 1.73) * 0.42) * primaryAmp
+	local oy = (math.sin(time * self.WobbleSpeed * 0.77)       + math.cos(time * self.WobbleSpeed * 1.19) * 0.28) * primaryAmp * 0.9
+
+	local roll = (0.03 + 0.16 * effectiveT + 0.05 * motionBoost) * self.Intensity
+	local yaw  = (0.01 + 0.06 * effectiveT)                       * self.Intensity
+
+	local offset = CFrame.new(ox, oy, 0) * CFrame.Angles(
 		0,
-		math.sin(time * self.WobbleSpeed * 0.45) * yaw,
-		math.sin(time * self.WobbleSpeed * 0.9) * roll
+		math.sin(time * self.WobbleSpeed * 0.47) * yaw,
+		math.sin(time * self.WobbleSpeed * 0.88) * roll
 	)
 
-	cam.CFrame = cam.CFrame * self.LastOffset:Inverse() * offset
+	-- ─── FOV BREATHING ─────────────────────────────────────────────────────
+	local fovOffset = 0
+	if effectiveT > 0.2 then
+		local breathAlpha = (effectiveT - 0.2) / 0.8
+		fovOffset = math.sin(time * 0.55) * (6 * breathAlpha * self.Intensity)
+	end
+
+	cam.CFrame      = cam.CFrame * self.LastOffset:Inverse() * offset
 	self.LastOffset = offset
 	cam.FieldOfView = cam.FieldOfView - self.LastFovOffset + fovOffset
 	self.LastFovOffset = fovOffset
 
-	self.Blur.Size = math.min(8, (0.7 + (2.35 * effectiveT) + (0.9 * distortionBoost)) * self.Intensity)
-	self.Color.Saturation = 0
-	self.Color.Contrast = 0
-	self.Color.Brightness = 0
-	self.Color.TintColor = Color3.fromRGB(255, 255, 255)
-	self.DOF.Enabled = false
-	self.Bloom.Intensity = 0
-	self.Bloom.Size = 0
-	self.SunRays.Intensity = 0
-	self.SunRays.Spread = 0
+	-- ─── BLUR ──────────────────────────────────────────────────────────────
+	self.Blur.Size = math.min(14, (1.5 + 7 * effectiveT + 2.5 * motionBoost) * self.Intensity)
 
-	if effectiveT >= 0.25 and time >= self.NextHiccupAt then
+	-- ─── AUDIO MUFFLE ──────────────────────────────────────────────────────
+	-- Cuts highs up to -12dB and mids up to -5dB. Subtle at low drunkness,
+	-- noticeably muffled when wasted. Kicks in after 20% drunk.
+	local muffleAlpha = math.clamp((effectiveT - 0.2) / 0.8, 0, 1)
+	self.EQ.HighGain  = -12 * muffleAlpha
+	self.EQ.MidGain   = -5  * muffleAlpha
+
+	-- ─── DEPTH OF FIELD ────────────────────────────────────────────────────
+	-- Two slow, out-of-phase oscillators drive focus distance so it drifts
+	-- between near and far in an irregular, swimmy way.
+	-- InFocusRadius narrows as drunkness rises so the sharp band gets thin —
+	-- like your drunk eyes can't agree on what to focus on.
+	if effectiveT > 0.15 then
+		local dofAlpha = math.clamp((effectiveT - 0.15) / 0.85, 0, 1)
+
+		-- Primary focus drift: lazy near↔far swing (~7s cycle)
+		local focusSwing = math.sin(time * 0.28) * (5 * dofAlpha)
+		-- Secondary drift: slightly faster, smaller amplitude (~4.5s cycle), out of phase
+		local focusDrift = math.sin(time * 0.45 + 1.8) * (2.5 * dofAlpha)
+		local focusDist  = math.clamp(10 + focusSwing + focusDrift, 2, 24)
+
+		-- Sharp band: wide when sober-ish, narrow when wasted (0.5→6 studs wide)
+		local inFocusRadius = math.max(0.5, 6 - 5.5 * dofAlpha)
+		-- Add a small pulse to the radius so it breathes (~3s cycle)
+		inFocusRadius = inFocusRadius + math.sin(time * 0.65 + 0.9) * (1.2 * dofAlpha)
+		inFocusRadius = math.max(0.5, inFocusRadius)
+
+		self.DOF.Enabled       = true
+		self.DOF.FocusDistance = focusDist
+		self.DOF.InFocusRadius = inFocusRadius
+		self.DOF.FarIntensity  = math.clamp(0.3 + 0.65 * dofAlpha, 0, 1)
+		self.DOF.NearIntensity = math.clamp(0.2 + 0.55 * dofAlpha, 0, 1)
+	else
+		self.DOF.Enabled = false
+	end
+
+	-- ─── HICCUP ────────────────────────────────────────────────────────────
+	if effectiveT >= 0.20 and time >= self.NextHiccupAt then
 		self:_playHiccup()
-		self.SipKick = math.clamp(self.SipKick + 0.08, 0, 0.55)
-		local baseInterval = 10 - (5.5 * math.min(effectiveT, 1))
-		local jitter = -0.85 + (math.random() * 2.2)
-		self.NextHiccupAt = time + math.max(2.4, baseInterval + jitter)
+		local baseInterval = 9 - 5 * math.min(effectiveT, 1)
+		self.NextHiccupAt = time + math.max(2, baseInterval + (-1 + math.random() * 2.4))
 	end
 
 	if self.DebugEnabled and (time - self.LastDebugAt) >= self.DebugInterval then
 		self.LastDebugAt = time
 		print(
-			"[DrinkSystem][DrunknessFX]",
-			"Drunkness=", drunkness,
-			"DisplayDrunkness=", self.DisplayDrunkness,
-			"Normalized=", t,
-			"Effective=", effectiveT,
-			"SipKick=", self.SipKick,
-			"Blur=", self.Blur.Size,
-			"Intensity=", self.Intensity
+			"[DrinkSystem][FX]",
+			"d=", math.floor(drunkness + 0.5),
+			"t=", string.format("%.2f", t),
+			"eff=", string.format("%.2f", effectiveT),
+			"blur=", string.format("%.1f", self.Blur.Size)
 		)
 	end
 end
@@ -229,7 +254,7 @@ function DrinkEffectsClient:Stop()
 		self.Connection:Disconnect()
 		self.Connection = nil
 	end
-	self:_resetCamera()
+	self:_clearEffects()
 end
 
 return DrinkEffectsClient

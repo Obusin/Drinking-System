@@ -39,8 +39,15 @@ local function playerIsHoldingGlass()
 
 	local tool = char:FindFirstChildWhichIsA("Tool")
 	if not tool then return false end
+	if tool:GetAttribute("DS_Drink") == true then return false end
 
-	return tool:GetAttribute("DS_GlassTool") == true and tool:GetAttribute("DS_Drink") ~= true
+	if tool:GetAttribute("DS_GlassTool") == true then return true end
+
+	local allowedNames = Settings.GlassToolNames or {}
+	for _, name in ipairs(allowedNames) do
+		if tool.Name == name then return true end
+	end
+	return false
 end
 
 local function playerIsHoldingDrinkTool(): boolean
@@ -81,7 +88,12 @@ local function detectType(model)
 		end
 	end
 
-	-- 3. Detect via attributes on model
+	-- 3. Placed finished drink — check before DS_Glass so it isn't misidentified
+	if model:GetAttribute("DS_Drink") == true then
+		return "Drink"
+	end
+
+	-- 4. Detect via attributes on model
 	local attrGlass = model:GetAttribute("DS_Glass")
 	local attrGlass2 = model:GetAttribute("DS__Glass")
 	if attrGlass == true or attrGlass2 == true or type(attrGlass) == "string" or type(attrGlass2) == "string" then
@@ -212,10 +224,10 @@ local function collectNearestModels(predicate, maxCount: number): {Model}
 		if inst:IsA("Model") and predicate(inst) then
 			local part = inst:FindFirstChildWhichIsA("BasePart", true)
 			if part then
-				table.insert(candidates, {
-					Model = inst,
-					Dist = (part.Position - root.Position).Magnitude,
-				})
+				local dist = (part.Position - root.Position).Magnitude
+				if dist <= 80 then
+					table.insert(candidates, { Model = inst, Dist = dist })
+				end
 			end
 		end
 	end
@@ -236,13 +248,12 @@ local function findNearestModel(predicate)
 	return list[1]
 end
 
-local GUIDANCE_MAX_RECOMMENDED_HIGHLIGHTS = 6
+local GUIDANCE_MAX_RECOMMENDED_HIGHLIGHTS = 30
 
 local requiredGuidanceHighlight = Instance.new("Highlight")
 requiredGuidanceHighlight.Enabled = false
-requiredGuidanceHighlight.FillTransparency = 0.5
+requiredGuidanceHighlight.FillTransparency = 1
 requiredGuidanceHighlight.OutlineTransparency = 0
-requiredGuidanceHighlight.FillColor = Color3.fromRGB(255, 180, 80)
 requiredGuidanceHighlight.OutlineColor = Color3.fromRGB(255, 255, 255)
 requiredGuidanceHighlight.DepthMode = Enum.HighlightDepthMode.Occluded
 requiredGuidanceHighlight.Parent = workspace
@@ -252,9 +263,8 @@ for i = 1, GUIDANCE_MAX_RECOMMENDED_HIGHLIGHTS do
 	local h = Instance.new("Highlight")
 	h.Name = "DS_GuidanceRecommended_" .. tostring(i)
 	h.Enabled = false
-	h.FillTransparency = 0.5
+	h.FillTransparency = 1
 	h.OutlineTransparency = 0
-	h.FillColor = Color3.fromRGB(120, 255, 120)
 	h.OutlineColor = Color3.fromRGB(255, 255, 255)
 	h.DepthMode = Enum.HighlightDepthMode.Occluded
 	h.Parent = workspace
@@ -283,19 +293,45 @@ local function applyGuidanceHighlights()
 	end
 end
 
+-- Clears only the display (highlights off). Keeps guidance data so it
+-- shows immediately once the glass finishes replicating to the character.
+local function clearGuidanceDisplay()
+	guidanceTargets.Recommended = {}
+	guidanceTargets.Required = nil
+	applyGuidanceHighlights()
+end
+
+-- Clears both data and display. Used on unequip so stale data doesn't linger.
+local function resetGuidance()
+	guidance.RecommendedIngredients = {}
+	guidance.RequiredItemType = nil
+	clearGuidanceDisplay()
+end
+
 local function refreshGuidanceTargets()
+	if not playerIsHoldingGlass() then
+		clearGuidanceDisplay()
+		return
+	end
 	guidanceTargets.Recommended = collectNearestModels(isRecommended, GUIDANCE_MAX_RECOMMENDED_HIGHLIGHTS)
 	guidanceTargets.Required = findNearestModel(isRequired)
 	applyGuidanceHighlights()
 end
 
 GuidanceUpdate.listen(function(payload)
+	-- Always store the data — server only sends this when the player has a glass.
+	-- Don't gate on playerIsHoldingGlass() here: the packet can arrive before the
+	-- tool fully replicates to the character, causing a dropped update and no guide.
+	-- The 0.25s refresh loop handles showing/hiding based on glass state.
 	guidance.RecommendedIngredients = payload.RecommendedIngredients or {}
 	guidance.RequiredItemType = payload.RequiredItemType
 	refreshGuidanceTargets()
 end)
 
 local function isGuidedClickAllowed(model: Model, itemType: string): boolean
+	-- Placed drinks and glasses are always pickupable — guidance never blocks them
+	if itemType == "Drink" or itemType == "Glass" then return true end
+
 	if guidance.RequiredItemType and itemType ~= guidance.RequiredItemType then
 		return false
 	end
@@ -305,6 +341,58 @@ local function isGuidedClickAllowed(model: Model, itemType: string): boolean
 	end
 
 	return true
+end
+
+---------------------------------------------------------------------
+-- Tooltip
+---------------------------------------------------------------------
+local tooltipGui = Instance.new("ScreenGui")
+tooltipGui.Name = "DS_HoverTooltip"
+tooltipGui.ResetOnSpawn = false
+tooltipGui.IgnoreGuiInset = true
+tooltipGui.DisplayOrder = 50
+tooltipGui.Parent = player:WaitForChild("PlayerGui")
+
+local tooltipFrame = Instance.new("Frame")
+tooltipFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+tooltipFrame.BackgroundTransparency = 0.3
+tooltipFrame.BorderSizePixel = 0
+tooltipFrame.AutomaticSize = Enum.AutomaticSize.XY
+tooltipFrame.Visible = false
+tooltipFrame.Parent = tooltipGui
+
+local tooltipCorner = Instance.new("UICorner")
+tooltipCorner.CornerRadius = UDim.new(0, 6)
+tooltipCorner.Parent = tooltipFrame
+
+local tooltipPadding = Instance.new("UIPadding")
+tooltipPadding.PaddingLeft   = UDim.new(0, 8)
+tooltipPadding.PaddingRight  = UDim.new(0, 8)
+tooltipPadding.PaddingTop    = UDim.new(0, 4)
+tooltipPadding.PaddingBottom = UDim.new(0, 4)
+tooltipPadding.Parent = tooltipFrame
+
+local tooltipLabel = Instance.new("TextLabel")
+tooltipLabel.BackgroundTransparency = 1
+tooltipLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+tooltipLabel.TextSize = 14
+tooltipLabel.Font = Enum.Font.GothamMedium
+tooltipLabel.AutomaticSize = Enum.AutomaticSize.XY
+tooltipLabel.Text = ""
+tooltipLabel.Parent = tooltipFrame
+
+local function setTooltip(text: string?)
+	if text and text ~= "" then
+		tooltipLabel.Text = text
+		tooltipFrame.Visible = true
+	else
+		tooltipFrame.Visible = false
+	end
+end
+
+local function updateTooltipPosition()
+	local mouse = UIS:GetMouseLocation()
+	tooltipFrame.Position = UDim2.new(0, mouse.X + 16, 0, mouse.Y + 8)
 end
 
 ---------------------------------------------------------------------
@@ -377,9 +465,24 @@ RunService.RenderStepped:Connect(function()
 
 	if hoveredModel and hoverType then
 		applyHighlight(hoveredModel)
+		local label
+		if hoverType == "Drink" then
+			label = hoveredModel:GetAttribute("DS_DrinkName") or hoveredModel.Name
+		elseif hoverType == "Bottle" then
+			label = getIngredientName(hoveredModel) or hoveredModel.Name
+		elseif hoverType == "Glass" then
+			label = hoveredModel:GetAttribute("DS_Glass") or hoveredModel.Name
+		elseif hoverType == "Shaker" then
+			label = "Shaker"
+		elseif hoverType == "Garnish" then
+			label = hoveredModel:GetAttribute("DS_Garnish") or hoveredModel.Name
+		end
+		setTooltip(label)
+		updateTooltipPosition()
 	else
 		hoverHighlight.Enabled = false
 		currentModel = nil
+		setTooltip(nil)
 	end
 end)
 
@@ -396,8 +499,8 @@ local function tryInteract()
 	end
 
 	-- Do not consume click input while the player is holding a drink
-	-- unless the click is targeting a garnish station.
-	if t ~= "Garnish" and playerIsHoldingDrinkTool() then
+	-- unless targeting a garnish station or picking up another drink.
+	if t ~= "Garnish" and t ~= "Drink" and playerIsHoldingDrinkTool() then
 		return
 	end
 
@@ -434,6 +537,12 @@ local function tryInteract()
 		RequestPickupItem.send({ Model = currentModel })
 		return
 	end
+
+	-- Finished drink pickup
+	if t == "Drink" then
+		RequestPickupItem.send({ Model = currentModel })
+		return
+	end
 end
 UIS.InputBegan:Connect(function(input, processed)
 	if processed then return end
@@ -443,3 +552,38 @@ UIS.InputBegan:Connect(function(input, processed)
 		tryInteract()
 	end
 end)
+
+local equipDebounce: thread? = nil
+
+local function watchCharacter(character: Model)
+	character.ChildAdded:Connect(function(child)
+		if not child:IsA("Tool") then return end
+		if child:GetAttribute("DS_Drink") == true then return end
+		local isGlass = child:GetAttribute("DS_GlassTool") == true
+		if not isGlass then
+			local allowedNames = Settings.GlassToolNames or {}
+			for _, name in ipairs(allowedNames) do
+				if child.Name == name then isGlass = true break end
+			end
+		end
+		if not isGlass then return end
+
+		-- Debounce: cancel any pending refresh so rapid switching settles first
+		if equipDebounce then task.cancel(equipDebounce) end
+		equipDebounce = task.delay(0.2, function()
+			equipDebounce = nil
+			refreshGuidanceTargets()
+		end)
+	end)
+
+	character.ChildRemoved:Connect(function(child)
+		if not child:IsA("Tool") then return end
+		if equipDebounce then task.cancel(equipDebounce) equipDebounce = nil end
+		if not playerIsHoldingGlass() then
+			resetGuidance()
+		end
+	end)
+end
+
+if player.Character then watchCharacter(player.Character) end
+player.CharacterAdded:Connect(watchCharacter)
