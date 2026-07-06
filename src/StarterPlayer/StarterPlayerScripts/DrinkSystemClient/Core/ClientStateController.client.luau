@@ -562,24 +562,37 @@ if IS_MOBILE then
 
 		local result = workspace:Raycast(ray.Origin, ray.Direction * 200, params)
 
-		-- Accept any face of a tagged surface part — snap Y to the top so placement
-		-- works regardless of camera angle (side hits still place on top of the part).
+		-- Primary: tagged surface part directly hit by the ray.
 		local surfacePart = result and result.Instance
 			and result.Instance:IsA("BasePart")
 			and isSurfaceHit(result.Instance)
 			and result.Instance or nil
 
+		-- Fallback: if the ray missed, use the nearest tagged surface within range.
+		if not surfacePart then
+			surfacePart = findNearestSurface(player)
+		end
+
 		if surfacePart then
-			-- Snap position to top surface of the part at the XZ of the hit point.
+			-- Snap Y to top of the part; use ray XZ if available, else character forward.
 			local topY = surfacePart.Position.Y + surfacePart.Size.Y * 0.5
-			local placePos = Vector3.new(result.Position.X, topY, result.Position.Z)
+			local hitX = result and result.Position.X or surfacePart.Position.X
+			local hitZ = result and result.Position.Z or surfacePart.Position.Z
+			-- Clamp XZ inside the surface bounds so the drink lands on the part.
+			local local_ = surfacePart.CFrame:PointToObjectSpace(Vector3.new(hitX, topY, hitZ))
+			local hx = surfacePart.Size.X * 0.5 - 0.2
+			local hz = surfacePart.Size.Z * 0.5 - 0.2
+			local clamped = surfacePart.CFrame:PointToWorldSpace(
+				Vector3.new(math.clamp(local_.X, -hx, hx), 0, math.clamp(local_.Z, -hz, hz))
+			)
+			local placePos = Vector3.new(clamped.X, topY, clamped.Z)
 			pendingPosition = placePos
 			pendingTool = drinkTool
 			placementPreview:showAtPosition(placePos, surfacePart)
 			btnFrame.Position = UDim2.new(0, tapPos.X, 0, tapPos.Y - 16)
 			btnFrame.Visible = true
 		else
-			-- Non-surface tap: drink.
+			-- No surface nearby: drink.
 			tryConsume(drinkTool)
 		end
 	end)
