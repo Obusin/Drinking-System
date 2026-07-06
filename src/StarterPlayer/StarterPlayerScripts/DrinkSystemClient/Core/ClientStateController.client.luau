@@ -575,15 +575,15 @@ if IS_MOBILE then
 
 		if surfacePart then
 			local topY = surfacePart.Position.Y + surfacePart.Size.Y * 0.5
-			-- Closest point on the surface top face to the player's feet.
-			-- Camera-ray XZ is inaccurate at shallow angles; this is angle-independent.
-			local char = player.Character
-			local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
-			local footPos = root and Vector3.new(root.Position.X, topY, root.Position.Z)
-				or Vector3.new(surfacePart.Position.X, topY, surfacePart.Position.Z)
-			local local_ = surfacePart.CFrame:PointToObjectSpace(footPos)
-			local hx = surfacePart.Size.X * 0.5 - 0.2
-			local hz = surfacePart.Size.Z * 0.5 - 0.2
+			-- Project the camera ray onto the Y=topY plane to get the tap XZ.
+			local t = ray.Direction.Y ~= 0 and ((topY - ray.Origin.Y) / ray.Direction.Y) or nil
+			local projX = t and (ray.Origin.X + ray.Direction.X * t) or surfacePart.Position.X
+			local projZ = t and (ray.Origin.Z + ray.Direction.Z * t) or surfacePart.Position.Z
+			-- Clamp inside surface with a generous inset so the drink never sits on the edge.
+			local local_ = surfacePart.CFrame:PointToObjectSpace(Vector3.new(projX, topY, projZ))
+			local inset = 1.0
+			local hx = math.max(0, surfacePart.Size.X * 0.5 - inset)
+			local hz = math.max(0, surfacePart.Size.Z * 0.5 - inset)
 			local clamped = surfacePart.CFrame:PointToWorldSpace(
 				Vector3.new(math.clamp(local_.X, -hx, hx), 0, math.clamp(local_.Z, -hz, hz))
 			)
