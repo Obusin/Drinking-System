@@ -574,12 +574,23 @@ if IS_MOBILE then
 		end
 
 		if surfacePart then
-			-- Snap Y to top of the part; use ray XZ if available, else character forward.
 			local topY = surfacePart.Position.Y + surfacePart.Size.Y * 0.5
-			local hitX = result and result.Position.X or surfacePart.Position.X
-			local hitZ = result and result.Position.Z or surfacePart.Position.Z
-			-- Clamp XZ inside the surface bounds so the drink lands on the part.
-			local local_ = surfacePart.CFrame:PointToObjectSpace(Vector3.new(hitX, topY, hitZ))
+			-- Project the camera ray onto the horizontal plane at topY.
+			-- This gives the correct XZ at any camera angle, regardless of which
+			-- face the ray actually hit (or whether it missed entirely).
+			local rayOrigin = ray.Origin
+			local rayDir   = ray.Direction
+			local t = (rayDir.Y ~= 0) and ((topY - rayOrigin.Y) / rayDir.Y) or nil
+			local projX, projZ
+			if t and t > 0 then
+				projX = rayOrigin.X + rayDir.X * t
+				projZ = rayOrigin.Z + rayDir.Z * t
+			else
+				projX = surfacePart.Position.X
+				projZ = surfacePart.Position.Z
+			end
+			-- Clamp to surface bounds.
+			local local_ = surfacePart.CFrame:PointToObjectSpace(Vector3.new(projX, topY, projZ))
 			local hx = surfacePart.Size.X * 0.5 - 0.2
 			local hz = surfacePart.Size.Z * 0.5 - 0.2
 			local clamped = surfacePart.CFrame:PointToWorldSpace(
