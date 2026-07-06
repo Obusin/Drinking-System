@@ -31,6 +31,10 @@ local DRINK_SOUND_ID = 130281744609769
 
 local IS_MOBILE = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 
+-- Set to true by TouchTap when a surface tap is handled (placement flow).
+-- tryConsume checks this so Activated doesn't also trigger a drink on that same tap.
+local mobileSurfaceTapHandled = false
+
 local lastDrinkAt = 0
 local currentCharacterConn: RBXScriptConnection? = nil
 local currentDrinkTrack: AnimationTrack? = nil
@@ -217,7 +221,13 @@ local function tryConsume(tool: Tool)
 	if ragdollLocked then return end
 
 	-- On mobile, cursor-based checks are unreliable (GetMouseLocation is stale after touch).
-	-- Placement is handled by the TouchTap confirm flow — skip it here entirely.
+	-- If the TouchTap handler already handled this tap as a surface/placement event, skip consume.
+	if IS_MOBILE and mobileSurfaceTapHandled then
+		mobileSurfaceTapHandled = false
+		return
+	end
+	mobileSurfaceTapHandled = false
+
 	if not IS_MOBILE then
 		if isPointerTargetingBottle() then return end
 		if isPointerTargetingGarnish() then return end
@@ -519,8 +529,10 @@ if IS_MOBILE then
 
 	-- First tap: preview position, show confirm button
 	UserInputService.TouchTap:Connect(function(touchPositions)
-		-- If confirm button is visible and tap isn't on it, cancel
+		-- If confirm button is visible and tap isn't on it, cancel.
+		-- Also block the paired Activated/tryConsume from drinking on this same tap.
 		if confirmBtn.Visible then
+			mobileSurfaceTapHandled = true
 			hideConfirm()
 			return
 		end
@@ -548,7 +560,9 @@ if IS_MOBILE then
 		if result.Normal:Dot(Vector3.new(0, 1, 0)) < 0.7 then return end
 		if not isSurfaceHit(result.Instance) then return end
 
-		-- Store position and show confirm button near the tap
+		-- Store position and show confirm button near the tap.
+		-- Signal tryConsume (fired by Activated on this same tap) to skip drinking.
+		mobileSurfaceTapHandled = true
 		pendingPosition = result.Position
 		pendingTool = drinkTool
 		confirmBtn.Position = UDim2.new(0, tapPos.X, 0, tapPos.Y - 60)
@@ -557,11 +571,20 @@ if IS_MOBILE then
 
 	-- Hide confirm if drink is unequipped
 	player.CharacterAdded:Connect(hideConfirm)
-	player.Character and player.Character.ChildRemoved:Connect(function(child)
-		if child:IsA("Tool") and child:GetAttribute("DS_Drink") == true then
-			hideConfirm()
-		end
+	player.CharacterAdded:Connect(function(char)
+		char.ChildRemoved:Connect(function(child)
+			if child:IsA("Tool") and child:GetAttribute("DS_Drink") == true then
+				hideConfirm()
+			end
+		end)
 	end)
+	if player.Character then
+		player.Character.ChildRemoved:Connect(function(child)
+			if child:IsA("Tool") and child:GetAttribute("DS_Drink") == true then
+				hideConfirm()
+			end
+		end)
+	end
 end
 
 local function hookExistingTools()
