@@ -460,43 +460,8 @@ local placementPreview = PlacementPreviewClient.new({
 })
 placementPreview:Start()
 
--- Mobile: tap surface to preview, tap confirm button to place.
+-- Mobile: tap a valid surface part while holding a drink → place immediately.
 if IS_MOBILE then
-	-- ── Confirm button UI ────────────────────────────────────────────
-	local confirmGui = Instance.new("ScreenGui")
-	confirmGui.Name = "DS_PlaceConfirm"
-	confirmGui.ResetOnSpawn = false
-	confirmGui.IgnoreGuiInset = true
-	confirmGui.DisplayOrder = 60
-	confirmGui.Parent = player:WaitForChild("PlayerGui")
-
-	local confirmBtn = Instance.new("TextButton")
-	confirmBtn.Size = UDim2.new(0, 110, 0, 44)
-	confirmBtn.AnchorPoint = Vector2.new(0.5, 0.5)
-	confirmBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-	confirmBtn.BackgroundTransparency = 0.15
-	confirmBtn.BorderSizePixel = 0
-	confirmBtn.Text = "Place"
-	confirmBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-	confirmBtn.TextSize = 16
-	confirmBtn.Font = Enum.Font.GothamBold
-	confirmBtn.Visible = false
-	confirmBtn.Parent = confirmGui
-
-	local btnCorner = Instance.new("UICorner")
-	btnCorner.CornerRadius = UDim.new(0, 10)
-	btnCorner.Parent = confirmBtn
-
-	-- State
-	local pendingPosition: Vector3? = nil
-	local pendingTool: Tool? = nil
-
-	local function hideConfirm()
-		confirmBtn.Visible = false
-		pendingPosition = nil
-		pendingTool = nil
-	end
-
 	local function getEquippedDrink(): Tool?
 		local char = player.Character
 		if not char then return nil end
@@ -519,29 +484,13 @@ if IS_MOBILE then
 		return false
 	end
 
-	-- Confirm button → place
-	confirmBtn.Activated:Connect(function()
-		if pendingPosition and pendingTool then
-			PlaceDrink.send({ Tool = pendingTool, Position = pendingPosition })
-		end
-		hideConfirm()
-	end)
-
-	-- First tap: preview position, show confirm button
 	UserInputService.TouchTap:Connect(function(touchPositions)
-		-- If confirm button is visible and tap isn't on it, cancel.
-		-- Also block the paired Activated/tryConsume from drinking on this same tap.
-		if confirmBtn.Visible then
-			mobileSurfaceTapHandled = true
-			hideConfirm()
-			return
-		end
-
 		local drinkTool = getEquippedDrink()
 		if not drinkTool then return end
+		if not touchPositions[1] then return end
 
 		local camera = workspace.CurrentCamera
-		if not camera or not touchPositions[1] then return end
+		if not camera then return end
 		local tapPos = touchPositions[1]
 		local ray = camera:ViewportPointToRay(tapPos.X, tapPos.Y)
 
@@ -560,31 +509,10 @@ if IS_MOBILE then
 		if result.Normal:Dot(Vector3.new(0, 1, 0)) < 0.7 then return end
 		if not isSurfaceHit(result.Instance) then return end
 
-		-- Store position and show confirm button near the tap.
-		-- Signal tryConsume (fired by Activated on this same tap) to skip drinking.
+		-- Valid surface tap — place the drink and block the paired Activated/tryConsume.
 		mobileSurfaceTapHandled = true
-		pendingPosition = result.Position
-		pendingTool = drinkTool
-		confirmBtn.Position = UDim2.new(0, tapPos.X, 0, tapPos.Y - 60)
-		confirmBtn.Visible = true
+		PlaceDrink.send({ Tool = drinkTool, Position = result.Position })
 	end)
-
-	-- Hide confirm if drink is unequipped
-	player.CharacterAdded:Connect(hideConfirm)
-	player.CharacterAdded:Connect(function(char)
-		char.ChildRemoved:Connect(function(child)
-			if child:IsA("Tool") and child:GetAttribute("DS_Drink") == true then
-				hideConfirm()
-			end
-		end)
-	end)
-	if player.Character then
-		player.Character.ChildRemoved:Connect(function(child)
-			if child:IsA("Tool") and child:GetAttribute("DS_Drink") == true then
-				hideConfirm()
-			end
-		end)
-	end
 end
 
 local function hookExistingTools()
