@@ -562,17 +562,20 @@ if IS_MOBILE then
 
 		local result = workspace:Raycast(ray.Origin, ray.Direction * 200, params)
 
-		local hitsSurface = result
-			and result.Instance
+		-- Accept any face of a tagged surface part — snap Y to the top so placement
+		-- works regardless of camera angle (side hits still place on top of the part).
+		local surfacePart = result and result.Instance
 			and result.Instance:IsA("BasePart")
-			and result.Normal:Dot(Vector3.new(0, 1, 0)) >= 0.7
 			and isSurfaceHit(result.Instance)
+			and result.Instance or nil
 
-		if hitsSurface then
-			-- Surface tap: show ghost preview + Place/Cancel buttons.
-			pendingPosition = result.Position
+		if surfacePart then
+			-- Snap position to top surface of the part at the XZ of the hit point.
+			local topY = surfacePart.Position.Y + surfacePart.Size.Y * 0.5
+			local placePos = Vector3.new(result.Position.X, topY, result.Position.Z)
+			pendingPosition = placePos
 			pendingTool = drinkTool
-			placementPreview:showAtPosition(result.Position, result.Instance)
+			placementPreview:showAtPosition(placePos, surfacePart)
 			btnFrame.Position = UDim2.new(0, tapPos.X, 0, tapPos.Y - 16)
 			btnFrame.Visible = true
 		else
