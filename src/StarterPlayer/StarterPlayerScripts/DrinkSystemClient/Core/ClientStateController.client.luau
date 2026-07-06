@@ -575,19 +575,20 @@ if IS_MOBILE then
 
 		if surfacePart then
 			local topY = surfacePart.Position.Y + surfacePart.Size.Y * 0.5
-			-- Project the camera ray onto the horizontal plane at topY.
-			-- This gives the correct XZ at any camera angle, regardless of which
-			-- face the ray actually hit (or whether it missed entirely).
-			local rayOrigin = ray.Origin
-			local rayDir   = ray.Direction
-			local t = (rayDir.Y ~= 0) and ((topY - rayOrigin.Y) / rayDir.Y) or nil
-			local projX, projZ
-			if t and t > 0 then
-				projX = rayOrigin.X + rayDir.X * t
-				projZ = rayOrigin.Z + rayDir.Z * t
-			else
-				projX = surfacePart.Position.X
-				projZ = surfacePart.Position.Z
+			-- Use the player's forward direction projected onto the surface.
+			-- Camera-ray XZ is unreliable at shallow angles (places on the ledge).
+			-- Forward-projection gives a natural "where I'm facing on the counter" position.
+			local char = player.Character
+			local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
+			local projX, projZ = surfacePart.Position.X, surfacePart.Position.Z
+			if root then
+				local fwd = root.CFrame.LookVector
+				local fwd2d = Vector3.new(fwd.X, 0, fwd.Z)
+				if fwd2d.Magnitude > 0.01 then
+					fwd2d = fwd2d.Unit
+					local preferred = root.Position + fwd2d * 2
+					projX, projZ = preferred.X, preferred.Z
+				end
 			end
 			-- Clamp to surface bounds.
 			local local_ = surfacePart.CFrame:PointToObjectSpace(Vector3.new(projX, topY, projZ))
