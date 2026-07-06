@@ -31,10 +31,6 @@ local DRINK_SOUND_ID = 130281744609769
 
 local IS_MOBILE = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 
--- Set to true by TouchTap when a surface tap is handled (placement flow).
--- tryConsume checks this so Activated doesn't also trigger a drink on that same tap.
-local mobileSurfaceTapHandled = false
-
 local lastDrinkAt = 0
 local currentCharacterConn: RBXScriptConnection? = nil
 local currentDrinkTrack: AnimationTrack? = nil
@@ -220,13 +216,9 @@ local function tryConsume(tool: Tool)
 	if drinkAnimLocked then return end
 	if ragdollLocked then return end
 
-	-- On mobile, cursor-based checks are unreliable (GetMouseLocation is stale after touch).
-	-- If the TouchTap handler already handled this tap as a surface/placement event, skip consume.
-	if IS_MOBILE and mobileSurfaceTapHandled then
-		mobileSurfaceTapHandled = false
-		return
-	end
-	mobileSurfaceTapHandled = false
+	-- On mobile, Activated fires before TouchTap so the flag approach is unreliable.
+	-- Block Activated entirely for drink tools on mobile — TouchTap owns place + drink.
+	if IS_MOBILE and tool:GetAttribute("DS_Drink") == true then return end
 
 	if not IS_MOBILE then
 		if isPointerTargetingBottle() then return end
@@ -547,7 +539,6 @@ if IS_MOBILE then
 
 		-- Any tap while buttons are showing: dismiss (Place/Cancel handle their own Activated)
 		if btnFrame.Visible then
-			mobileSurfaceTapHandled = true
 			hideConfirm()
 			return
 		end
@@ -570,18 +561,24 @@ if IS_MOBILE then
 		params.FilterDescendantsInstances = excluded
 
 		local result = workspace:Raycast(ray.Origin, ray.Direction * 200, params)
-		if not result or not result.Instance then return end
-		if not result.Instance:IsA("BasePart") then return end
-		if result.Normal:Dot(Vector3.new(0, 1, 0)) < 0.7 then return end
-		if not isSurfaceHit(result.Instance) then return end
 
-		-- Valid surface tap: show ghost at exact tap spot + Place/Cancel buttons.
-		mobileSurfaceTapHandled = true
-		pendingPosition = result.Position
-		pendingTool = drinkTool
-		placementPreview:showAtPosition(result.Position, result.Instance)
-		btnFrame.Position = UDim2.new(0, tapPos.X, 0, tapPos.Y - 16)
-		btnFrame.Visible = true
+		local hitsSurface = result
+			and result.Instance
+			and result.Instance:IsA("BasePart")
+			and result.Normal:Dot(Vector3.new(0, 1, 0)) >= 0.7
+			and isSurfaceHit(result.Instance)
+
+		if hitsSurface then
+			-- Surface tap: show ghost preview + Place/Cancel buttons.
+			pendingPosition = result.Position
+			pendingTool = drinkTool
+			placementPreview:showAtPosition(result.Position, result.Instance)
+			btnFrame.Position = UDim2.new(0, tapPos.X, 0, tapPos.Y - 16)
+			btnFrame.Visible = true
+		else
+			-- Non-surface tap: drink.
+			tryConsume(drinkTool)
+		end
 	end)
 
 	-- Hide when drink is unequipped
