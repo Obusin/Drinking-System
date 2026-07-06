@@ -258,6 +258,9 @@ end
 -- Per-frame update
 ---------------------------------------------------------------------
 function PlacementPreviewClient:_update()
+	-- On mobile the ghost is driven externally via showAtPosition / hidePreview.
+	if IS_MOBILE then return end
+
 	local tool = self:_getEquippedPlaceable()
 	if not tool then
 		self:_hideAll()
@@ -287,33 +290,46 @@ function PlacementPreviewClient:_update()
 		return
 	end
 
-	-- Build / reuse ghost
-	local ghost = self:_ensureGhost(tool)
-	self:_setSurface(surface)
-	local halfH = ghostHalfHeight(ghost)
-	local topY  = surfaceTopY(surface)
-	local yaw   = root and math.atan2(root.CFrame.LookVector.X, root.CFrame.LookVector.Z) or 0
-
-	local targetCF: CFrame
-	if IS_MOBILE then
-		-- Mobile has no cursor — project forward from character
-		targetCF = forwardProjectedPos(self._player, surface, ghost)
-	else
-		-- PC: only show when cursor is actually pointing at a valid surface.
-		-- If the cursor is elsewhere, hide — no forward-projection fallback on PC.
-		local hitSurface, hitPos = cursorRaycastSurface(self._player, self._isSurface)
-		if not hitSurface or not hitPos then
-			self:_hideAll()
-			return
-		end
-		local clamped = clampToSurfaceXZ(hitSurface, hitPos)
-		self:_setSurface(hitSurface)
-		targetCF = CFrame.new(clamped.X, surfaceTopY(hitSurface) + halfH, clamped.Z) * CFrame.Angles(0, yaw, 0)
+	-- PC: only show when cursor is actually pointing at a valid surface.
+	local hitSurface, hitPos = cursorRaycastSurface(self._player, self._isSurface)
+	if not hitSurface or not hitPos then
+		self:_hideAll()
+		return
 	end
 
-	-- Store position before PivotTo so it's always available even if PivotTo errors
+	local ghost = self:_ensureGhost(tool)
+	local clampedPos = clampToSurfaceXZ(hitSurface, hitPos)
+	self:_setSurface(hitSurface)
+	local yaw = root and math.atan2(root.CFrame.LookVector.X, root.CFrame.LookVector.Z) or 0
+	local targetCF = CFrame.new(clampedPos.X, surfaceTopY(hitSurface) + ghostHalfHeight(ghost), clampedPos.Z)
+		* CFrame.Angles(0, yaw, 0)
+
 	self._lastPreviewCFrame = targetCF
 	pcall(function() ghost:PivotTo(targetCF) end)
+end
+
+---------------------------------------------------------------------
+-- Mobile: show ghost at a world position (called after surface tap)
+---------------------------------------------------------------------
+function PlacementPreviewClient:showAtPosition(worldPos: Vector3, surface: BasePart?)
+	local tool = self:_getEquippedPlaceable()
+	if not tool then return end
+	local ghost = self:_ensureGhost(tool)
+	self:_setSurface(surface)
+	local char = self._player.Character
+	local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	local yaw = root and math.atan2(root.CFrame.LookVector.X, root.CFrame.LookVector.Z) or 0
+	local targetCF = CFrame.new(worldPos) * CFrame.Angles(0, yaw, 0)
+	-- Lift ghost so its base sits on the surface
+	local halfH = ghostHalfHeight(ghost)
+	local topY = surface and surfaceTopY(surface) or worldPos.Y
+	targetCF = CFrame.new(worldPos.X, topY + halfH, worldPos.Z) * CFrame.Angles(0, yaw, 0)
+	self._lastPreviewCFrame = targetCF
+	pcall(function() ghost:PivotTo(targetCF) end)
+end
+
+function PlacementPreviewClient:hidePreview()
+	self:_hideAll()
 end
 
 ---------------------------------------------------------------------

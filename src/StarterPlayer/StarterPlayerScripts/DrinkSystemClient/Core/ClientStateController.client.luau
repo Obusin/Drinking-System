@@ -492,6 +492,7 @@ if IS_MOBILE then
 		confirmBtn.Visible = false
 		pendingPosition = nil
 		pendingTool = nil
+		placementPreview:hidePreview()
 	end
 
 	local function getEquippedDrink(): Tool?
@@ -520,7 +521,7 @@ if IS_MOBILE then
 		if pendingPosition and pendingTool then
 			PlaceDrink.send({ Tool = pendingTool, Position = pendingPosition })
 		end
-		hideConfirm()
+		hideConfirm()  -- also calls placementPreview:hidePreview()
 	end)
 
 	UserInputService.TouchTap:Connect(function(touchPositions)
@@ -556,10 +557,11 @@ if IS_MOBILE then
 		if result.Normal:Dot(Vector3.new(0, 1, 0)) < 0.7 then return end
 		if not isSurfaceHit(result.Instance) then return end
 
-		-- Surface hit — show Place button above the tap point, block Activated from drinking.
+		-- Surface hit — show ghost at tap position, show Place button, block Activated from drinking.
 		mobileSurfaceTapHandled = true
 		pendingPosition = result.Position
 		pendingTool = drinkTool
+		placementPreview:showAtPosition(result.Position, result.Instance)
 		confirmBtn.Position = UDim2.new(0, tapPos.X, 0, tapPos.Y - 16)
 		confirmBtn.Visible = true
 	end)
