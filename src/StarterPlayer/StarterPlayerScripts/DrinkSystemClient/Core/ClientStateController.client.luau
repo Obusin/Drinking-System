@@ -575,23 +575,13 @@ if IS_MOBILE then
 
 		if surfacePart then
 			local topY = surfacePart.Position.Y + surfacePart.Size.Y * 0.5
-			-- Use the player's forward direction projected onto the surface.
-			-- Camera-ray XZ is unreliable at shallow angles (places on the ledge).
-			-- Forward-projection gives a natural "where I'm facing on the counter" position.
+			-- Closest point on the surface top face to the player's feet.
+			-- Camera-ray XZ is inaccurate at shallow angles; this is angle-independent.
 			local char = player.Character
 			local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
-			local projX, projZ = surfacePart.Position.X, surfacePart.Position.Z
-			if root then
-				local fwd = root.CFrame.LookVector
-				local fwd2d = Vector3.new(fwd.X, 0, fwd.Z)
-				if fwd2d.Magnitude > 0.01 then
-					fwd2d = fwd2d.Unit
-					local preferred = root.Position + fwd2d * 2
-					projX, projZ = preferred.X, preferred.Z
-				end
-			end
-			-- Clamp to surface bounds.
-			local local_ = surfacePart.CFrame:PointToObjectSpace(Vector3.new(projX, topY, projZ))
+			local footPos = root and Vector3.new(root.Position.X, topY, root.Position.Z)
+				or Vector3.new(surfacePart.Position.X, topY, surfacePart.Position.Z)
+			local local_ = surfacePart.CFrame:PointToObjectSpace(footPos)
 			local hx = surfacePart.Size.X * 0.5 - 0.2
 			local hz = surfacePart.Size.Z * 0.5 - 0.2
 			local clamped = surfacePart.CFrame:PointToWorldSpace(
