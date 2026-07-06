@@ -562,26 +562,21 @@ if IS_MOBILE then
 
 		local result = workspace:Raycast(ray.Origin, ray.Direction * 200, params)
 
-		-- Primary: tagged surface part directly hit by the ray.
-		local surfacePart = result and result.Instance
+		-- Only proceed if the ray directly hit a tagged surface part.
+		local surfacePart = result
+			and result.Instance
 			and result.Instance:IsA("BasePart")
 			and isSurfaceHit(result.Instance)
 			and result.Instance or nil
 
-		-- Fallback: if the ray missed, use the nearest tagged surface within range.
-		if not surfacePart then
-			surfacePart = findNearestSurface(player)
-		end
-
 		if surfacePart then
+			-- Use the actual hit XZ (works for top and side face hits).
+			-- Snap Y to top of the part, clamp inward so drink never sits on the very edge.
 			local topY = surfacePart.Position.Y + surfacePart.Size.Y * 0.5
-			-- Project the camera ray onto the Y=topY plane to get the tap XZ.
-			local t = ray.Direction.Y ~= 0 and ((topY - ray.Origin.Y) / ray.Direction.Y) or nil
-			local projX = t and (ray.Origin.X + ray.Direction.X * t) or surfacePart.Position.X
-			local projZ = t and (ray.Origin.Z + ray.Direction.Z * t) or surfacePart.Position.Z
-			-- Clamp inside surface with a generous inset so the drink never sits on the edge.
-			local local_ = surfacePart.CFrame:PointToObjectSpace(Vector3.new(projX, topY, projZ))
-			local inset = 1.0
+			local local_ = surfacePart.CFrame:PointToObjectSpace(
+				Vector3.new(result.Position.X, topY, result.Position.Z)
+			)
+			local inset = 0.8
 			local hx = math.max(0, surfacePart.Size.X * 0.5 - inset)
 			local hz = math.max(0, surfacePart.Size.Z * 0.5 - inset)
 			local clamped = surfacePart.CFrame:PointToWorldSpace(
@@ -594,7 +589,7 @@ if IS_MOBILE then
 			btnFrame.Position = UDim2.new(0, tapPos.X, 0, tapPos.Y - 16)
 			btnFrame.Visible = true
 		else
-			-- No surface nearby: drink.
+			-- Ray missed a surface — treat as drink tap.
 			tryConsume(drinkTool)
 		end
 	end)
