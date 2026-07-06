@@ -742,7 +742,12 @@ local function updateGuidance(session: DrinkSession, glassTool: Tool?)
 			guidance.Instruction = "Finalize the mix."
 		end
 	else
-		guidance.RecommendedIngredients = RecipeRegistry.getCompatibleNextIngredients(mixIngredients)
+		local compatibleAll = RecipeRegistry.getCompatibleNextIngredients(mixIngredients)
+		local compatibleCapped = {}
+		for i = 1, math.min(4, #compatibleAll) do
+			table.insert(compatibleCapped, compatibleAll[i])
+		end
+		guidance.RecommendedIngredients = compatibleCapped
 		if #guidance.RecommendedIngredients > 0 then
 			guidance.Instruction = "Try: " .. guidance.RecommendedIngredients[1]
 		else
@@ -849,6 +854,9 @@ function DrinkSystemController.onPour(player: Player, bottleModel: Instance)
 	glassTool:SetAttribute("DS_GarnishesCsv", "")
 	GlassPresentation.setGarnishes(glassTool, {})
 	debugPrint("Glass:", glassTool.Name, "Added ingredient:", ingredientName)
+	-- Force guidance out immediately so client narrows highlights without waiting for loop tick
+	session.LastGuidanceAt = 0
+	sendGuidanceIfNeeded(session, glassTool)
 	Packets.StartBottlePour.sendTo({
 		IngredientName = ingredientName,
 		BottleModel = bottleModel,
@@ -881,8 +889,10 @@ function DrinkSystemController.onPour(player: Player, bottleModel: Instance)
 			mix.PendingPayload.Garnishes = mergeGarnishLists(mix.PendingPayload.Garnishes, mix.Garnishes)
 			setBackpackLocked(player, true)
 			DrinkCreationManager.preparePendingDrink(player, mix.PendingPayload, ingredients, glassTool)
-			Packets.StartShakerSequence.sendTo(toWireDrinkPayload(mix.PendingPayload), player)
 			recordStep(mix, session, "StartShaker")
+			task.delay(0.9, function()
+				Packets.StartShakerSequence.sendTo(toWireDrinkPayload(mix.PendingPayload), player)
+			end)
 			return
 		end
 	end
@@ -946,8 +956,10 @@ function DrinkSystemController.onFinalize(player: Player)
 			mix.PendingPayload.Garnishes = mergeGarnishLists(mix.PendingPayload.Garnishes, mix.Garnishes)
 			setBackpackLocked(player, true)
 			DrinkCreationManager.preparePendingDrink(player, mix.PendingPayload, ingredients, glassTool)
-			Packets.StartShakerSequence.sendTo(toWireDrinkPayload(mix.PendingPayload), player)
 			recordStep(mix, session, "StartShaker")
+			task.delay(0.9, function()
+				Packets.StartShakerSequence.sendTo(toWireDrinkPayload(mix.PendingPayload), player)
+			end)
 			return
 		end
 	end
