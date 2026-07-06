@@ -570,11 +570,23 @@ if IS_MOBILE then
 			and result.Instance or nil
 
 		if surfacePart then
-			-- Use the actual hit XZ (works for top and side face hits).
-			-- Snap Y to top of the part, clamp inward so drink never sits on the very edge.
 			local topY = surfacePart.Position.Y + surfacePart.Size.Y * 0.5
+			local hitPos = result.Position
+
+			-- If the ray hit a side face (normal mostly horizontal), the hit XZ is on
+			-- the front wall of the counter. Push the point inward past that face so
+			-- the drink lands ON the tabletop just inside where the player tapped.
+			local normal = result.Normal
+			if normal:Dot(Vector3.new(0, 1, 0)) < 0.7 then
+				local horizontalN = Vector3.new(normal.X, 0, normal.Z)
+				if horizontalN.Magnitude > 0.01 then
+					hitPos = hitPos - horizontalN.Unit * 1.5
+				end
+			end
+
+			-- Snap Y to top of the part, clamp inward so drink never sits on the very edge.
 			local local_ = surfacePart.CFrame:PointToObjectSpace(
-				Vector3.new(result.Position.X, topY, result.Position.Z)
+				Vector3.new(hitPos.X, topY, hitPos.Z)
 			)
 			local inset = 0.8
 			local hx = math.max(0, surfacePart.Size.X * 0.5 - inset)
