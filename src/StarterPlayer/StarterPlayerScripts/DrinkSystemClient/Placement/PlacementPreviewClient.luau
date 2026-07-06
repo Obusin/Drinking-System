@@ -258,16 +258,12 @@ end
 -- Per-frame update
 ---------------------------------------------------------------------
 function PlacementPreviewClient:_update()
-	-- On mobile the ghost is driven externally via showAtPosition / hidePreview.
-	if IS_MOBILE then return end
-
 	local tool = self:_getEquippedPlaceable()
 	if not tool then
 		self:_hideAll()
 		return
 	end
 
-	-- Check range to nearest surface
 	local char = self._player.Character
 	local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
 	local surface = self._findNearest(self._player)
@@ -277,20 +273,27 @@ function PlacementPreviewClient:_update()
 		return
 	end
 
+	-- Range check (bounding-box closest point)
 	local localPoint = surface.CFrame:PointToObjectSpace(root.Position)
 	local half = surface.Size * 0.5
-	local clamped = Vector3.new(
+	local clampedLocal = Vector3.new(
 		math.clamp(localPoint.X, -half.X, half.X),
 		math.clamp(localPoint.Y, -half.Y, half.Y),
 		math.clamp(localPoint.Z, -half.Z, half.Z)
 	)
-	local dist = (surface.CFrame:PointToWorldSpace(clamped) - root.Position).Magnitude
+	local dist = (surface.CFrame:PointToWorldSpace(clampedLocal) - root.Position).Magnitude
 	if dist > self._range then
 		self:_hideAll()
 		return
 	end
 
-	-- PC: only show when cursor is actually pointing at a valid surface.
+	if IS_MOBILE then
+		-- Mobile: only highlight the surface — ghost is shown on tap via showAtPosition.
+		self:_setSurface(surface)
+		return
+	end
+
+	-- PC: only show ghost when cursor is pointing at a valid surface.
 	local hitSurface, hitPos = cursorRaycastSurface(self._player, self._isSurface)
 	if not hitSurface or not hitPos then
 		self:_hideAll()
@@ -303,33 +306,30 @@ function PlacementPreviewClient:_update()
 	local yaw = root and math.atan2(root.CFrame.LookVector.X, root.CFrame.LookVector.Z) or 0
 	local targetCF = CFrame.new(clampedPos.X, surfaceTopY(hitSurface) + ghostHalfHeight(ghost), clampedPos.Z)
 		* CFrame.Angles(0, yaw, 0)
-
 	self._lastPreviewCFrame = targetCF
 	pcall(function() ghost:PivotTo(targetCF) end)
 end
 
 ---------------------------------------------------------------------
--- Mobile: show ghost at a world position (called after surface tap)
+-- Mobile API: show ghost at exact tap position, hide ghost only
 ---------------------------------------------------------------------
 function PlacementPreviewClient:showAtPosition(worldPos: Vector3, surface: BasePart?)
 	local tool = self:_getEquippedPlaceable()
 	if not tool then return end
 	local ghost = self:_ensureGhost(tool)
-	self:_setSurface(surface)
 	local char = self._player.Character
 	local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
 	local yaw = root and math.atan2(root.CFrame.LookVector.X, root.CFrame.LookVector.Z) or 0
-	local targetCF = CFrame.new(worldPos) * CFrame.Angles(0, yaw, 0)
-	-- Lift ghost so its base sits on the surface
 	local halfH = ghostHalfHeight(ghost)
 	local topY = surface and surfaceTopY(surface) or worldPos.Y
-	targetCF = CFrame.new(worldPos.X, topY + halfH, worldPos.Z) * CFrame.Angles(0, yaw, 0)
+	local targetCF = CFrame.new(worldPos.X, topY + halfH, worldPos.Z) * CFrame.Angles(0, yaw, 0)
 	self._lastPreviewCFrame = targetCF
 	pcall(function() ghost:PivotTo(targetCF) end)
 end
 
-function PlacementPreviewClient:hidePreview()
-	self:_hideAll()
+-- Hide ghost only — surface highlight stays driven by _update proximity check.
+function PlacementPreviewClient:hideGhost()
+	self:_destroyGhost()
 end
 
 ---------------------------------------------------------------------

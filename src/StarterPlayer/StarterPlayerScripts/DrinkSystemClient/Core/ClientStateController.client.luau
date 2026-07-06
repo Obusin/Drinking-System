@@ -460,7 +460,7 @@ local placementPreview = PlacementPreviewClient.new({
 })
 placementPreview:Start()
 
--- Mobile: tap a valid surface part → show Place button. Tap Place → place drink.
+-- Mobile: hold drink near surface → surface glows. Tap surface → ghost preview + Place/Cancel.
 if IS_MOBILE then
 	local confirmGui = Instance.new("ScreenGui")
 	confirmGui.Name = "DS_PlaceConfirm"
@@ -469,30 +469,44 @@ if IS_MOBILE then
 	confirmGui.DisplayOrder = 60
 	confirmGui.Parent = player:WaitForChild("PlayerGui")
 
-	local confirmBtn = Instance.new("TextButton")
-	confirmBtn.Size = UDim2.new(0, 120, 0, 48)
-	confirmBtn.AnchorPoint = Vector2.new(0.5, 1)
-	confirmBtn.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-	confirmBtn.BackgroundTransparency = 0.1
-	confirmBtn.BorderSizePixel = 0
-	confirmBtn.Text = "Place Here"
-	confirmBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-	confirmBtn.TextSize = 16
-	confirmBtn.Font = Enum.Font.GothamBold
-	confirmBtn.Visible = false
-	confirmBtn.Parent = confirmGui
-	local btnCorner = Instance.new("UICorner")
-	btnCorner.CornerRadius = UDim.new(0, 12)
-	btnCorner.Parent = confirmBtn
+	-- Row frame to hold Place + Cancel side by side
+	local btnFrame = Instance.new("Frame")
+	btnFrame.Size = UDim2.new(0, 260, 0, 52)
+	btnFrame.AnchorPoint = Vector2.new(0.5, 1)
+	btnFrame.BackgroundTransparency = 1
+	btnFrame.Visible = false
+	btnFrame.Parent = confirmGui
+	Instance.new("UIListLayout", btnFrame).FillDirection = Enum.FillDirection.Horizontal
+	Instance.new("UIListLayout", btnFrame).Padding = UDim.new(0, 10)
+
+	local function makeBtn(text, bg)
+		local btn = Instance.new("TextButton")
+		btn.Size = UDim2.new(0, 125, 1, 0)
+		btn.BackgroundColor3 = bg
+		btn.BackgroundTransparency = 0.1
+		btn.BorderSizePixel = 0
+		btn.Text = text
+		btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+		btn.TextSize = 16
+		btn.Font = Enum.Font.GothamBold
+		btn.Parent = btnFrame
+		local c = Instance.new("UICorner")
+		c.CornerRadius = UDim.new(0, 12)
+		c.Parent = btn
+		return btn
+	end
+
+	local placeBtn  = makeBtn("Place",  Color3.fromRGB(30, 120, 60))
+	local cancelBtn = makeBtn("Cancel", Color3.fromRGB(120, 30, 30))
 
 	local pendingPosition: Vector3? = nil
 	local pendingTool: Tool? = nil
 
 	local function hideConfirm()
-		confirmBtn.Visible = false
+		btnFrame.Visible = false
 		pendingPosition = nil
 		pendingTool = nil
-		placementPreview:hidePreview()
+		placementPreview:hideGhost()
 	end
 
 	local function getEquippedDrink(): Tool?
@@ -517,18 +531,22 @@ if IS_MOBILE then
 		return false
 	end
 
-	confirmBtn.Activated:Connect(function()
+	placeBtn.Activated:Connect(function()
 		if pendingPosition and pendingTool then
 			PlaceDrink.send({ Tool = pendingTool, Position = pendingPosition })
 		end
-		hideConfirm()  -- also calls placementPreview:hidePreview()
+		hideConfirm()
+	end)
+
+	cancelBtn.Activated:Connect(function()
+		hideConfirm()
 	end)
 
 	UserInputService.TouchTap:Connect(function(touchPositions)
 		if not touchPositions[1] then return end
 
-		-- Dismiss if already showing (any tap not on the button cancels)
-		if confirmBtn.Visible then
+		-- Any tap while buttons are showing: dismiss (Place/Cancel handle their own Activated)
+		if btnFrame.Visible then
 			mobileSurfaceTapHandled = true
 			hideConfirm()
 			return
@@ -557,13 +575,13 @@ if IS_MOBILE then
 		if result.Normal:Dot(Vector3.new(0, 1, 0)) < 0.7 then return end
 		if not isSurfaceHit(result.Instance) then return end
 
-		-- Surface hit — show ghost at tap position, show Place button, block Activated from drinking.
+		-- Valid surface tap: show ghost at exact tap spot + Place/Cancel buttons.
 		mobileSurfaceTapHandled = true
 		pendingPosition = result.Position
 		pendingTool = drinkTool
 		placementPreview:showAtPosition(result.Position, result.Instance)
-		confirmBtn.Position = UDim2.new(0, tapPos.X, 0, tapPos.Y - 16)
-		confirmBtn.Visible = true
+		btnFrame.Position = UDim2.new(0, tapPos.X, 0, tapPos.Y - 16)
+		btnFrame.Visible = true
 	end)
 
 	-- Hide when drink is unequipped
