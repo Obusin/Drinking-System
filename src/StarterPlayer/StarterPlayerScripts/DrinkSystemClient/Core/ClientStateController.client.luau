@@ -549,7 +549,9 @@ if IS_MOBILE then
 		local camera = workspace.CurrentCamera
 		if not camera then return end
 		local tapPos = touchPositions[1]
-		local ray = camera:ViewportPointToRay(tapPos.X, tapPos.Y)
+		-- TouchTap positions are in GUI space (top inset subtracted);
+		-- ScreenPointToRay accounts for the inset, ViewportPointToRay does not.
+		local ray = camera:ScreenPointToRay(tapPos.X, tapPos.Y)
 
 		local char = player.Character
 		local params = RaycastParams.new()
