@@ -36,7 +36,7 @@ local INGREDIENTS = {
 	Sugar = { Strongness = 0, Color = BASE_COLOR },
 
 	-- Stand Alone
-	Water = { Strongness = 0, Color = BASE_COLOR },
+	Water = { Strongness = 0, Color = Color3.fromRGB(95, 175, 255) },
 	["Beer Tap"] = { Strongness = BASE_STRONGNESS, Color = Color3.fromRGB(210, 170, 80) },
 	["Beer Can"] = { Strongness = BASE_STRONGNESS, Color = Color3.fromRGB(220, 180, 70) },
 }

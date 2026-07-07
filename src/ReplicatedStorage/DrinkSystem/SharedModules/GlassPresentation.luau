@@ -88,6 +88,32 @@ function GlassPresentation.setStage(container: Instance, stage: number?)
 	end
 end
 
+-- Override the transparency of the visible liquid (stage parts + drink/liquid
+-- parts). Used for see-through drinks like Water.
+function GlassPresentation.setLiquidTransparency(container: Instance, transparency: number)
+	for _, stageNames in pairs(STAGE_NAMES) do
+		local stageInstance = findByNames(container, stageNames)
+		if stageInstance then
+			for _, d in ipairs(stageInstance:GetDescendants()) do
+				if d:IsA("BasePart") and d.Transparency < 0.9 then
+					d.Transparency = transparency
+				end
+			end
+			if stageInstance:IsA("BasePart") and stageInstance.Transparency < 0.9 then
+				stageInstance.Transparency = transparency
+			end
+		end
+	end
+	local drinkPart = container:FindFirstChild("DrinkPart", true)
+	if drinkPart and drinkPart:IsA("BasePart") and drinkPart.Transparency < 0.9 then
+		drinkPart.Transparency = transparency
+	end
+	local liquidPart = container:FindFirstChild("LiquidPart", true)
+	if liquidPart and liquidPart:IsA("BasePart") and liquidPart.Transparency < 0.9 then
+		liquidPart.Transparency = transparency
+	end
+end
+
 function GlassPresentation.setFillColor(container: Instance, color: Color3?)
 	if typeof(color) ~= "Color3" then
 		return

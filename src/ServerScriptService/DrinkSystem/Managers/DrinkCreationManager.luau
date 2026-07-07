@@ -107,6 +107,12 @@ local function applyDrinkToGlassTool(glassTool: Tool, drinkData: table)
 		drinkData.Garnishes or {}
 	)
 
+	-- Water looks like water: blue tint comes from the recipe color, and the
+	-- liquid is extra transparent instead of an opaque fill.
+	if drinkData.RecipeName == "Water" then
+		GlassPresentation.setLiquidTransparency(glassTool, 0.5)
+	end
+
 	-- Naming rule:
 	-- - Valid recipe: recipe display name
 	-- - Non-recipe/invalid: base ingredient (or payload display fallback, e.g. Toxication)
