@@ -30,7 +30,7 @@ local Settings = {
 	DrunknessVisualMax            = 70,
 	DrunknessVisualRisePerSecond  = 4,   -- slow build after each sip (was 12 — read as a lurch)
 	DrunknessVisualFallPerSecond  = 1.5,
-	DrunkEffectIntensity          = 1.25,
+	DrunkEffectIntensity          = 1.6,   -- master multiplier for wobble/blur/DOF
 
 	-- Stage thresholds (fraction of DrunknessMax):
 	--   Buzzed  = 20  (1st light drink)
@@ -43,7 +43,7 @@ local Settings = {
 		Wasted = 0.72,
 	},
 	DrunkCollapseThreshold    = 0.92,
-	DrunkCollapseDuration     = 15,   -- stay knocked out 15s, long enough to be funny
+	DrunkCollapseDuration     = 30,   -- stay collapsed 30s — they can still shuffle around ragdolled
 	DrunkCollapseCooldown     = 90,   -- can only collapse once per 90s
 	DrunkCollapseRecoveryRatio= 0.50, -- wake up at 50% drunkness (wasted but not collapsed)
 
@@ -69,7 +69,7 @@ local Settings = {
 	DrunkStumbleThreshold          = 0.72,
 	DrunkStumbleChancePerSecondMin  = 0.12,
 	DrunkStumbleChancePerSecondMax  = 0.45,
-	DrunkStumbleDuration            = 2.2,
+	DrunkStumbleDuration            = 3.5,
 	DrunkStumbleCooldown            = 4,
 
 	-- Camera + movement drift

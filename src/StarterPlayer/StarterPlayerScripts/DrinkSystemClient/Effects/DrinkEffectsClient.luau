@@ -199,7 +199,7 @@ function DrinkEffectsClient:Update(dt: number)
 	local blurPulse = 0.65
 		+ 0.28 * (0.5 + 0.5 * math.sin(time * 0.85))
 		+ 0.07 * (0.5 + 0.5 * math.sin(time * 2.1 + 1.3))
-	local blurBase = math.min(3.5, (0.4 + 2.4 * effectiveT + 0.8 * motionBoost) * self.Intensity)
+	local blurBase = math.min(5.5, (0.4 + 2.4 * effectiveT + 0.8 * motionBoost) * self.Intensity)
 	self.Blur.Size = blurBase * blurPulse * self.EffectFade
 
 	-- ─── AUDIO MUFFLE ──────────────────────────────────────────────────────
