@@ -1264,7 +1264,8 @@ function DrinkSystemController.onConsumeDrink(player: Player, tool: Tool)
 	-- Drink sound on the character — server-played so nearby players hear it.
 	-- Solaire's Spit gets its own sound (praise the sun) instead of the sip.
 	if tool and tool:GetAttribute("DS_RecipeName") == "Solaire's Spit" then
-		DrinkEffectsService.playCharacterSound(player, Settings.SolaireSoundId, Settings.SolaireSoundVolume or 0.45)
+		-- Wider reach than a sip — everyone in the room should hear this one
+		DrinkEffectsService.playCharacterSound(player, Settings.SolaireSoundId, Settings.SolaireSoundVolume or 0.45, nil, 100)
 	else
 		DrinkEffectsService.playCharacterSound(player, Settings.DrinkSoundId, Settings.DrinkSoundVolume or 0.55)
 	end

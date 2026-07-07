@@ -346,7 +346,7 @@ end
 
 -- Spatial sound on the player's character — server-created so EVERYONE nearby
 -- hears it (client-created sounds are local-only). Low rolloff keeps it subtle.
-function DrinkEffectsService.playCharacterSound(player: Player, soundId: (number | string)?, volume: number?, playbackSpeed: number?)
+function DrinkEffectsService.playCharacterSound(player: Player, soundId: (number | string)?, volume: number?, playbackSpeed: number?, maxDistance: number?)
 	if not soundId then return end
 	local char = player.Character
 	local part = char and (char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart"))
@@ -355,8 +355,9 @@ function DrinkEffectsService.playCharacterSound(player: Player, soundId: (number
 	sound.SoundId = "rbxassetid://" .. tostring(soundId)
 	sound.Volume = volume or 0.5
 	sound.PlaybackSpeed = playbackSpeed or 1
-	sound.RollOffMode = Enum.RollOffMode.InverseTapered
-	sound.RollOffMaxDistance = 45
+	sound.RollOffMode = Enum.RollOffMode.Linear  -- stays audible across the range, then cuts
+	sound.RollOffMaxDistance = maxDistance or 45
+	sound.RollOffMinDistance = 8
 	sound.Parent = part
 	sound:Play()
 	sound.Ended:Once(function() sound:Destroy() end)
