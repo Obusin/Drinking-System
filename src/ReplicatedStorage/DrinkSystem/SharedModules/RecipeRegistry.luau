@@ -30,6 +30,39 @@ function RecipeRegistry.getRecipeByIngredients(ingredientList)
 	return nil, nil
 end
 
+-- Count-aware pour validity: current mix + the new ingredient must fit as a
+-- sub-multiset of at least one recipe's ingredient list. Duplicates count —
+-- {Vodqa, Vodqa} only fits recipes listing Vodqa twice or more (secret drinks
+-- like Obu's Juice). Secret recipes DO count here (pours work, guidance hides).
+function RecipeRegistry.canAddIngredient(currentIngredients: {string}, ingredientName: string): boolean
+	local counts = {}
+	for _, ing in ipairs(currentIngredients) do
+		counts[ing] = (counts[ing] or 0) + 1
+	end
+	counts[ingredientName] = (counts[ingredientName] or 0) + 1
+
+	for _, def in pairs(Recipes) do
+		local required = def.Ingredients or {}
+		local fits = true
+		for name, needed in pairs(counts) do
+			local available = 0
+			for _, r in ipairs(required) do
+				if r == name then
+					available += 1
+				end
+			end
+			if needed > available then
+				fits = false
+				break
+			end
+		end
+		if fits then
+			return true
+		end
+	end
+	return false
+end
+
 function RecipeRegistry.getCompatibleNextIngredients(currentIngredients)
 	local compatible = {}
 

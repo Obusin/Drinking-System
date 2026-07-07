@@ -82,6 +82,8 @@ local Settings = {
 	PourSoundVolume     = 0.4,
 	DrinkSoundId        = 82098479361178,
 	DrinkSoundVolume    = 0.55,
+	SolaireSoundId      = 140335089989960,  -- plays when sipping Solaire's Spit
+	SolaireSoundVolume  = 0.45,             -- low but audible
 	EnableDrunkDebug    = false,
 	DrunkDebugInterval  = 0.5,
 

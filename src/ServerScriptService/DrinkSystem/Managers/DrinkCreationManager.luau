@@ -111,6 +111,8 @@ local function applyDrinkToGlassTool(glassTool: Tool, drinkData: table)
 	-- liquid is extra transparent instead of an opaque fill.
 	if drinkData.RecipeName == "Water" then
 		GlassPresentation.setLiquidTransparency(glassTool, 0.5)
+	elseif drinkData.RecipeName == "Solaire's Spit" then
+		GlassPresentation.setLiquidTransparency(glassTool, 0.3)  -- milky white
 	end
 
 	-- Naming rule:

@@ -22,6 +22,7 @@ if Settings.EnableHoverInteractionController ~= true then
 	return
 end
 local Network = require(SharedModules:WaitForChild("Network"))
+local RecipeRegistry = require(SharedModules:WaitForChild("RecipeRegistry"))
 local Packets = Network.Packets
 
 local RequestPickupItem = Packets.RequestPickupItem
@@ -488,11 +489,23 @@ local function isGuidedClickAllowed(model: Model, itemType: string): boolean
 		return false
 	end
 
-	-- Bottles: only recipe-valid next ingredients are clickable. The server
-	-- enforces the same rule in onPour, and the highlight set is that same
-	-- list — so highlighted == clickable == pourable, always.
-	if itemType == "Bottle" and #(guidance.RecommendedIngredients or {}) > 0 then
-		return isRecommended(model)
+	-- Bottles: clickable iff the pour is recipe-valid (count-aware, SECRET
+	-- recipes included) — the exact rule the server enforces in onPour.
+	-- Highlights only show non-secret suggestions, so secret combos like a
+	-- second Vodqa are clickable without ever glowing.
+	if itemType == "Bottle" then
+		local ing = getIngredientName(model)
+		if not ing then return false end
+		local mixList = {}
+		local char = player.Character
+		local tool = char and char:FindFirstChildWhichIsA("Tool")
+		local csv = tool and tool:GetAttribute("DS_IngredientListCsv")
+		if type(csv) == "string" and csv ~= "" then
+			for token in string.gmatch(csv, "([^,]+)") do
+				table.insert(mixList, token)
+			end
+		end
+		return RecipeRegistry.canAddIngredient(mixList, ing)
 	end
 
 	return true

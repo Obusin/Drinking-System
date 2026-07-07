@@ -306,6 +306,40 @@ local Recipes = {
 		Presentation = { Garnishes = { "Lime" } },
 	},
 
+	-- ── SECRET (never shown in guidance — players must discover them) ──
+	["Sin Obu"] = {
+		DisplayName    = "Sin Obu",
+		Ingredients    = { "Vodqa", "Vodqa", "Vodqa" },
+		OutputColor    = Color3.fromRGB(150, 20, 45),
+		RequireShaker  = false,
+		Secret         = true,
+		StrongnessOverride = 90,
+		Steps = {
+			{ Ingredient = "Vodqa" },
+			{ Ingredient = "Vodqa" },
+			{ Ingredient = "Vodqa" },
+		},
+		Presentation = { Garnishes = {} },
+	},
+	-- Made by pouring Water onto an already-finished Water drink twice more
+	-- (special upgrade path in onPour — auto-finalize would otherwise stop it)
+	["Solaire's Spit"] = {
+		DisplayName    = "Solaire's Spit",
+		Ingredients    = { "Water", "Water", "Water" },
+		OutputColor    = Color3.fromRGB(248, 248, 248),
+		RequireShaker  = false,
+		Secret         = true,
+		SkipShaker     = true,
+		FillStageOverride = 3,
+		StrongnessOverride = -100,  -- fully sobers you
+		Steps = {
+			{ Ingredient = "Water" },
+			{ Ingredient = "Water" },
+			{ Ingredient = "Water" },
+		},
+		Presentation = { Garnishes = {} },
+	},
+
 	-- ── SOBER ─────────────────────────────────────────────────────────
 	-- Water works two ways (no shaker required for either):
 	--   1. No glass in hand → click the water source, drink on the spot (onPour intercept)

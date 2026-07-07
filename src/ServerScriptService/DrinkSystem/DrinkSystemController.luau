@@ -37,6 +37,7 @@ local PlacementManager = require(managersFolder:WaitForChild("PlacementManager")
 local ConsumptionManager = require(managersFolder:WaitForChild("ConsumptionManager"))
 local DrinkEffectsService = require(servicesFolder:WaitForChild("DrinkEffectsService"))
 local GamepassManager = require(servicesFolder:WaitForChild("GamepassManager"))
+local StatsService = require(servicesFolder:WaitForChild("StatsService"))
 
 local DrinkSystemController = {}
 local initialized = false
@@ -359,11 +360,9 @@ local function recordStep(mix: MixState, session: DrinkSession, step: string)
 end
 
 local function addIngredient(mix: MixState, session: DrinkSession, ingredientName: string)
-	for _, item in ipairs(mix.Ingredients) do
-		if item.Name == ingredientName then
-			return
-		end
-	end
+	-- Duplicates ARE allowed — secret recipes can require the same ingredient
+	-- multiple times (e.g. Sin Obu = 3x Vodqa). Spam is contained by the
+	-- action rate limit + count-aware validity (can't exceed any recipe's count).
 	table.insert(mix.Ingredients, { Name = ingredientName, Time = os.clock() })
 	recordStep(mix, session, "Ingredient:" .. ingredientName)
 end
@@ -495,21 +494,36 @@ local function finalizeDrinkNow(player: Player, session: DrinkSession, mix: MixS
 			Score = math.clamp(math.floor(payload.Score), 0, 255),
 		}, player)
 	end
+	if payload.RecipeName ~= "Water" then
+		StatsService.incrementMade(player)
+	end
 	resetMixForNewDrink(session, glassTool)
 	return result
 end
 
 local function findMatchingRecipesForSession(mix: MixState, maxCount: number?): { { Name: string, Def: table, Missing: number } }
 	local ingredients = ingredientsToList(mix)
+	local mixCounts = {}
+	for _, ing in ipairs(ingredients) do
+		mixCounts[ing] = (mixCounts[ing] or 0) + 1
+	end
 	local ranked = {}
 
 	for name, def in pairs(Recipes) do
 		local required = def.Ingredients or {}
-		local fits = true
-		for _, ing in ipairs(ingredients) do
-			if not table.find(required, ing) then
-				fits = false
-				break
+		-- Secret recipes never appear in guidance/suggestions
+		local fits = def.Secret ~= true
+		if fits then
+			-- Count-aware: mix must be a sub-multiset of the recipe
+			for ing, needed in pairs(mixCounts) do
+				local available = 0
+				for _, r in ipairs(required) do
+					if r == ing then available += 1 end
+				end
+				if needed > available then
+					fits = false
+					break
+				end
 			end
 		end
 
@@ -715,15 +729,17 @@ local function updateGuidance(session: DrinkSession, glassTool: Tool?)
 		session.SuggestedRecipe = suggestedNames[1]
 		guidance.SuggestedRecipes = suggestedNames
 		guidance.SuggestedRecipe = suggestedNames[1]
-		-- Only ingredients that appear in at least one recipe — anything else
-		-- would highlight but get rejected by the pour-validity check.
+		-- Only ingredients that appear in at least one NON-SECRET recipe —
+		-- secret-only ingredients must not glow and leak the secret.
 		local recipeIngredients = {}
 		local seen = {}
 		for _, def in pairs(Recipes) do
-			for _, ing in ipairs(def.Ingredients or {}) do
-				if not seen[ing] then
-					seen[ing] = true
-					table.insert(recipeIngredients, ing)
+			if def.Secret ~= true then
+				for _, ing in ipairs(def.Ingredients or {}) do
+					if not seen[ing] then
+						seen[ing] = true
+						table.insert(recipeIngredients, ing)
+					end
 				end
 			end
 		end
@@ -907,6 +923,33 @@ function DrinkSystemController.onPour(player: Player, bottleModel: Instance)
 	local ingredientName = getIngredientNameFromBottle(bottleModel)
 	if not ingredientName or not IngredientRegistry.exists(ingredientName) then return end
 
+	-- Secret: Solaire's Spit — pour Water onto an already-finished Water drink.
+	-- Third pour total transforms it. (The Water recipe auto-finalizes on the
+	-- first pour, so the 3x-Water secret needs this upgrade path.)
+	if ingredientName == "Water" then
+		local heldDrink = findHeldDrinkTool(player)
+		if heldDrink and heldDrink:GetAttribute("DS_RecipeName") == "Water" then
+			local pours = (heldDrink:GetAttribute("DS_WaterPours") or 1) + 1
+			heldDrink:SetAttribute("DS_WaterPours", pours)
+			DrinkEffectsService.playCharacterSound(player, Settings.PourSoundId, Settings.PourSoundVolume or 0.4)
+			Packets.StartBottlePour.sendTo({
+				IngredientName = ingredientName,
+				BottleModel = bottleModel,
+			}, player)
+			if pours >= 3 then
+				local secretDef = Recipes["Solaire's Spit"]
+				if secretDef then
+					local payload = buildDrinkPayload("Solaire's Spit", secretDef, { "Water", "Water", "Water" }, true)
+					payload.Outcome = "Perfect"
+					payload.Score = 100
+					DrinkCreationManager.createImmediateDrink(player, payload, payload.Ingredients, true, heldDrink)
+				end
+			end
+			session.DirtyGuidance = true
+			return
+		end
+	end
+
 	local glassTool = findGlassTool(player)
 
 	-- Water with NO glass: drink straight from the source — sober up on the spot.
@@ -947,30 +990,11 @@ function DrinkSystemController.onPour(player: Player, bottleModel: Instance)
 		return
 	end
 
-	-- Only recipe-valid pours: the mix plus this ingredient must still fit at
-	-- least one recipe. Keeps clients honest (guidance highlights this same set).
-	do
-		local hypothetical = ingredientsToList(mix)
-		table.insert(hypothetical, ingredientName)
-		local fitsAnyRecipe = false
-		for _, def in pairs(Recipes) do
-			local required = def.Ingredients or {}
-			local fits = true
-			for _, ing in ipairs(hypothetical) do
-				if not table.find(required, ing) then
-					fits = false
-					break
-				end
-			end
-			if fits then
-				fitsAnyRecipe = true
-				break
-			end
-		end
-		if not fitsAnyRecipe then
-			debugPrint("Rejected pour (no recipe fits):", ingredientName, "onto", table.concat(ingredientsToList(mix), ", "))
-			return
-		end
+	-- Only recipe-valid pours (count-aware, secret recipes included so hidden
+	-- combos like triple-Vodqa work without being guided).
+	if not RecipeRegistry.canAddIngredient(ingredientsToList(mix), ingredientName) then
+		debugPrint("Rejected pour (no recipe fits):", ingredientName, "onto", table.concat(ingredientsToList(mix), ", "))
+		return
 	end
 
 	addIngredient(mix, session, ingredientName)
@@ -1181,8 +1205,11 @@ function DrinkSystemController.onShakerFinished(player: Player)
 		payload.Score = score
 	end
 
-	DrinkCreationManager.finalizePendingDrink(player, glassTool)
+	local finalized = DrinkCreationManager.finalizePendingDrink(player, glassTool)
 	setBackpackLocked(player, false)
+	if finalized and payload and payload.RecipeName ~= "Water" then
+		StatsService.incrementMade(player)
+	end
 	if payload and payload.Outcome and payload.Score then
 		Packets.DrinkOutcome.sendTo({
 			DrinkName = payload.DisplayName or payload.RecipeName or "Drink",
@@ -1233,8 +1260,20 @@ function DrinkSystemController.onConsumeDrink(player: Player, tool: Tool)
 		return
 	end
 	session.LastDrinkTick = now
-	-- Drink sound on the character — server-played so nearby players hear it
-	DrinkEffectsService.playCharacterSound(player, Settings.DrinkSoundId, Settings.DrinkSoundVolume or 0.55)
+	-- Drink sound on the character — server-played so nearby players hear it.
+	-- Solaire's Spit gets its own sound (praise the sun) instead of the sip.
+	if tool and tool:GetAttribute("DS_RecipeName") == "Solaire's Spit" then
+		DrinkEffectsService.playCharacterSound(player, Settings.SolaireSoundId, Settings.SolaireSoundVolume or 0.45)
+	else
+		DrinkEffectsService.playCharacterSound(player, Settings.DrinkSoundId, Settings.DrinkSoundVolume or 0.55)
+	end
+	-- Last sip = one drink fully drunk (Water/Solaire's are sober-ups, not drinks)
+	if remaining == 0 and tool then
+		local recipeName = tool:GetAttribute("DS_RecipeName")
+		if recipeName ~= "Water" and recipeName ~= "Solaire's Spit" then
+			StatsService.incrementDrunk(player)
+		end
+	end
 	local glassTool = findGlassTool(player)
 	if glassTool then
 		local mix = getMixState(session, glassTool)
@@ -1376,6 +1415,7 @@ function DrinkSystemController.init()
 
 	DrinkEffectsService.configure(Settings)
 	DrinkEffectsService.start()
+	StatsService.init()
 	wirePackets()
 	startGuidanceLoop()
 
