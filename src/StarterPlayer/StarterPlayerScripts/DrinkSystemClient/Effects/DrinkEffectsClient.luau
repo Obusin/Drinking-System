@@ -44,6 +44,8 @@ function DrinkEffectsClient.new(player: Player, maxDrunkness: number)
 	self.LastFovOffset         = 0
 	self.SmoothedMotionBoost   = 0  -- exp-smoothed so stepwise server values can't jolt the camera
 	self.EffectFade            = 0  -- master fade 0→1, eases all effects in/out smoothly
+	self.SpinUntil             = 0  -- camera-spin special effect (e.g. Sin Obu)
+	self.SpinAngle             = 0
 
 	self.Blur = getOrCreateEffect("DS_DrunkBlur", "BlurEffect")
 	self.DOF  = getOrCreateEffect("DS_DrunkDOF",  "DepthOfFieldEffect")
@@ -174,9 +176,24 @@ function DrinkEffectsClient:Update(dt: number)
 	local roll = (0.03 + 0.16 * effectiveT + 0.05 * motionBoost) * self.Intensity * self.EffectFade
 	local yaw  = (0.01 + 0.06 * effectiveT)                       * self.Intensity * self.EffectFade
 
+	-- Camera-spin special effect: continuous yaw rotation. When the timer ends
+	-- keep spinning to the next FULL rotation so vision settles facing forward.
+	local spinYaw = 0
+	if os.clock() < self.SpinUntil then
+		self.SpinAngle += dt * math.rad(60)
+		spinYaw = self.SpinAngle
+	elseif self.SpinAngle > 0 then
+		local target = math.ceil(self.SpinAngle / (2 * math.pi)) * (2 * math.pi)
+		self.SpinAngle = math.min(target, self.SpinAngle + dt * math.rad(60))
+		if self.SpinAngle >= target - 0.001 then
+			self.SpinAngle = 0
+		end
+		spinYaw = self.SpinAngle
+	end
+
 	local offset = CFrame.new(ox, oy, 0) * CFrame.Angles(
 		0,
-		math.sin(time * self.WobbleSpeed * 0.47) * yaw,
+		math.sin(time * self.WobbleSpeed * 0.47) * yaw + spinYaw,
 		math.sin(time * self.WobbleSpeed * 0.88) * roll
 	)
 
@@ -253,6 +270,10 @@ function DrinkEffectsClient:Update(dt: number)
 			"blur=", string.format("%.1f", self.Blur.Size)
 		)
 	end
+end
+
+function DrinkEffectsClient:StartCameraSpin(duration: number)
+	self.SpinUntil = os.clock() + math.max(duration or 0, 0)
 end
 
 function DrinkEffectsClient:Start()

@@ -70,8 +70,11 @@ local function applyDrinkToGlassTool(glassTool: Tool, drinkData: table)
 		glassTool:SetAttribute("DS_BaseIngredient", baseIngredient)
 	end
 
-	-- Sip configuration (per glass)
-	local maxSips = glassTool:GetAttribute("DS_MaxSips")
+	-- Sip configuration: recipe override first (e.g. Sin Obu = 1 sip), then glass
+	local maxSips = drinkData.Sips
+	if typeof(maxSips) ~= "number" or maxSips <= 0 then
+		maxSips = glassTool:GetAttribute("DS_MaxSips")
+	end
 	if typeof(maxSips) ~= "number" or maxSips <= 0 then
 		maxSips = glassTool:GetAttribute("MaxSips")
 	end
@@ -141,6 +144,7 @@ local function normalizeDrinkData(payload: table, ingredients: {string}?, isReci
 	data.Ingredients = ingredients or payload.Ingredients or {}
 	data.BaseIngredient = payload.BaseIngredient
 	data.Garnishes = payload.Garnishes or {}
+	data.Sips = payload.Sips
 	if (type(data.BaseIngredient) ~= "string" or data.BaseIngredient == "") and #data.Ingredients > 0 then
 		data.BaseIngredient = data.Ingredients[1]
 	end

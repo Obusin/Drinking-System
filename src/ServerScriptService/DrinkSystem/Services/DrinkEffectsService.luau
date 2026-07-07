@@ -337,6 +337,13 @@ function DrinkEffectsService.applyDrink(player: Player, amount: number)
 	DrinkEffectsService.get(player):Apply(amount)
 end
 
+-- Force a full collapse regardless of drunkness (special drink effects like
+-- Sin Obu). Bypasses thresholds and cooldowns.
+function DrinkEffectsService.forceCollapse(player: Player, duration: number?)
+	local state = DrinkEffectsService.get(player)
+	state:_setCollapsed(true, os.clock(), duration or 10, false)
+end
+
 -- Spatial sound on the player's character — server-created so EVERYONE nearby
 -- hears it (client-created sounds are local-only). Low rolloff keeps it subtle.
 function DrinkEffectsService.playCharacterSound(player: Player, soundId: (number | string)?, volume: number?, playbackSpeed: number?)

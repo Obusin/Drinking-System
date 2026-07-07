@@ -124,6 +124,14 @@ Network.Packets = ByteNet.defineNamespace("DrinkSystem", function()
 			}),
 		}),
 
+		-- Server → client: special drink effects (per-recipe, e.g. Sin Obu camera spin)
+		SpecialDrinkEffect = ByteNet.definePacket({
+			value = ByteNet.struct({
+				Effect = ByteNet.string,
+				Duration = ByteNet.float32,
+			}),
+		}),
+
 		DrinkOutcome = ByteNet.definePacket({
 			value = ByteNet.struct({
 				DrinkName = ByteNet.string,

@@ -415,6 +415,7 @@ local function buildDrinkPayload(recipeName: string?, recipeDef: table?, ingredi
 		Strongness = recipeDef and recipeDef.StrongnessOverride or 0,
 		RequiresShaker = recipeDef and recipeDef.RequireShaker == true or false,
 		FillStage = recipeDef and recipeDef.FillStageOverride or nil,
+		Sips = recipeDef and recipeDef.Sips or nil,
 		Ingredients = ingredients,
 		IsRecipe = isRecipe,
 		Garnishes = {},  -- starts empty; player physically applies garnishes after mixing
@@ -1272,6 +1273,24 @@ function DrinkSystemController.onConsumeDrink(player: Player, tool: Tool)
 		local recipeName = tool:GetAttribute("DS_RecipeName")
 		if recipeName ~= "Water" and recipeName ~= "Solaire's Spit" then
 			StatsService.incrementDrunk(player)
+		end
+	end
+
+	-- Per-recipe special effects (Recipes[name].Effects) — the variety hook
+	do
+		local recipeName = tool and tool:GetAttribute("DS_RecipeName")
+		local recipeDef = recipeName and Recipes[recipeName]
+		local fx = recipeDef and recipeDef.Effects
+		if fx then
+			if typeof(fx.Collapse) == "number" and fx.Collapse > 0 then
+				DrinkEffectsService.forceCollapse(player, fx.Collapse)
+			end
+			if typeof(fx.CameraSpin) == "number" and fx.CameraSpin > 0 then
+				Packets.SpecialDrinkEffect.sendTo({
+					Effect = "CameraSpin",
+					Duration = fx.CameraSpin,
+				}, player)
+			end
 		end
 	end
 	local glassTool = findGlassTool(player)

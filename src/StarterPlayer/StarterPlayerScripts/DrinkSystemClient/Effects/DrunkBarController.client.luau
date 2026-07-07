@@ -22,6 +22,9 @@ local COLOR_HIGH = Color3.fromRGB(220, 60, 50)
 -- Wire to the Studio UI
 local playerGui    = player:WaitForChild("PlayerGui")
 local screenGui    = playerGui:WaitForChild("DrunknessLevel")
+-- Keep the SAME gui instance across respawns — this controller wires
+-- references once, so a ResetOnSpawn re-clone would leave the bar dead.
+screenGui.ResetOnSpawn = false
 local canvasGroup  = screenGui:WaitForChild("CanvasGroup")
 local barContainer = canvasGroup:WaitForChild("Bar")
 local fillBar      = barContainer:WaitForChild("Bar") :: Frame

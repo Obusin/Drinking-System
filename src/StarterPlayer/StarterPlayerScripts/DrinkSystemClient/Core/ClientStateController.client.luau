@@ -361,6 +361,12 @@ SetBackpackLocked.listen(function(payload)
 	setBackpackLocked(payload.Locked == true)
 end)
 
+Packets.SpecialDrinkEffect.listen(function(payload)
+	if payload.Effect == "CameraSpin" then
+		effects:StartCameraSpin(payload.Duration or 10)
+	end
+end)
+
 ---------------------------------------------------------------------
 -- "Shaker required" popup — shown when trying to mix without a shaker.
 -- Sits above the hotbar, out of the way.
