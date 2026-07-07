@@ -85,14 +85,15 @@ local function stopShuffle()
 	end
 end
 
--- Chat bubbles attach to the head — during ragdoll the head is on the floor
--- and bubbles clip into the ground. A global vertical offset keeps them
--- readable above lying bodies (and looks fine on standing players too).
+-- Chat bubbles follow the DS_BubbleAnchor part in each character (created by
+-- DrunkRagdollService). Normally it's welded at the head; while a player is
+-- ragdolled the server floats THEIR anchor above the body — so only ragdolled
+-- players' bubbles are lifted, everyone else's stay exactly stock.
 do
 	local TextChatService = game:GetService("TextChatService")
 	local bubbleConfig = TextChatService:FindFirstChildOfClass("BubbleChatConfiguration")
 	if bubbleConfig then
-		bubbleConfig.VerticalStudsOffset = math.max(bubbleConfig.VerticalStudsOffset, 2.5)
+		bubbleConfig.AdorneeName = "DS_BubbleAnchor"
 	end
 end
 

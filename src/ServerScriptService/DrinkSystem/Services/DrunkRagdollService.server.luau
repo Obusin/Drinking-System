@@ -1,9 +1,79 @@
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService        = game:GetService("RunService")
 
 local applyEvent = Instance.new("RemoteEvent")
 applyEvent.Name   = "DS_DrunkApplyEvent"
 applyEvent.Parent = ReplicatedStorage
+
+---------------------------------------------------------------------
+-- Chat bubble anchor: clients point BubbleChat at this named part
+-- (AdorneeName). Normally welded at the head; while ragdolled the server
+-- floats it above the body so bubbles never sink into the floor.
+---------------------------------------------------------------------
+local BUBBLE_ANCHOR_NAME = "DS_BubbleAnchor"
+local bubbleFollow: { [Player]: RBXScriptConnection } = {}
+
+local function ensureBubbleAnchor(character: Model): BasePart?
+	local existing = character:FindFirstChild(BUBBLE_ANCHOR_NAME)
+	if existing and existing:IsA("BasePart") then return existing end
+	local head = character:FindFirstChild("Head") or character:FindFirstChild("HumanoidRootPart")
+	if not head then return nil end
+
+	local anchor = Instance.new("Part")
+	anchor.Name = BUBBLE_ANCHOR_NAME
+	anchor.Size = Vector3.new(0.2, 0.2, 0.2)
+	anchor.Transparency = 1
+	anchor.CanCollide = false
+	anchor.CanQuery = false
+	anchor.CanTouch = false
+	anchor.Massless = true
+	anchor.CFrame = head.CFrame
+	anchor.Parent = character
+
+	local weld = Instance.new("WeldConstraint")
+	weld.Name = "DS_BubbleWeld"
+	weld.Part0 = anchor
+	weld.Part1 = head
+	weld.Parent = anchor
+	return anchor
+end
+
+local function setBubbleAnchorRagdolled(player: Player, character: Model, ragdolled: boolean)
+	local anchor = ensureBubbleAnchor(character)
+	if not anchor then return end
+	local old = bubbleFollow[player]
+	if old then old:Disconnect(); bubbleFollow[player] = nil end
+
+	if ragdolled then
+		-- Float above the body: unweld, anchor, and track the torso each frame
+		local weld = anchor:FindFirstChild("DS_BubbleWeld")
+		if weld then weld:Destroy() end
+		anchor.Anchored = true
+		bubbleFollow[player] = RunService.Heartbeat:Connect(function()
+			local torso = character:FindFirstChild("UpperTorso")
+				or character:FindFirstChild("Torso")
+				or character:FindFirstChild("Head")
+			if torso then
+				anchor.CFrame = CFrame.new(torso.Position + Vector3.new(0, 3.5, 0))
+			end
+		end)
+	else
+		-- Back to the head
+		anchor.Anchored = false
+		local head = character:FindFirstChild("Head") or character:FindFirstChild("HumanoidRootPart")
+		if head then
+			anchor.CFrame = head.CFrame
+			if not anchor:FindFirstChild("DS_BubbleWeld") then
+				local weld = Instance.new("WeldConstraint")
+				weld.Name = "DS_BubbleWeld"
+				weld.Part0 = anchor
+				weld.Part1 = head
+				weld.Parent = anchor
+			end
+		end
+	end
+end
 
 type SavedState = {
 	balls:     { BallSocketConstraint },
@@ -41,6 +111,7 @@ local function ragdollOn(player: Player, character: Model, humanoid: Humanoid)
 	-- the root/torso balanced upright and only the limbs flop — reads as
 	-- "standing but welded to the torso".
 	humanoid:ChangeState(Enum.HumanoidStateType.Physics)
+	setBubbleAnchorRagdolled(player, character, true)
 
 	applyEvent:FireClient(player, true)
 end
@@ -88,6 +159,7 @@ local function ragdollOff(player: Player, character: Model, humanoid: Humanoid)
 	humanoid.WalkSpeed     = state and state.walkSpeed or 16
 	humanoid.JumpPower     = state and state.jumpPower or 50
 	humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+	setBubbleAnchorRagdolled(player, character, false)
 end
 
 -- One set of hooks per PLAYER (not per character). Previous version hooked
@@ -131,12 +203,19 @@ local function onPlayerAdded(player: Player)
 
 	player.CharacterAdded:Connect(function(character: Model)
 		isRagdolled.value = false
+		local follow = bubbleFollow[player]
+		if follow then follow:Disconnect(); bubbleFollow[player] = nil end
 		local humanoid = character:WaitForChild("Humanoid") :: Humanoid
+		character:WaitForChild("Head", 10)
+		ensureBubbleAnchor(character)
 		humanoid.Died:Connect(function()
 			saved[player] = nil
 			isRagdolled.value = false
 		end)
 	end)
+	if player.Character then
+		ensureBubbleAnchor(player.Character)
+	end
 end
 
 Players.PlayerAdded:Connect(onPlayerAdded)
@@ -144,4 +223,8 @@ for _, plr in ipairs(Players:GetPlayers()) do
 	onPlayerAdded(plr)
 end
 
-Players.PlayerRemoving:Connect(function(player) saved[player] = nil end)
+Players.PlayerRemoving:Connect(function(player)
+	saved[player] = nil
+	local follow = bubbleFollow[player]
+	if follow then follow:Disconnect(); bubbleFollow[player] = nil end
+end)
