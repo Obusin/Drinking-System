@@ -106,7 +106,8 @@ local function detectType(model)
 		return "Bottle"
 	end
 	for _, d in ipairs(model:GetDescendants()) do
-		if d:GetAttribute("DS_IngredientName") == "Water" then
+		if d:GetAttribute("DS_IngredientName") == "Water"
+			and d:FindFirstAncestorOfClass("Model") == model then
 			return "Bottle"
 		end
 	end
@@ -165,8 +166,13 @@ local function detectType(model)
 		end
 	end
 
-	-- 4. Detect via attributes on descendants
+	-- 4. Detect via attributes on descendants (only parts belonging to THIS
+	-- model — nested models are their own interactables; without this guard a
+	-- shelf/bar container detects as whatever the first bottle inside it is)
 	for _, child in ipairs(model:GetDescendants()) do
+		if child:FindFirstAncestorOfClass("Model") ~= model then
+			continue
+		end
 		local garnish = child:GetAttribute("DS_Garnish")
 		if type(garnish) == "string" then
 			return "Garnish"
@@ -210,12 +216,17 @@ local function getIngredientName(model: Model): string?
 		return direct
 	end
 	for _, d in ipairs(model:GetDescendants()) do
-		if d:GetAttribute("DS_Drinks") == true then
-			return d:GetAttribute("DS_IngredientName") or model.Name
-		end
-		local dName = d:GetAttribute("DS_IngredientName")
-		if type(dName) == "string" then
-			return dName
+		-- Only parts belonging to THIS model — skip anything inside nested
+		-- models. Otherwise a bar/shelf container "inherits" the ingredient
+		-- name of the first bottle inside it and the whole shelf highlights.
+		if d:FindFirstAncestorOfClass("Model") == model then
+			if d:GetAttribute("DS_Drinks") == true then
+				return d:GetAttribute("DS_IngredientName") or model.Name
+			end
+			local dName = d:GetAttribute("DS_IngredientName")
+			if type(dName) == "string" then
+				return dName
+			end
 		end
 	end
 	return nil
