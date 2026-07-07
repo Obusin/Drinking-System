@@ -71,13 +71,25 @@ end
 ---------------------------------------------------------------------
 -- Detect interactable type (Bottle / Glass / Shaker / Garnish)
 ---------------------------------------------------------------------
+-- True when the instance is any player's character or inside one.
+-- MUST cover ALL players, not just the local one: other players' equipped
+-- glasses/shakers otherwise make their whole character detect as an
+-- interactable on live servers (invisible in solo Studio testing).
+local function isInsideAnyCharacter(inst: Instance): boolean
+	for _, plr in ipairs(Players:GetPlayers()) do
+		local ch = plr.Character
+		if ch and (inst == ch or inst:IsDescendantOf(ch)) then
+			return true
+		end
+	end
+	return false
+end
+
 local function detectType(model)
 	if not model then return nil end
 
-	local char = player.Character
-
-	-- 1. Ignore character completely
-	if char and (model == char or model:IsDescendantOf(char)) then
+	-- 1. Ignore ALL player characters completely
+	if isInsideAnyCharacter(model) then
 		return nil
 	end
 
@@ -265,7 +277,7 @@ local function collectNearestModels(predicate, maxCount: number): {Model}
 
 	local candidates = {}
 	for _, inst in ipairs(workspace:GetDescendants()) do
-		if inst:IsA("Model") and predicate(inst) then
+		if inst:IsA("Model") and not Players:GetPlayerFromCharacter(inst) and predicate(inst) then
 			local part = inst:FindFirstChildWhichIsA("BasePart", true)
 			if part then
 				local dist = (part.Position - root.Position).Magnitude
