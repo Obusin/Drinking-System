@@ -1283,7 +1283,10 @@ function DrinkSystemController.onConsumeDrink(player: Player, tool: Tool)
 		local fx = recipeDef and recipeDef.Effects
 		if fx then
 			if typeof(fx.Collapse) == "number" and fx.Collapse > 0 then
-				DrinkEffectsService.forceCollapse(player, fx.Collapse)
+				-- Small beat so the sip animation finishes before the fall
+				task.delay(0.8, function()
+					DrinkEffectsService.forceCollapse(player, fx.Collapse)
+				end)
 			end
 			if typeof(fx.CameraSpin) == "number" and fx.CameraSpin > 0 then
 				Packets.SpecialDrinkEffect.sendTo({

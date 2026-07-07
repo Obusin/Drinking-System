@@ -37,6 +37,10 @@ local function ragdollOn(player: Player, character: Model, humanoid: Humanoid)
 	humanoid.WalkSpeed     = 16
 	humanoid.JumpPower     = 0
 	humanoid.PlatformStand = true
+	-- Physics state makes the WHOLE body fall. Without it the humanoid keeps
+	-- the root/torso balanced upright and only the limbs flop — reads as
+	-- "standing but welded to the torso".
+	humanoid:ChangeState(Enum.HumanoidStateType.Physics)
 
 	applyEvent:FireClient(player, true)
 end
