@@ -123,7 +123,16 @@ local function ragdollOff(player: Player, character: Model, humanoid: Humanoid)
 	local hrp = character:FindFirstChild("HumanoidRootPart") :: BasePart
 	if hrp then
 		hrp.Anchored = true
-		hrp.CFrame   = CFrame.new(hrp.Position)
+		-- Stand up ON the actual floor: after flopping on uneven ground the
+		-- HRP is often half-inside a slope — unanchoring from there makes
+		-- physics eject the character (stuck/sliding). Raycast down and place
+		-- the root at proper standing height above the hit.
+		local params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Exclude
+		params.FilterDescendantsInstances = { character }
+		local hit = workspace:Raycast(hrp.Position + Vector3.new(0, 6, 0), Vector3.new(0, -60, 0), params)
+		local standY = hit and (hit.Position.Y + 3) or (hrp.Position.Y + 2.5)
+		hrp.CFrame = CFrame.new(hrp.Position.X, standY, hrp.Position.Z)
 	end
 
 	if state then
