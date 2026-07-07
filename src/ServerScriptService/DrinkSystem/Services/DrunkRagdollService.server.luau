@@ -67,8 +67,21 @@ local function ragdollOff(player: Player, character: Model, humanoid: Humanoid)
 
 	applyEvent:FireClient(player, false)
 
+	-- Kill residual physics energy — leftover assembly velocities are what
+	-- makes players slide across the floor after standing back up.
+	local function zeroVelocities()
+		for _, desc in character:GetDescendants() do
+			if desc:IsA("BasePart") then
+				desc.AssemblyLinearVelocity = Vector3.zero
+				desc.AssemblyAngularVelocity = Vector3.zero
+			end
+		end
+	end
+	zeroVelocities()
+
 	task.wait(0.1)
 	if hrp then hrp.Anchored = false end
+	zeroVelocities()
 
 	humanoid.AutoRotate    = true
 	humanoid.PlatformStand = false

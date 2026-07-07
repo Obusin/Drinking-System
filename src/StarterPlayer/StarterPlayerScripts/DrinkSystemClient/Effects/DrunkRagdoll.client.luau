@@ -70,7 +70,37 @@ local function stopShuffle()
 	if shuffleConn then shuffleConn:Disconnect(); shuffleConn = nil end
 	if bodyVel and bodyVel.Parent then bodyVel:Destroy() end
 	bodyVel = nil
+	-- Sweep for ANY leftover BodyVelocity on the root — a survivor here keeps
+	-- pushing the character and causes the post-ragdoll sliding.
+	local character = player.Character
+	local hrp = character and character:FindFirstChild("HumanoidRootPart")
+	if hrp then
+		for _, child in ipairs(hrp:GetChildren()) do
+			if child:IsA("BodyVelocity") then
+				child:Destroy()
+			end
+		end
+		hrp.AssemblyLinearVelocity = Vector3.zero
+		hrp.AssemblyAngularVelocity = Vector3.zero
+	end
 end
+
+-- Chat bubbles attach to the head — during ragdoll the head is on the floor
+-- and bubbles clip into the ground. A global vertical offset keeps them
+-- readable above lying bodies (and looks fine on standing players too).
+do
+	local TextChatService = game:GetService("TextChatService")
+	local bubbleConfig = TextChatService:FindFirstChildOfClass("BubbleChatConfiguration")
+	if bubbleConfig then
+		bubbleConfig.VerticalStudsOffset = math.max(bubbleConfig.VerticalStudsOffset, 2.5)
+	end
+end
+
+-- Respawn safety: never carry shuffle state into a fresh character
+player.CharacterAdded:Connect(function()
+	if shuffleConn then shuffleConn:Disconnect(); shuffleConn = nil end
+	bodyVel = nil
+end)
 
 applyEvent.OnClientEvent:Connect(function(isRagdolling: boolean)
 	local character = player.Character
