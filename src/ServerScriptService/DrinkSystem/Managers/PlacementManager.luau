@@ -279,6 +279,10 @@ function PlacementManager.placeDrinkFromTool(player: Player, drinkTool: Tool, cl
 	-- Optionally copy some attributes onto the world model
 	worldModel:SetAttribute("DS_Drink", isDrink)
 	worldModel:SetAttribute("DS_DrinkName", drinkName)
+	-- Recipe identity MUST survive placement — special drinks (Solaire's Spit
+	-- sound, Sin Obu effects) and stats key off DS_RecipeName after re-pickup.
+	worldModel:SetAttribute("DS_RecipeName", drinkTool:GetAttribute("DS_RecipeName") or "")
+	worldModel:SetAttribute("DS_IsRecipe", drinkTool:GetAttribute("DS_IsRecipe") == true)
 	worldModel:SetAttribute("DS_BaseIngredient", drinkTool:GetAttribute("DS_BaseIngredient"))
 	worldModel:SetAttribute("DS_MaxSips", drinkTool:GetAttribute("DS_MaxSips") or drinkTool:GetAttribute("MaxSips"))
 	worldModel:SetAttribute("MaxSips", drinkTool:GetAttribute("DS_MaxSips") or drinkTool:GetAttribute("MaxSips"))
@@ -307,6 +311,13 @@ function PlacementManager.placeDrinkFromTool(player: Player, drinkTool: Tool, cl
 			drinkColor,
 			garnishes
 		)
+		-- Watery drinks keep their see-through look when placed
+		local recipeName = worldModel:GetAttribute("DS_RecipeName")
+		if recipeName == "Water" then
+			GlassPresentation.setLiquidTransparency(worldModel, 0.5)
+		elseif recipeName == "Solaire's Spit" then
+			GlassPresentation.setLiquidTransparency(worldModel, 0.3)
+		end
 	else
 		GlassPresentation.applyFillState(
 			worldModel,

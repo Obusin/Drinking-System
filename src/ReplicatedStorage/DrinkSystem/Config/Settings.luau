@@ -79,7 +79,7 @@ local Settings = {
 	DrunkHiccupSoundId  = 9114396275,
 	-- World sounds (played server-side on the character so nearby players hear them)
 	PourSoundId         = 96961332439928,
-	PourSoundVolume     = 0.4,
+	PourSoundVolume     = 0.25,
 	DrinkSoundId        = 82098479361178,
 	DrinkSoundVolume    = 0.55,
 	SolaireSoundId      = 140335089989960,  -- plays when sipping Solaire's Spit

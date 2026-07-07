@@ -347,6 +347,10 @@ local function createDrinkToolFromWorldModel(model)
 	if score then tool:SetAttribute("DS_Score", score) end
 	tool:SetAttribute("DS_FillStage", fillStage)
 	tool:SetAttribute("DS_GarnishesCsv", garnishesCsv)
+	-- Recipe identity survives the world→tool rebuild (special drink effects,
+	-- Solaire's sound, and stats all key off DS_RecipeName)
+	tool:SetAttribute("DS_RecipeName", model:GetAttribute("DS_RecipeName") or "")
+	tool:SetAttribute("DS_IsRecipe", model:GetAttribute("DS_IsRecipe") == true)
 
 	-- Re-apply fill color and garnishes onto the template's glass parts
 	local garnishes = {}
@@ -362,6 +366,14 @@ local function createDrinkToolFromWorldModel(model)
 	end
 
 	GlassPresentation.applyFinalPresentation(tool, fillStage, drinkColor, garnishes)
+
+	-- Watery drinks keep their see-through look after re-pickup
+	local recipeName = tool:GetAttribute("DS_RecipeName")
+	if recipeName == "Water" then
+		GlassPresentation.setLiquidTransparency(tool, 0.5)
+	elseif recipeName == "Solaire's Spit" then
+		GlassPresentation.setLiquidTransparency(tool, 0.3)
+	end
 
 	return tool
 end
