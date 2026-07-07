@@ -365,6 +365,7 @@ local function resetGuidance()
 	clearGuidanceDisplay()
 end
 
+local lastHighlightDebug = ""
 local function refreshGuidanceTargets()
 	if not playerIsHoldingGlass() then
 		clearGuidanceDisplay()
@@ -373,6 +374,17 @@ local function refreshGuidanceTargets()
 	guidanceTargets.Recommended = collectNearestModels(isDisplayed, GUIDANCE_MAX_RECOMMENDED_HIGHLIGHTS)
 	guidanceTargets.Required = findNearestModel(isRequired)
 	applyGuidanceHighlights()
+	-- Change-only debug: how many models glow vs list sizes. Remove when fixed.
+	local dbg = string.format(
+		"highlighted: %d | recList: %d | dispList: %d",
+		#guidanceTargets.Recommended,
+		#(guidance.RecommendedIngredients or {}),
+		#(guidance.DisplayIngredients or {})
+	)
+	if dbg ~= lastHighlightDebug then
+		lastHighlightDebug = dbg
+		print("[DS-Guide][Client]", dbg, "|", table.concat(guidance.DisplayIngredients or {}, ", "))
+	end
 end
 
 GuidanceUpdate.listen(function(payload)

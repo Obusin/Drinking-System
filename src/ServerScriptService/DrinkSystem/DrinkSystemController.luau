@@ -824,6 +824,24 @@ local function sendGuidanceIfNeeded(session: DrinkSession, glassTool: Tool?)
 	if now - session.LastGuidanceAt < interval then return end
 
 	local payload = updateGuidance(session, glassTool)
+	-- Change-only debug: prints ONLY when the guidance state changes (a few
+	-- lines per drink, no heartbeat spam). Remove once the guide bug is dead.
+	do
+		local mixCsv = glassTool and (glassTool:GetAttribute("DS_IngredientListCsv") or "") or "no-glass"
+		if mixCsv == "" then mixCsv = "empty" end
+		local summary = string.format(
+			"%s | mix: %s | rec: %d | disp: %d | req: %s",
+			payload.Instruction or "",
+			mixCsv,
+			#(payload.RecommendedIngredients or {}),
+			#(payload.DisplayIngredients or {}),
+			tostring(payload.RequiredItemType)
+		)
+		if summary ~= session._lastGuidanceSummary then
+			session._lastGuidanceSummary = summary
+			print("[DS-Guide][Send]", session.Player.Name, summary)
+		end
+	end
 	Packets.GuidanceUpdate.sendTo({
 		Instruction = payload.Instruction or "",
 		RecommendedIngredients = payload.RecommendedIngredients or {},
