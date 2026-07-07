@@ -258,20 +258,87 @@ local function isRecommended(model: Model): boolean
 	return false
 end
 
--- Highlight filter: display subset when the server sent one, else everything valid
-local function isDisplayed(model: Model): boolean
-	local display = guidance.DisplayIngredients or {}
-	if #display == 0 then
-		return isRecommended(model)
+local GUIDANCE_MAX_HIGHLIGHT_DIST = 80 -- studs
+
+-- Set of ingredient names to HIGHLIGHT (display subset if present, else all valid)
+local function getDisplayNameSet(): { [string]: boolean }
+	local list = guidance.DisplayIngredients or {}
+	if #list == 0 then
+		list = guidance.RecommendedIngredients or {}
 	end
-	local ing = getIngredientName(model)
-	if not ing then return false end
-	for _, name in ipairs(display) do
-		if name == ing then
-			return true
+	local set = {}
+	for _, name in ipairs(list) do
+		set[name] = true
+	end
+	return set
+end
+
+-- Collect highlightable instances for guidance. Identity must be CARRIED by
+-- the instance itself:
+--   * Model with DS_Drinks / DS_IngredientName on the model → highlight model
+--   * BasePart with DS_IngredientName / DS_Drinks (e.g. a soda tap sitting
+--     directly inside a bar/shelf model) → highlight just that part
+-- Container models NEVER inherit identity from what's inside them — that was
+-- lighting up entire shelves whenever one bottle inside matched.
+local function collectGuidanceHighlightTargets(nameSet: { [string]: boolean }, maxCount: number): { Instance }
+	local char = player.Character
+	if not char then return {} end
+	local root = char:FindFirstChild("HumanoidRootPart")
+	if not root then return {} end
+
+	local candidates = {}
+	for _, inst in ipairs(workspace:GetDescendants()) do
+		local matchName: string? = nil
+		local distPart: BasePart? = nil
+
+		if inst:IsA("Model") and not Players:GetPlayerFromCharacter(inst) then
+			if inst:GetAttribute("DS_Drinks") == true then
+				matchName = inst:GetAttribute("DS_IngredientName") or inst.Name
+			else
+				local direct = inst:GetAttribute("DS_IngredientName")
+				if type(direct) == "string" then
+					matchName = direct
+				end
+			end
+			distPart = inst:FindFirstChildWhichIsA("BasePart", true)
+		elseif inst:IsA("BasePart") and not isInsideAnyCharacter(inst) then
+			local partName = inst:GetAttribute("DS_IngredientName")
+			local isDrinkPart = inst:GetAttribute("DS_Drinks") == true
+			if type(partName) == "string" or isDrinkPart then
+				-- If the part's own model is a proper bottle (carries identity
+				-- itself), the model branch already covers it — skip the part.
+				local owner = inst:FindFirstAncestorOfClass("Model")
+				local ownerIsBottle = owner ~= nil and (
+					owner:GetAttribute("DS_Drinks") == true
+					or type(owner:GetAttribute("DS_IngredientName")) == "string"
+				)
+				if not ownerIsBottle then
+					matchName = type(partName) == "string" and partName or nil
+					if not matchName and isDrinkPart and owner then
+						matchName = owner.Name
+					end
+					distPart = inst
+				end
+			end
+		end
+
+		if matchName and nameSet[matchName] and distPart then
+			local dist = (distPart.Position - root.Position).Magnitude
+			if dist <= GUIDANCE_MAX_HIGHLIGHT_DIST then
+				table.insert(candidates, { Inst = inst, Dist = dist })
+			end
 		end
 	end
-	return false
+
+	table.sort(candidates, function(a, b)
+		return a.Dist < b.Dist
+	end)
+
+	local out = {}
+	for i = 1, math.min(maxCount, #candidates) do
+		table.insert(out, candidates[i].Inst)
+	end
+	return out
 end
 
 local function isRequired(model: Model): boolean
@@ -382,7 +449,7 @@ local function refreshGuidanceTargets()
 		clearGuidanceDisplay()
 		return
 	end
-	guidanceTargets.Recommended = collectNearestModels(isDisplayed, GUIDANCE_MAX_RECOMMENDED_HIGHLIGHTS)
+	guidanceTargets.Recommended = collectGuidanceHighlightTargets(getDisplayNameSet(), GUIDANCE_MAX_RECOMMENDED_HIGHLIGHTS)
 	guidanceTargets.Required = findNearestModel(isRequired)
 	applyGuidanceHighlights()
 	-- Change-only debug: how many models glow vs list sizes. Remove when fixed.
