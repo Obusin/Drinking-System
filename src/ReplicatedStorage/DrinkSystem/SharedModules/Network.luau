@@ -43,7 +43,10 @@ Network.Packets = ByteNet.defineNamespace("DrinkSystem", function()
 
 	local guidancePayload = ByteNet.struct({
 		Instruction = ByteNet.string,
+		-- Full valid set — gates clicks (mirror of server pour validation)
 		RecommendedIngredients = ByteNet.array(ByteNet.string),
+		-- Subset actually highlighted (top-ranked); empty = highlight all recommended
+		DisplayIngredients = ByteNet.array(ByteNet.string),
 		RequiredItemType = ByteNet.optional(ByteNet.string),
 		SelectedRecipe = ByteNet.optional(ByteNet.string),
 		SuggestedRecipe = ByteNet.optional(ByteNet.string),

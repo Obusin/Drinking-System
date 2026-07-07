@@ -272,17 +272,8 @@ local function playPourAnimation(worldBottle: Model?)
 		end)
 	end
 
-	local root = char:FindFirstChild("HumanoidRootPart")
-	if root then
-		local sound = Instance.new("Sound")
-		sound.SoundId = POUR_SOUND_ID
-		sound.Volume = POUR_VOLUME
-		sound.Parent = root
-		sound:Play()
-		sound.Ended:Connect(function()
-			sound:Destroy()
-		end)
-	end
+	-- Pour SOUND is played server-side (DrinkEffectsService.playCharacterSound)
+	-- so nearby players hear it spatially — only the animation/clone is local.
 end
 
 local function animateFill(ingredientName: string)
@@ -299,7 +290,12 @@ local function animateFill(ingredientName: string)
 		currentFillStep = math.max(currentFillStep, replicatedStage)
 	end
 
-	currentFillStep = math.clamp(currentFillStep + 1, 1, MAX_INGREDIENTS)
+	if ingredientName == "Water" then
+		-- Water fills the glass in one pour — jump straight to full
+		currentFillStep = math.max(currentFillStep, 3)
+	else
+		currentFillStep = math.clamp(currentFillStep + 1, 1, MAX_INGREDIENTS)
+	end
 	currentColor = blendColor(currentColor, ingredientColor, currentFillStep)
 
 	GlassPresentation.applyFillState(glass, math.min(currentFillStep, 3), currentColor)
@@ -337,6 +333,16 @@ StartBottlePour.listen(function(payload)
 	local ingredientName = payload.IngredientName
 	local bottleModel = payload.BottleModel
 	if typeof(ingredientName) ~= "string" then
+		return
+	end
+	-- Water: never clone a bottle into the hand. With a glass equipped run the
+	-- normal pour visuals (fill + particles); without one just play the anim.
+	if ingredientName == "Water" then
+		if getGlassTool() then
+			simulatePour(ingredientName, nil)
+		else
+			playPourAnimation(nil)
+		end
 		return
 	end
 	simulatePour(ingredientName, bottleModel)

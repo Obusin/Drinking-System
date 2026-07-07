@@ -31,6 +31,15 @@ argon serve
 1. Pick up a placed **drink** from a table
 2. Click to sip — each drink has 3 sips
 3. Drunkness accumulates; screen distortion and stumbling kick in as it rises
+4. Click/tap a **Water** part to sober up instantly (-35 drunkness)
+
+### Mobile controls
+- **Hold a drink near a tagged surface** → the surface glows (no ghost preview yet)
+- **Tap the surface** → ghost preview appears at the exact tap spot + **Place** / **Cancel** buttons
+- **Tap Place** → drink placed there; **tap Cancel or elsewhere** → dismissed
+- **Tap anywhere that isn't a surface** → sip the drink
+- Placement raycast uses `ScreenPointToRay` (GUI-inset corrected) — accurate at any camera angle.
+  Front-face hits are projected onto the tabletop plane so forward-view taps don't land on the ledge.
 
 ---
 
@@ -57,9 +66,14 @@ argon serve
 | Minty Fresh | Mintverde, Soda Water, Simple Syrup | No | Lime | 8 |
 | Tropicali | Tropica, Coolnag, Simple Syrup | No | Orange | 12 |
 | Cocoa Rush | Cochoco, Creamora, Sugar | No | Cherry | 10 |
-| Still Water | Water | No | — | -30 (sobers up) |
 
 Strength is total drunkness added across all 3 sips. Drunkness max is 100.
+
+### Water (sober-up)
+Water is **not a recipe** — it's a direct-consume world object. Click/tap any part or model
+with the attribute `DS_IngredientName = "Water"` (no glass needed, no `DS_Drinks` required)
+and drunkness drops by `Settings.WaterSoberAmount` (default **-35**, ~1 medium drink).
+Handled in `DrinkSystemController.onPour` before the glass check; guidance never blocks it.
 
 ---
 
@@ -67,13 +81,13 @@ Strength is total drunkness added across all 3 sips. Drunkness max is 100.
 
 | Stage | Threshold | Effect |
 |---|---|---|
-| Sober | 0–29 | Normal |
-| Buzzed | 30+ | Slight walk speed reduction |
-| Drunk | 60+ | Noticeable slowdown, screen starts wobbling |
-| Wasted | 80+ | Heavy slowdown, stumbling/tripping ragdoll |
-| Collapsed | 95+ | Full pass-out ragdoll, can't move for ~4s |
+| Sober | 0–19 | Normal |
+| Buzzed | 20+ | Slight walk speed reduction |
+| Drunk | 45+ | Noticeable slowdown, screen starts wobbling |
+| Wasted | 72+ | Heavy slowdown, random stumble ragdolls |
+| Collapsed | 92+ | Full pass-out ragdoll for ~15s, once per 90s, wakes at 50% |
 
-**Recovery:** 0.3 drunkness/second naturally (~5.5 min to fully sober). Planned: Water drink to sober up faster.
+**Recovery:** 1.1 drunkness/second naturally (~90s to fully sober), or drink Water (-35 instantly).
 
 ---
 
@@ -98,7 +112,7 @@ Use **CollectionService tags** or **attributes** on world objects:
 | `DS_Surface` | tag or bool attribute | BasePart | Valid drink placement surface |
 | `DS_Table` | tag or bool attribute | Model or BasePart | Entire table is placeable — system auto-picks the highest part as the surface |
 | `DS_Drinks` | bool attribute | Bottle model or descendant | Marks an ingredient bottle |
-| `DS_IngredientName` | string attribute | Bottle model | Ingredient name (must match `IngredientRegistry`) |
+| `DS_IngredientName` | string attribute | Bottle model **or bare part** | Ingredient name (must match `IngredientRegistry`). Sufficient on its own — no `DS_Drinks` needed. A bare part with `DS_IngredientName = "Water"` becomes a sober-up station |
 | `DS_Shaker` | bool attribute | Shaker world model | Marks a pickupable shaker |
 | `DS_Garnish` | string attribute | Garnish model | Garnish name (e.g. `Lime`, `Cherry`) |
 
@@ -112,12 +126,16 @@ Tag the table model with **`DS_Table`** via CollectionService. No need to add in
 | Key | Default | Notes |
 |---|---|---|
 | `MaxIngredientsPerMix` | 4 | Max pours before glass is full |
+| `MaxGlasses` | 5 | Max glasses a player can hold at once |
 | `DefaultDrinkSips` | 3 | Sips per drink |
 | `MaxInteractDistance` | 12 | Stud radius for pickup / placement |
-| `PlaceKey` | *(unused)* | Placement is now click-on-table |
+| `WaterSoberAmount` | -35 | Drunkness change per direct Water drink |
 | `DrunknessMax` | 100 | Drunkness ceiling |
-| `DrunknessRecoveryPerSecond` | 0.3 | Natural sober-up rate |
-| `DrunkCollapseThreshold` | 0.95 | Fraction of max that triggers pass-out |
+| `DrunknessRecoveryPerSecond` | 1.1 | Natural sober-up rate (~90s from max) |
+| `DrunknessVisualMax` | 70 | Visual effects hit full intensity here, not at 100 |
+| `DrunkCollapseThreshold` | 0.92 | Fraction of max that triggers pass-out |
+| `DrunkCollapseDuration` | 15 | Seconds knocked out |
+| `DrunkCollapseCooldown` | 90 | Min seconds between collapses |
 | `EnableGuidance` | true | Shows ingredient highlights to guide bartender |
 | `EnableDrunkDebug` | false | Prints drunkness values to output |
 
@@ -127,20 +145,19 @@ Tag the table model with **`DS_Table`** via CollectionService. No need to add in
 
 ```
 src/
-  Server/DrinkSystem/
-    DrinkSystemController.luau       — Main server brain (sessions, packets, scoring, guidance)
-    DrinkSystemServerMain.server.luau — Entry point
+  ServerScriptService/DrinkSystem/
+    DrinkSystemController.luau       — Main server brain (sessions, packets, scoring, guidance loop)
     Managers/
-      PickupManager.luau             — Glass/shaker/drink pickup, inventory (max 5 glasses)
+      PickupManager.luau             — Glass/shaker/drink pickup, inventory (Settings.MaxGlasses)
       DrinkCreationManager.luau      — Finalizes glass → drink tool
-      PlacementManager.luau          — Places drink on nearest DS_Surface or DS_Table
-      ConsumptionManager.luau        — Sip logic, applies drunkness
+      PlacementManager.luau          — Places drink on nearest DS_Surface/DS_Table (bounding-box distance)
+      ConsumptionManager.luau        — Sip logic, applies drunkness (negative = sober-up)
     Services/
-      DrinkEffectsService.luau       — Server drunkness accumulator, stage, ragdoll trigger
-      RagdollService.luau            — Motor6D/BallSocket ragdoll system
+      DrinkEffectsService.luau       — Server drunkness accumulator, stages, collapse/stumble
+      DrunkRagdollService.server.luau — BallSocket ragdoll, watches DrunkCollapsed (hooks per PLAYER, not per respawn)
       GamepassManager.luau           — Bartender gamepass gate (currently open access)
 
-  Shared/DrinkSystem/
+  ReplicatedStorage/DrinkSystem/
     Config/
       Recipes.luau                   — Recipe definitions
       Settings.luau                  — All tunable values
@@ -153,16 +170,29 @@ src/
       Utility.luau                   — averageColors, misc helpers
 
   StarterPlayer/StarterPlayerScripts/DrinkSystemClient/
+    Core/
+      ClientStateController.client.luau — Consume/place input, mobile TouchTap flow, Place/Cancel UI
+    Placement/
+      PlacementPreviewClient.luau    — Ghost preview (PC: cursor-follow; mobile: on-tap via showAtPosition)
     Effects/
-      DrinkEffectsClient.luau        — Camera wobble, blur, DOF drunk effects
+      DrinkEffectsClient.luau        — Camera wobble, blur, DOF drunk effects (smooth ramp, no sip-kick)
       DrunkBarController.client.luau — Drunk UI bar
       DrunkMovementController.client.luau — Walk speed, stumble, sway
+      DrunkRagdoll.client.luau       — Ragdoll client: CanCollide Heartbeat loop (DO NOT optimize), shuffle
     Interaction/
-      HoverInteractionController.client.luau — Hover highlights, tooltip, click handler
+      HoverInteractionController.client.luau — Hover highlights, guidance, tooltip, click handler
     Presentation/
       DrinkVisualController.client.luau — Client drink visuals
       ShakerController.client.luau   — Shaker animation
 ```
+
+### Security / dataflow notes
+- Clients send **intents only** (pour X, place at Y, consume Z); the server owns all state
+  (mix contents, drunkness, scoring, drink creation).
+- Every client→server packet is rate-limited, distance-checked, and ownership-validated.
+  Placement positions from the client are sanity-checked and clamped to the surface.
+- Never trust a client-sent score/amount — outcomes are computed server-side (`computeOutcome`).
+- The guidance loop wraps each session in `pcall` so one bad session can't kill guidance for everyone.
 
 ---
 
@@ -179,5 +209,17 @@ These are not in source control. Export via Argon with **Only Code Mode off**, o
 
 ## Backlog
 
-- **TASK-1 (partial):** Mobile placement — ghost shows forward-projected position but tapping a table to confirm needs a `TouchTap` handler in `ClientStateController.client.luau` (currently only PC click is wired)
-- **TASK-2:** Water drink — architecture supports negative strongness (`StrongnessOverride = -30`), just needs a world asset and recipe entry
+- **Drunkness UI checkpoints** — wire the drunkness value to the checkpoint-frame UI set up in Studio
+- **Perf: cache tagged surfaces/bottles** — `findNearestSurface` (client, per-frame) and `collectNearestModels`
+  (guidance, per 0.25s) walk `workspace:GetDescendants()`; switch to a CollectionService-tag cache.
+  ⚠️ Requires tables/bottles to use real tags, not just attributes — verify Studio setup first
+- **Consolidate duplicated helpers** — `isSurfacePart`/`isSurfaceHit` (4 copies) and `findGlassTool` (3 copies)
+  into SharedModules
+
+### Done (2026-07-06/07)
+- Mobile placement: glow on proximity → tap surface → ghost preview at tap spot → Place/Cancel
+- Mobile drinking: TouchTap owns place+drink (`Activated` gated for drink tools on mobile)
+- Water sober-up: direct-consume via `DS_IngredientName = "Water"` part
+- E-key ragdoll test removed (client keybind + server RemoteEvent — was an open endpoint)
+- Ragdoll connections hook once per player (was stacking per respawn)
+- Guidance loop pcall-protected; pending-drink cleanup wired to PlayerRemoving

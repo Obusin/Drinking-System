@@ -1,12 +1,10 @@
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local UserInputService  = game:GetService("UserInputService")
 local RunService        = game:GetService("RunService")
 
 local player      = Players.LocalPlayer
 local camera      = workspace.CurrentCamera
-local ragdollEvent = ReplicatedStorage:WaitForChild("DS_DrunkRagdollEvent", 30) :: RemoteEvent
-local applyEvent   = ReplicatedStorage:WaitForChild("DS_DrunkApplyEvent",   30) :: RemoteEvent
+local applyEvent  = ReplicatedStorage:WaitForChild("DS_DrunkApplyEvent", 30) :: RemoteEvent
 
 local function screenShake()
 	local shakeConn: RBXScriptConnection
@@ -98,10 +96,4 @@ applyEvent.OnClientEvent:Connect(function(isRagdolling: boolean)
 		end
 		if humanoid then camera.CameraSubject = humanoid end
 	end
-end)
-
--- E to test ragdoll toggle.
-UserInputService.InputBegan:Connect(function(input, processed)
-	if processed then return end
-	if input.KeyCode == Enum.KeyCode.E then ragdollEvent:FireServer() end
 end)

@@ -85,7 +85,9 @@ local function applyDrinkToGlassTool(glassTool: Tool, drinkData: table)
 
 	-- Optional: ingredients list as a string
 	if drinkData.Ingredients and #drinkData.Ingredients > 0 then
-		print("[DrinkSystem][Glass] Ingredients:", table.concat(drinkData.Ingredients, ", "))
+		if Settings.EnableDrunkDebug == true then
+			print("[DrinkSystem][Glass] Ingredients:", table.concat(drinkData.Ingredients, ", "))
+		end
 		glassTool:SetAttribute("DS_IngredientsText", table.concat(drinkData.Ingredients, ", "))
 		glassTool:SetAttribute("DS_IngredientListCsv", table.concat(drinkData.Ingredients, ","))
 	end
@@ -134,7 +136,8 @@ local function normalizeDrinkData(payload: table, ingredients: {string}?, isReci
 	if (type(data.BaseIngredient) ~= "string" or data.BaseIngredient == "") and #data.Ingredients > 0 then
 		data.BaseIngredient = data.Ingredients[1]
 	end
-	data.FillStage = math.clamp(#data.Ingredients, 1, 3)
+	-- Recipes can force a fill stage (e.g. Water fills the glass in one pour)
+	data.FillStage = payload.FillStage or math.clamp(#data.Ingredients, 1, 3)
 
 	return data
 end

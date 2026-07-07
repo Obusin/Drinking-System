@@ -20,7 +20,7 @@ local DrinkTemplates = DrinkSystem:FindFirstChild("DrinkTemplates")
 -- OOP Glass Class
 local GlassClass = require(SharedModules:WaitForChild("GlassClass"))
 
-local MAX_GLASSES = 5
+local MAX_GLASSES = Settings.MaxGlasses or 5
 local PlayerShakerUnlocked = {} -- {player = true/false}
 local CharacterAddedConnections = {} -- {player = RBXScriptConnection}
 

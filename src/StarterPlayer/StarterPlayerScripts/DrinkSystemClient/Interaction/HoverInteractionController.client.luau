@@ -88,7 +88,18 @@ local function detectType(model)
 		end
 	end
 
-	-- 3. Placed finished drink — check before DS_Glass so it isn't misidentified
+	-- 3. Water overrides everything — anything carrying DS_IngredientName = "Water"
+	-- is a sober-up source, no matter what other attributes the model has
+	if model:GetAttribute("DS_IngredientName") == "Water" then
+		return "Bottle"
+	end
+	for _, d in ipairs(model:GetDescendants()) do
+		if d:GetAttribute("DS_IngredientName") == "Water" then
+			return "Bottle"
+		end
+	end
+
+	-- 4. Placed finished drink — check before DS_Glass so it isn't misidentified
 	if model:GetAttribute("DS_Drink") == true then
 		return "Drink"
 	end
@@ -113,6 +124,10 @@ local function detectType(model)
 	end
 
 	if model:GetAttribute("DS_Drinks") == true then
+		return "Bottle"
+	end
+	-- DS_IngredientName alone is enough (e.g. bare Water part — no DS_Drinks needed)
+	if type(model:GetAttribute("DS_IngredientName")) == "string" then
 		return "Bottle"
 	end
 	if CollectionService:HasTag(model, "DS__Bottle") or CollectionService:HasTag(model, "DS_Bottle") then
@@ -159,6 +174,9 @@ local function detectType(model)
 			if drinks == true then
 				return "Bottle"
 			end
+			if type(child:GetAttribute("DS_IngredientName")) == "string" then
+				return "Bottle"
+			end
 			if shaker == true or shaker2 == true then
 				return "Shaker"
 			end
@@ -175,9 +193,17 @@ local function getIngredientName(model: Model): string?
 	if model:GetAttribute("DS_Drinks") == true then
 		return model:GetAttribute("DS_IngredientName") or model.Name
 	end
+	local direct = model:GetAttribute("DS_IngredientName")
+	if type(direct) == "string" then
+		return direct
+	end
 	for _, d in ipairs(model:GetDescendants()) do
 		if d:GetAttribute("DS_Drinks") == true then
 			return d:GetAttribute("DS_IngredientName") or model.Name
+		end
+		local dName = d:GetAttribute("DS_IngredientName")
+		if type(dName) == "string" then
+			return dName
 		end
 	end
 	return nil
@@ -187,7 +213,8 @@ end
 -- Guidance state + highlights
 ---------------------------------------------------------------------
 local guidance = {
-	RecommendedIngredients = {},
+	RecommendedIngredients = {},  -- full valid set: gates clicks
+	DisplayIngredients = {},      -- highlighted subset; empty = highlight all recommended
 	RequiredItemType = nil,
 }
 
@@ -196,10 +223,27 @@ local guidanceTargets = {
 	Required = nil,
 }
 
+-- Click gate: full valid set
 local function isRecommended(model: Model): boolean
 	local ing = getIngredientName(model)
 	if not ing then return false end
 	for _, name in ipairs(guidance.RecommendedIngredients or {}) do
+		if name == ing then
+			return true
+		end
+	end
+	return false
+end
+
+-- Highlight filter: display subset when the server sent one, else everything valid
+local function isDisplayed(model: Model): boolean
+	local display = guidance.DisplayIngredients or {}
+	if #display == 0 then
+		return isRecommended(model)
+	end
+	local ing = getIngredientName(model)
+	if not ing then return false end
+	for _, name in ipairs(display) do
 		if name == ing then
 			return true
 		end
@@ -304,6 +348,7 @@ end
 -- Clears both data and display. Used on unequip so stale data doesn't linger.
 local function resetGuidance()
 	guidance.RecommendedIngredients = {}
+	guidance.DisplayIngredients = {}
 	guidance.RequiredItemType = nil
 	clearGuidanceDisplay()
 end
@@ -313,7 +358,7 @@ local function refreshGuidanceTargets()
 		clearGuidanceDisplay()
 		return
 	end
-	guidanceTargets.Recommended = collectNearestModels(isRecommended, GUIDANCE_MAX_RECOMMENDED_HIGHLIGHTS)
+	guidanceTargets.Recommended = collectNearestModels(isDisplayed, GUIDANCE_MAX_RECOMMENDED_HIGHLIGHTS)
 	guidanceTargets.Required = findNearestModel(isRequired)
 	applyGuidanceHighlights()
 end
@@ -324,18 +369,34 @@ GuidanceUpdate.listen(function(payload)
 	-- tool fully replicates to the character, causing a dropped update and no guide.
 	-- The 0.25s refresh loop handles showing/hiding based on glass state.
 	guidance.RecommendedIngredients = payload.RecommendedIngredients or {}
+	guidance.DisplayIngredients = payload.DisplayIngredients or {}
 	guidance.RequiredItemType = payload.RequiredItemType
+	if Settings.EnableGuidanceDebug == true then
+		print(
+			"[DrinkSystem][GuidanceRecv]",
+			"| instr:", payload.Instruction,
+			"| recommended:", #(guidance.RecommendedIngredients),
+			table.concat(guidance.RecommendedIngredients, ", ")
+		)
+	end
 	refreshGuidanceTargets()
 end)
 
 local function isGuidedClickAllowed(model: Model, itemType: string): boolean
-	-- Placed drinks and glasses are always pickupable — guidance never blocks them
-	if itemType == "Drink" or itemType == "Glass" then return true end
+	-- Placed drinks, glasses, and shakers are always pickupable — guidance never
+	-- blocks them (shaker can be grabbed before OR after the glass)
+	if itemType == "Drink" or itemType == "Glass" or itemType == "Shaker" then return true end
+
+	-- Water is drinkable any time — guidance never blocks it
+	if itemType == "Bottle" and getIngredientName(model) == "Water" then return true end
 
 	if guidance.RequiredItemType and itemType ~= guidance.RequiredItemType then
 		return false
 	end
 
+	-- Bottles: only recipe-valid next ingredients are clickable. The server
+	-- enforces the same rule in onPour, and the highlight set is that same
+	-- list — so highlighted == clickable == pourable, always.
 	if itemType == "Bottle" and #(guidance.RecommendedIngredients or {}) > 0 then
 		return isRecommended(model)
 	end
@@ -499,15 +560,22 @@ local function tryInteract()
 	end
 
 	-- Do not consume click input while the player is holding a drink
-	-- unless targeting a garnish station or picking up another drink.
+	-- unless targeting a garnish station, another drink, or Water.
 	if t ~= "Garnish" and t ~= "Drink" and playerIsHoldingDrinkTool() then
-		return
+		if not (t == "Bottle" and getIngredientName(currentModel) == "Water") then
+			return
+		end
 	end
 
 	-- Bottle pour
 	if t == "Bottle" then
+		-- Water is drunk directly from the source — no glass needed.
+		-- Server replies with StartBottlePour (pour anim, no bottle clone).
+		if getIngredientName(currentModel) == "Water" then
+			RequestPourIngredient.send({ BottleModel = currentModel })
+			return
+		end
 		if not playerIsHoldingGlass() then
-			print("[DEBUG] Cannot pour — no glass equipped.")
 			return
 		end
 		RequestPourIngredient.send({ BottleModel = currentModel })
@@ -516,7 +584,6 @@ local function tryInteract()
 
 	if t == "Garnish" then
 		if not playerIsHoldingDrinkTool() then
-			print("[DEBUG] Cannot garnish - no finished drink equipped.")
 			return
 		end
 		RequestAddGarnish.send({ Model = currentModel })

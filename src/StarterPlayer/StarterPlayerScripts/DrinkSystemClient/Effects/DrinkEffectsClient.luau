@@ -42,6 +42,8 @@ function DrinkEffectsClient.new(player: Player, maxDrunkness: number)
 	self.NextHiccupAt          = 0
 	self.LastOffset            = CFrame.new()
 	self.LastFovOffset         = 0
+	self.SmoothedMotionBoost   = 0  -- exp-smoothed so stepwise server values can't jolt the camera
+	self.EffectFade            = 0  -- master fade 0→1, eases all effects in/out smoothly
 
 	self.Blur = getOrCreateEffect("DS_DrunkBlur", "BlurEffect")
 	self.DOF  = getOrCreateEffect("DS_DrunkDOF",  "DepthOfFieldEffect")
@@ -95,19 +97,7 @@ function DrinkEffectsClient:_isCollapsed(): boolean
 	return val and val.Value == true or false
 end
 
-function DrinkEffectsClient:_playHiccup()
-	local soundId = Settings.DrunkHiccupSoundId
-	if not soundId then return end
-	local character  = self.Player.Character
-	local parentPart = character and (character:FindFirstChild("Head") or character:FindFirstChild("HumanoidRootPart"))
-	local sound = Instance.new("Sound")
-	sound.SoundId       = "rbxassetid://" .. tostring(soundId)
-	sound.Volume        = 0.7
-	sound.PlaybackSpeed = 0.92 + math.random() * 0.18
-	sound.Parent        = parentPart or SoundService
-	sound:Play()
-	sound.Ended:Once(function() sound:Destroy() end)
-end
+-- (hiccup sound moved server-side — see DrinkEffectsService.playCharacterSound)
 
 function DrinkEffectsClient:_resetCamera()
 	local cam = workspace.CurrentCamera
@@ -137,34 +127,52 @@ function DrinkEffectsClient:Update(dt: number)
 	local drunkness = self:_getDrunkness()
 
 	-- DisplayDrunkness: gradual rise and slow fall — no instant spikes on sip.
+	-- Fall rate scales with the gap so big drops (death reset, Water) fade out
+	-- in ~2s instead of crawling down at the natural-recovery pace.
 	if self.DisplayDrunkness < drunkness then
 		self.DisplayDrunkness = math.min(drunkness, self.DisplayDrunkness + self.VisualRisePerSecond * dt)
 	else
-		self.DisplayDrunkness = math.max(drunkness, self.DisplayDrunkness - self.VisualFallPerSecond * dt)
+		local gap = self.DisplayDrunkness - drunkness
+		local fallRate = math.max(self.VisualFallPerSecond, gap * 0.6)
+		self.DisplayDrunkness = math.max(drunkness, self.DisplayDrunkness - fallRate * dt)
 	end
 
-	local t          = math.clamp(self.DisplayDrunkness / math.max(self.VisualMaxDrunkness, 1), 0, 1)
-	local effectiveT = t
+	local t = math.clamp(self.DisplayDrunkness / math.max(self.VisualMaxDrunkness, 1), 0, 1)
 
-	if t <= 0 then
+	-- Master fade: eases all effects in when drunkness starts and out when it
+	-- ends, so effects never pop on/off — they always blend.
+	local targetFade = (t > 0) and 1 or 0
+	self.EffectFade += (targetFade - self.EffectFade) * math.min(dt * 1.5, 1)
+
+	if t <= 0 and self.EffectFade < 0.02 then
+		self.EffectFade = 0
 		self:_clearEffects()
 		return
 	end
 
+	local effectiveT = t * self.EffectFade
+
 	local time       = os.clock()
 	local moveAlpha  = self:_getMoveAlpha()
 	local collapsed  = self:_isCollapsed()
-	local motionBoost = math.clamp(moveAlpha * 0.6 + (collapsed and 0.45 or 0), 0, 1)
+
+	-- Smooth motionBoost: the raw value comes from server-replicated steps and
+	-- multiplies wobble amplitude — unsmoothed it jolts the camera on each update.
+	local targetBoost = math.clamp(moveAlpha * 0.6 + (collapsed and 0.45 or 0), 0, 1)
+	self.SmoothedMotionBoost += (targetBoost - self.SmoothedMotionBoost) * math.min(dt * 2.5, 1)
+	local motionBoost = self.SmoothedMotionBoost
 
 	-- ─── CAMERA WOBBLE ─────────────────────────────────────────────────────
 	-- Amplitudes are deliberately punchy — you should FEEL every sip.
-	local primaryAmp = (0.04 + 0.18 * effectiveT + 0.06 * motionBoost) * self.Intensity
+	-- Base constants are scaled by EffectFade so the wobble eases in from zero
+	-- instead of popping to its floor amplitude on the first sip.
+	local primaryAmp = (0.04 + 0.18 * effectiveT + 0.06 * motionBoost) * self.Intensity * self.EffectFade
 
 	local ox = (math.sin(time * self.WobbleSpeed)              + math.sin(time * self.WobbleSpeed * 1.73) * 0.42) * primaryAmp
 	local oy = (math.sin(time * self.WobbleSpeed * 0.77)       + math.cos(time * self.WobbleSpeed * 1.19) * 0.28) * primaryAmp * 0.9
 
-	local roll = (0.03 + 0.16 * effectiveT + 0.05 * motionBoost) * self.Intensity
-	local yaw  = (0.01 + 0.06 * effectiveT)                       * self.Intensity
+	local roll = (0.03 + 0.16 * effectiveT + 0.05 * motionBoost) * self.Intensity * self.EffectFade
+	local yaw  = (0.01 + 0.06 * effectiveT)                       * self.Intensity * self.EffectFade
 
 	local offset = CFrame.new(ox, oy, 0) * CFrame.Angles(
 		0,
@@ -185,7 +193,14 @@ function DrinkEffectsClient:Update(dt: number)
 	self.LastFovOffset = fovOffset
 
 	-- ─── BLUR ──────────────────────────────────────────────────────────────
-	self.Blur.Size = math.min(14, (1.5 + 7 * effectiveT + 2.5 * motionBoost) * self.Intensity)
+	-- Ambient blur stays SUBTLE — the heavy lifting is the depth-of-field below,
+	-- which keeps the avatar and nearby surroundings sharp and blurs only the
+	-- distance. A slow pulse gives it waves-of-dizziness variance.
+	local blurPulse = 0.65
+		+ 0.28 * (0.5 + 0.5 * math.sin(time * 0.85))
+		+ 0.07 * (0.5 + 0.5 * math.sin(time * 2.1 + 1.3))
+	local blurBase = math.min(3.5, (0.4 + 2.4 * effectiveT + 0.8 * motionBoost) * self.Intensity)
+	self.Blur.Size = blurBase * blurPulse * self.EffectFade
 
 	-- ─── AUDIO MUFFLE ──────────────────────────────────────────────────────
 	-- Cuts highs up to -12dB and mids up to -5dB. Subtle at low drunkness,
@@ -195,40 +210,38 @@ function DrinkEffectsClient:Update(dt: number)
 	self.EQ.MidGain   = -5  * muffleAlpha
 
 	-- ─── DEPTH OF FIELD ────────────────────────────────────────────────────
-	-- Two slow, out-of-phase oscillators drive focus distance so it drifts
-	-- between near and far in an irregular, swimmy way.
-	-- InFocusRadius narrows as drunkness rises so the sharp band gets thin —
-	-- like your drunk eyes can't agree on what to focus on.
-	if effectiveT > 0.15 then
-		local dofAlpha = math.clamp((effectiveT - 0.15) / 0.85, 0, 1)
+	-- Focus is LOCKED on the character: the avatar and nearby surroundings stay
+	-- sharp, only the distance blurs. The sharp bubble shrinks as drunkness
+	-- rises and pulses slowly so the blur washes in and out.
+	if effectiveT > 0.1 then
+		local dofAlpha = math.clamp((effectiveT - 0.1) / 0.9, 0, 1)
 
-		-- Primary focus drift: lazy near↔far swing (~7s cycle)
-		local focusSwing = math.sin(time * 0.28) * (5 * dofAlpha)
-		-- Secondary drift: slightly faster, smaller amplitude (~4.5s cycle), out of phase
-		local focusDrift = math.sin(time * 0.45 + 1.8) * (2.5 * dofAlpha)
-		local focusDist  = math.clamp(10 + focusSwing + focusDrift, 2, 24)
+		-- Focus at the character so the avatar is always crisp
+		local char = self.Player.Character
+		local focusPart = char and (char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart"))
+		local focusDist = 10
+		if focusPart then
+			focusDist = (cam.CFrame.Position - focusPart.Position).Magnitude
+		end
 
-		-- Sharp band: wide when sober-ish, narrow when wasted (0.5→6 studs wide)
-		local inFocusRadius = math.max(0.5, 6 - 5.5 * dofAlpha)
-		-- Add a small pulse to the radius so it breathes (~3s cycle)
-		inFocusRadius = inFocusRadius + math.sin(time * 0.65 + 0.9) * (1.2 * dofAlpha)
-		inFocusRadius = math.max(0.5, inFocusRadius)
+		-- Sharp bubble around the player: ~20 studs sober-ish → ~8 wasted,
+		-- pulsing ±3 so the blur breathes at the edges (~6s cycle).
+		local inFocusRadius = 20 - 12 * dofAlpha
+		inFocusRadius += math.sin(time * 0.55 + 0.9) * (3 * dofAlpha)
+		inFocusRadius = math.max(6, inFocusRadius)
 
 		self.DOF.Enabled       = true
 		self.DOF.FocusDistance = focusDist
 		self.DOF.InFocusRadius = inFocusRadius
-		self.DOF.FarIntensity  = math.clamp(0.3 + 0.65 * dofAlpha, 0, 1)
-		self.DOF.NearIntensity = math.clamp(0.2 + 0.55 * dofAlpha, 0, 1)
+		-- Far blur strong, near blur very light so the avatar never smears
+		self.DOF.FarIntensity  = math.clamp(0.35 + 0.6 * dofAlpha, 0, 1) * self.EffectFade
+		self.DOF.NearIntensity = math.clamp(0.05 + 0.15 * dofAlpha, 0, 0.3) * self.EffectFade
 	else
 		self.DOF.Enabled = false
 	end
 
-	-- ─── HICCUP ────────────────────────────────────────────────────────────
-	if effectiveT >= 0.20 and time >= self.NextHiccupAt then
-		self:_playHiccup()
-		local baseInterval = 9 - 5 * math.min(effectiveT, 1)
-		self.NextHiccupAt = time + math.max(2, baseInterval + (-1 + math.random() * 2.4))
-	end
+	-- Hiccups are played SERVER-side (DrinkEffectsService) so nearby players
+	-- hear them spatially — no local hiccup here anymore.
 
 	if self.DebugEnabled and (time - self.LastDebugAt) >= self.DebugInterval then
 		self.LastDebugAt = time

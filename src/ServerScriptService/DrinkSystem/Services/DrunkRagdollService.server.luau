@@ -1,10 +1,6 @@
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local ragdollEvent = Instance.new("RemoteEvent")
-ragdollEvent.Name   = "DS_DrunkRagdollEvent"
-ragdollEvent.Parent = ReplicatedStorage
-
 local applyEvent = Instance.new("RemoteEvent")
 applyEvent.Name   = "DS_DrunkApplyEvent"
 applyEvent.Parent = ReplicatedStorage
@@ -77,59 +73,58 @@ local function ragdollOff(player: Player, character: Model, humanoid: Humanoid)
 	humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
 end
 
-local function watchCollapsed(player: Player, character: Model, humanoid: Humanoid, isRagdolled: { value: boolean })
+-- One set of hooks per PLAYER (not per character). Previous version hooked
+-- Changed + OnServerEvent inside CharacterAdded, stacking a new connection
+-- every respawn — collapse would then fire ragdollOn multiple times.
+local function onPlayerAdded(player: Player)
+	local isRagdolled = { value = false }
+
+	-- Resolve character/humanoid live so the same hook works across respawns
+	local function setRagdoll(collapsed: boolean)
+		local character = player.Character
+		if not character then return end
+		local humanoid = character:FindFirstChildOfClass("Humanoid")
+		if not humanoid or humanoid.Health <= 0 then return end
+		if collapsed and not isRagdolled.value then
+			isRagdolled.value = true
+			ragdollOn(player, character, humanoid)
+		elseif not collapsed and isRagdolled.value then
+			isRagdolled.value = false
+			ragdollOff(player, character, humanoid)
+		end
+	end
+
 	-- DrunkCollapsed lives on the player, created by DrinkEffectsService on first drink
 	local function hookValue(val: BoolValue)
-		val.Changed:Connect(function(collapsed: boolean)
-			if humanoid.Health <= 0 then return end
-			if collapsed and not isRagdolled.value then
-				isRagdolled.value = true
-				ragdollOn(player, character, humanoid)
-			elseif not collapsed and isRagdolled.value then
-				isRagdolled.value = false
-				ragdollOff(player, character, humanoid)
-			end
-		end)
+		val.Changed:Connect(setRagdoll)
 	end
 
 	local existing = player:FindFirstChild("DrunkCollapsed")
 	if existing and existing:IsA("BoolValue") then
 		hookValue(existing :: BoolValue)
 	else
-		-- Value gets created on first drink — wait for it
-		player.ChildAdded:Connect(function(child)
+		local conn: RBXScriptConnection
+		conn = player.ChildAdded:Connect(function(child)
 			if child.Name == "DrunkCollapsed" and child:IsA("BoolValue") then
+				conn:Disconnect()
 				hookValue(child :: BoolValue)
 			end
 		end)
 	end
-end
 
-Players.PlayerAdded:Connect(function(player: Player)
 	player.CharacterAdded:Connect(function(character: Model)
-		local humanoid    = character:WaitForChild("Humanoid") :: Humanoid
-		local isRagdolled = { value = false }
-
-		-- E key for testing
-		ragdollEvent.OnServerEvent:Connect(function(sender: Player)
-			if sender ~= player then return end
-			if humanoid.Health <= 0 then return end
-			if isRagdolled.value then
-				isRagdolled.value = false
-				ragdollOff(player, character, humanoid)
-			else
-				isRagdolled.value = true
-				ragdollOn(player, character, humanoid)
-			end
-		end)
-
-		watchCollapsed(player, character, humanoid, isRagdolled)
-
+		isRagdolled.value = false
+		local humanoid = character:WaitForChild("Humanoid") :: Humanoid
 		humanoid.Died:Connect(function()
 			saved[player] = nil
 			isRagdolled.value = false
 		end)
 	end)
-end)
+end
+
+Players.PlayerAdded:Connect(onPlayerAdded)
+for _, plr in ipairs(Players:GetPlayers()) do
+	onPlayerAdded(plr)
+end
 
 Players.PlayerRemoving:Connect(function(player) saved[player] = nil end)

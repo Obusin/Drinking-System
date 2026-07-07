@@ -156,6 +156,12 @@ local function clearSession(player: Player)
 	sessions[player] = nil
 end
 
+-- Ragdolled/collapsed players can't interact with the drink system at all.
+local function playerIsCollapsed(player: Player): boolean
+	local val = player:FindFirstChild("DrunkCollapsed")
+	return val ~= nil and val:IsA("BoolValue") and val.Value == true
+end
+
 local function rateLimitOk(session: DrinkSession): boolean
 	local now = os.clock()
 	if now - session.LastActionTick < (Settings.ActionCooldown or 0.1) then
@@ -222,6 +228,12 @@ local function getIngredientNameFromBottle(model: Instance): string?
 	if model:GetAttribute("DS_Drinks") == true then
 		return model:GetAttribute("DS_IngredientName") or model.Name
 	end
+	-- DS_IngredientName alone is enough (e.g. bare Water part — no DS_Drinks needed).
+	-- Safe: onPour still validates the name against IngredientRegistry.
+	local direct = model:GetAttribute("DS_IngredientName")
+	if type(direct) == "string" then
+		return direct
+	end
 	if model:IsA("Model") and (CollectionService:HasTag(model, "DS__Bottle") or CollectionService:HasTag(model, "DS_Bottle")) then
 		return model:GetAttribute("DS_IngredientName") or model.Name
 	end
@@ -229,6 +241,10 @@ local function getIngredientNameFromBottle(model: Instance): string?
 	for _, d in ipairs(model:GetDescendants()) do
 		if d:GetAttribute("DS_Drinks") == true then
 			return d:GetAttribute("DS_IngredientName") or model.Name
+		end
+		local dName = d:GetAttribute("DS_IngredientName")
+		if type(dName) == "string" then
+			return dName
 		end
 	end
 
@@ -399,6 +415,7 @@ local function buildDrinkPayload(recipeName: string?, recipeDef: table?, ingredi
 		Color = recipeDef and recipeDef.OutputColor or Utility.averageColors(ingredients),
 		Strongness = recipeDef and recipeDef.StrongnessOverride or 0,
 		RequiresShaker = recipeDef and recipeDef.RequireShaker == true or false,
+		FillStage = recipeDef and recipeDef.FillStageOverride or nil,
 		Ingredients = ingredients,
 		IsRecipe = isRecipe,
 		Garnishes = {},  -- starts empty; player physically applies garnishes after mixing
@@ -544,8 +561,11 @@ local function getRankedNextIngredientsFromMatches(matchingRecipes: { { Name: st
 		return a.Name < b.Name
 	end)
 
+	-- Return ALL valid next ingredients (union of missing ingredients across
+	-- matching recipes). This must mirror the pour-validity check in onPour —
+	-- everything highlighted is pourable, everything pourable is highlighted.
 	local out = {}
-	for i = 1, math.min(4, #ranked) do
+	for i = 1, #ranked do
 		table.insert(out, ranked[i].Name)
 	end
 	return out
@@ -622,6 +642,7 @@ local function updateGuidance(session: DrinkSession, glassTool: Tool?)
 	local guidance = {
 		Instruction = "",
 		RecommendedIngredients = {},
+		DisplayIngredients = {},  -- highlighted subset; empty = highlight all recommended
 		RequiredItemType = nil,
 		SelectedRecipe = session.SelectedRecipe,
 		SuggestedRecipe = session.SuggestedRecipe,
@@ -672,6 +693,15 @@ local function updateGuidance(session: DrinkSession, glassTool: Tool?)
 	local mix = getMixState(session, glassTool)
 	local mixIngredients = ingredientsToList(mix)
 
+	-- Mixing requires a shaker (onPour enforces it) — guide the player to the
+	-- shaker BEFORE recommending ingredients, or the highlighted bottles would
+	-- reject every click and the guide would feel broken.
+	if not hasShakerTool(session.Player) then
+		guidance.RequiredItemType = "Shaker"
+		guidance.Instruction = "Pick up the shaker."
+		return guidance
+	end
+
 	-- When glass is empty, highlight EVERY registered ingredient so all bottles
 	-- glow and the player can freely start with anything. Once they pour one,
 	-- guidance narrows down to only compatible next ingredients.
@@ -685,7 +715,19 @@ local function updateGuidance(session: DrinkSession, glassTool: Tool?)
 		session.SuggestedRecipe = suggestedNames[1]
 		guidance.SuggestedRecipes = suggestedNames
 		guidance.SuggestedRecipe = suggestedNames[1]
-		guidance.RecommendedIngredients = IngredientRegistry.listNames()
+		-- Only ingredients that appear in at least one recipe — anything else
+		-- would highlight but get rejected by the pour-validity check.
+		local recipeIngredients = {}
+		local seen = {}
+		for _, def in pairs(Recipes) do
+			for _, ing in ipairs(def.Ingredients or {}) do
+				if not seen[ing] then
+					seen[ing] = true
+					table.insert(recipeIngredients, ing)
+				end
+			end
+		end
+		guidance.RecommendedIngredients = recipeIngredients
 		guidance.Instruction = "Pick any ingredient to start."
 		return guidance
 	end
@@ -694,20 +736,29 @@ local function updateGuidance(session: DrinkSession, glassTool: Tool?)
 	local recipeDef = recipeName and Recipes[recipeName] or nil
 
 	if not recipeDef then
-		local topRecipes = findMatchingRecipesForSession(mix, 6)
+		-- All fitting recipes (not just top 6) so the recommended set covers
+		-- every valid pour; suggestion list shown to the player stays capped.
+		local allFitting = findMatchingRecipesForSession(mix, 50)
 		local suggestedNames = {}
-		for _, item in ipairs(topRecipes) do
-			table.insert(suggestedNames, item.Name)
+		for i = 1, math.min(6, #allFitting) do
+			table.insert(suggestedNames, allFitting[i].Name)
 		end
 		session.SuggestedRecipes = suggestedNames
 		session.SuggestedRecipe = suggestedNames[1]
 		guidance.SuggestedRecipes = suggestedNames
 		guidance.SuggestedRecipe = suggestedNames[1]
 
-		local suggestedNextIngredients = getRankedNextIngredientsFromMatches(topRecipes, mixIngredients)
+		local suggestedNextIngredients = getRankedNextIngredientsFromMatches(allFitting, mixIngredients)
 
 		if #suggestedNextIngredients > 0 then
 			guidance.RecommendedIngredients = suggestedNextIngredients
+			-- Highlight only the top few so the bar doesn't light up like a
+			-- Christmas tree mid-mix; the full list still gates clicks.
+			local display = {}
+			for i = 1, math.min(4, #suggestedNextIngredients) do
+				table.insert(display, suggestedNextIngredients[i])
+			end
+			guidance.DisplayIngredients = display
 			guidance.Instruction = "Try one of the suggested mixes."
 			return guidance
 		end
@@ -773,9 +824,28 @@ local function sendGuidanceIfNeeded(session: DrinkSession, glassTool: Tool?)
 	if now - session.LastGuidanceAt < interval then return end
 
 	local payload = updateGuidance(session, glassTool)
+	if Settings.EnableGuidanceDebug == true then
+		local mixCsv = "no-glass"
+		if glassTool then
+			local mix = getMixState(session, glassTool)
+			mixCsv = table.concat(ingredientsToList(mix), ",")
+			if mixCsv == "" then mixCsv = "empty" end
+		end
+		print(
+			"[DrinkSystem][GuidanceSend]",
+			session.Player.Name,
+			"| instr:", payload.Instruction,
+			"| mix:", mixCsv,
+			"| recommended:", #(payload.RecommendedIngredients or {}),
+			"| display:", #(payload.DisplayIngredients or {}),
+			"| required:", tostring(payload.RequiredItemType),
+			"| glass:", glassTool and glassTool.Name or "nil"
+		)
+	end
 	Packets.GuidanceUpdate.sendTo({
 		Instruction = payload.Instruction or "",
 		RecommendedIngredients = payload.RecommendedIngredients or {},
+		DisplayIngredients = payload.DisplayIngredients or {},
 		RequiredItemType = payload.RequiredItemType,
 		SelectedRecipe = payload.SelectedRecipe,
 		SuggestedRecipe = payload.SuggestedRecipe,
@@ -794,10 +864,17 @@ resetMixForNewDrink = function(session: DrinkSession, glassTool: Tool)
 end
 
 function DrinkSystemController.onPickup(player: Player, model: Model)
+	if playerIsCollapsed(player) then return end
 	local session = getSession(player)
 	if not rateLimitOk(session) then return end
 	if typeof(model) ~= "Instance" or not model:IsA("Model") then return end
 	if not modelDistanceOk(player, model) then return end
+	-- No pickups while a drink is mid-shake — equipping a new tool would
+	-- interrupt the shaker sequence and strand the backpack lock.
+	if session.PendingGlass then
+		debugPrint(player.Name, "pickup blocked: drink is finalizing")
+		return
+	end
 	local ok, status, payload = PickupManager.pickup(player, model)
 	if ok and (status == "GlassPicked" or status == "PlacedGlassPicked") then
 		session.GlassTool = findGlassTool(player)
@@ -817,6 +894,7 @@ function DrinkSystemController.onPickup(player: Player, model: Model)
 end
 
 function DrinkSystemController.onPour(player: Player, bottleModel: Instance)
+	if playerIsCollapsed(player) then return end
 	local session = getSession(player)
 	if not rateLimitOk(session) then return end
 	if typeof(bottleModel) ~= "Instance" then return end
@@ -830,6 +908,24 @@ function DrinkSystemController.onPour(player: Player, bottleModel: Instance)
 	if not ingredientName or not IngredientRegistry.exists(ingredientName) then return end
 
 	local glassTool = findGlassTool(player)
+
+	-- Water with NO glass: drink straight from the source — sober up on the spot.
+	-- Water WITH a glass falls through to the normal pour (fills + renames the
+	-- glass, auto-finalizes to the Water recipe). Neither path needs a shaker.
+	if ingredientName == "Water" and not glassTool then
+		local soberAmount = Settings.WaterSoberAmount or -35
+		DrinkEffectsService.applyDrink(player, soberAmount)
+		session.DirtyGuidance = true
+		DrinkEffectsService.playCharacterSound(player, Settings.PourSoundId, Settings.PourSoundVolume or 0.4)
+		-- Pour visual on the client (it special-cases Water: anim, no bottle clone)
+		Packets.StartBottlePour.sendTo({
+			IngredientName = ingredientName,
+			BottleModel = bottleModel,
+		}, player)
+		debugPrint(player.Name, "drank water directly, sober amount:", soberAmount)
+		return
+	end
+
 	if not glassTool then
 		session.DirtyGuidance = true
 		return
@@ -844,16 +940,54 @@ function DrinkSystemController.onPour(player: Player, bottleModel: Instance)
 		debugPrint("Cannot mix; glass is already finalizing:", glassTool.Name)
 		return
 	end
+
+	-- Mixing requires owning a shaker — no shaker, no pours. Water is exempt.
+	if ingredientName ~= "Water" and not hasShakerTool(player) then
+		Packets.MissingShakerNotify.sendTo({}, player)
+		return
+	end
+
+	-- Only recipe-valid pours: the mix plus this ingredient must still fit at
+	-- least one recipe. Keeps clients honest (guidance highlights this same set).
+	do
+		local hypothetical = ingredientsToList(mix)
+		table.insert(hypothetical, ingredientName)
+		local fitsAnyRecipe = false
+		for _, def in pairs(Recipes) do
+			local required = def.Ingredients or {}
+			local fits = true
+			for _, ing in ipairs(hypothetical) do
+				if not table.find(required, ing) then
+					fits = false
+					break
+				end
+			end
+			if fits then
+				fitsAnyRecipe = true
+				break
+			end
+		end
+		if not fitsAnyRecipe then
+			debugPrint("Rejected pour (no recipe fits):", ingredientName, "onto", table.concat(ingredientsToList(mix), ", "))
+			return
+		end
+	end
+
 	addIngredient(mix, session, ingredientName)
 	local ingredients = ingredientsToList(mix)
 	updateGlassMixPreview(glassTool, ingredients)
 	local previewColor = Utility.averageColors(ingredients)
 	glassTool:SetAttribute("DS_Color", previewColor)
-	GlassPresentation.applyFillState(glassTool, #ingredients, previewColor)
-	glassTool:SetAttribute("DS_FillStage", math.clamp(#ingredients, 0, 3))
+	-- Pure water fills the glass in one pour — it's just water, no 1/2/3 stages
+	local fillStage = (ingredientName == "Water" and #ingredients == 1) and 3
+		or math.clamp(#ingredients, 0, 3)
+	GlassPresentation.applyFillState(glassTool, fillStage, previewColor)
+	glassTool:SetAttribute("DS_FillStage", fillStage)
 	glassTool:SetAttribute("DS_GarnishesCsv", "")
 	GlassPresentation.setGarnishes(glassTool, {})
 	debugPrint("Glass:", glassTool.Name, "Added ingredient:", ingredientName)
+	-- Pour sound on the character — server-played so nearby players hear it
+	DrinkEffectsService.playCharacterSound(player, Settings.PourSoundId, Settings.PourSoundVolume or 0.4)
 	-- Force guidance out immediately so client narrows highlights without waiting for loop tick
 	session.LastGuidanceAt = 0
 	sendGuidanceIfNeeded(session, glassTool)
@@ -874,7 +1008,8 @@ function DrinkSystemController.onPour(player: Player, bottleModel: Instance)
 
 	debugPrint("Recipe complete:", recipeName, "Ingredients:", table.concat(ingredients, ", "))
 
-	local needsShaker = recipeDef.RequireShaker == true or AUTO_SHAKER_ON_RECIPE == true
+	local needsShaker = (recipeDef.RequireShaker == true or AUTO_SHAKER_ON_RECIPE == true)
+		and recipeDef.SkipShaker ~= true
 	if needsShaker then
 		if not hasShakerTool(player) then
 			if recipeDef.RequireShaker == true then
@@ -893,6 +1028,13 @@ function DrinkSystemController.onPour(player: Player, bottleModel: Instance)
 			task.delay(0.9, function()
 				Packets.StartShakerSequence.sendTo(toWireDrinkPayload(mix.PendingPayload), player)
 			end)
+			-- Watchdog: if ShakerFinished never arrives (interrupted client),
+			-- force-finalize so the backpack lock can't get stuck.
+			task.delay(8, function()
+				if session.PendingGlass == glassTool then
+					DrinkSystemController.onShakerFinished(player)
+				end
+			end)
 			return
 		end
 	end
@@ -906,6 +1048,7 @@ function DrinkSystemController.onPour(player: Player, bottleModel: Instance)
 end
 
 function DrinkSystemController.onFinalize(player: Player)
+	if playerIsCollapsed(player) then return end
 	local session = getSession(player)
 	if not rateLimitOk(session) then return end
 
@@ -944,7 +1087,8 @@ function DrinkSystemController.onFinalize(player: Player)
 		return
 	end
 
-	if recipeDef and (recipeDef.RequireShaker == true or AUTO_SHAKER_ON_RECIPE == true) then
+	if recipeDef and (recipeDef.RequireShaker == true or AUTO_SHAKER_ON_RECIPE == true)
+		and recipeDef.SkipShaker ~= true then
 		if not hasShakerTool(player) then
 			if recipeDef.RequireShaker == true then
 				Packets.MissingShakerNotify.sendTo({}, player)
@@ -959,6 +1103,13 @@ function DrinkSystemController.onFinalize(player: Player)
 			recordStep(mix, session, "StartShaker")
 			task.delay(0.9, function()
 				Packets.StartShakerSequence.sendTo(toWireDrinkPayload(mix.PendingPayload), player)
+			end)
+			-- Watchdog: if ShakerFinished never arrives (interrupted client),
+			-- force-finalize so the backpack lock can't get stuck.
+			task.delay(8, function()
+				if session.PendingGlass == glassTool then
+					DrinkSystemController.onShakerFinished(player)
+				end
 			end)
 			return
 		end
@@ -975,6 +1126,7 @@ function DrinkSystemController.onFinalize(player: Player)
 end
 
 function DrinkSystemController.onAddGarnish(player: Player, model: Instance)
+	if playerIsCollapsed(player) then return end
 	local session = getSession(player)
 	if not rateLimitOk(session) then return end
 	if typeof(model) ~= "Instance" then return end
@@ -1002,12 +1154,23 @@ end
 
 function DrinkSystemController.onShakerFinished(player: Player)
 	local session = getSession(player)
-	if not rateLimitOk(session) then return end
+	-- Deliberately NOT rate-limited: this must always unlock the backpack.
+	-- A click just before it (same shared cooldown) used to drop this packet
+	-- and leave the core UI locked forever. Safe: PendingPayload gates it.
 
 	local glassTool = session.PendingGlass or findGlassTool(player)
-	if not glassTool then return end
+	if not glassTool then
+		setBackpackLocked(player, false)  -- always safe to unlock
+		return
+	end
 
 	local mix = getMixState(session, glassTool)
+	-- Idempotence: no pending payload = already finalized (watchdog + packet can
+	-- both fire). Just make sure the backpack is unlocked and leave the mix alone.
+	if not mix.PendingPayload then
+		setBackpackLocked(player, false)
+		return
+	end
 	mix.ToolsUsed.Shaker = true
 	recordStep(mix, session, "ShakerFinished")
 
@@ -1031,6 +1194,7 @@ function DrinkSystemController.onShakerFinished(player: Player)
 end
 
 function DrinkSystemController.onPlaceDrink(player: Player, tool: Tool, clientPosition: Vector3?)
+	if playerIsCollapsed(player) then return end
 	local session = getSession(player)
 	if not rateLimitOk(session) then return end
 	local ok, status = PlacementManager.placeDrinkFromTool(player, tool, clientPosition)
@@ -1069,6 +1233,8 @@ function DrinkSystemController.onConsumeDrink(player: Player, tool: Tool)
 		return
 	end
 	session.LastDrinkTick = now
+	-- Drink sound on the character — server-played so nearby players hear it
+	DrinkEffectsService.playCharacterSound(player, Settings.DrinkSoundId, Settings.DrinkSoundVolume or 0.55)
 	local glassTool = findGlassTool(player)
 	if glassTool then
 		local mix = getMixState(session, glassTool)
@@ -1077,6 +1243,7 @@ function DrinkSystemController.onConsumeDrink(player: Player, tool: Tool)
 end
 
 function DrinkSystemController.onSelectRecipe(player: Player, recipeName: string?)
+	if playerIsCollapsed(player) then return end
 	local session = getSession(player)
 	if not rateLimitOk(session) then return end
 	if not hasShakerTool(player) then
@@ -1152,24 +1319,51 @@ local function startGuidanceLoop()
 	task.spawn(function()
 		while true do
 			for _, session in pairs(sessions) do
-				local glassTool = findGlassTool(session.Player)
-				-- Player switched to a different glass — force guidance refresh and clear recipe context
-				if glassTool ~= session.GlassTool then
-					session.GlassTool = glassTool
-					session.DirtyGuidance = true
-					session.LastGuidanceAt = 0  -- bypass rate limit so new guidance sends this tick
-					session.SelectedRecipe = nil
-					session.SuggestedRecipe = nil
-					session.SuggestedRecipes = {}
+				-- pcall per session: one bad session must not kill the loop
+				-- (and guidance for every player) until server restart.
+				local ok, err = pcall(function()
+					local glassTool = findGlassTool(session.Player)
+
+					-- Sticky glass: with multiple glasses owned, unequipping the
+					-- mixing glass (e.g. to hold the shaker) makes findGlassTool
+					-- return some OTHER backpack glass — which wiped the recipe
+					-- context and flashed the all-bottles state. Only treat it as
+					-- a switch when a different glass is actually EQUIPPED, or
+					-- the old one is gone/finalized.
+					local prev = session.GlassTool
+					if glassTool ~= prev and prev then
+						local char = session.Player.Character
+						local backpack = session.Player:FindFirstChild("Backpack")
+						local prevStillOwned = prev.Parent ~= nil
+							and prev:GetAttribute("DS_Drink") ~= true
+							and ((char and prev:IsDescendantOf(char)) or (backpack and prev:IsDescendantOf(backpack)))
+						local newIsEquipped = glassTool ~= nil and char ~= nil and glassTool.Parent == char
+						if prevStillOwned and not newIsEquipped then
+							glassTool = prev
+						end
+					end
+
+					-- Player switched to a different glass — force guidance refresh and clear recipe context
+					if glassTool ~= session.GlassTool then
+						session.GlassTool = glassTool
+						session.DirtyGuidance = true
+						session.LastGuidanceAt = 0  -- bypass rate limit so new guidance sends this tick
+						session.SelectedRecipe = nil
+						session.SuggestedRecipe = nil
+						session.SuggestedRecipes = {}
+					end
+					-- Also mark dirty when the player picks up or puts down a finalized drink
+					-- so garnish guidance fires immediately after finalization
+					local heldDrink = findHeldDrinkForGarnish(session.Player)
+					if heldDrink ~= session._lastHeldDrink then
+						session._lastHeldDrink = heldDrink
+						session.DirtyGuidance = true
+					end
+					sendGuidanceIfNeeded(session, glassTool)
+				end)
+				if not ok then
+					warn("[DrinkSystem][Guidance] loop error for", session.Player and session.Player.Name, err)
 				end
-				-- Also mark dirty when the player picks up or puts down a finalized drink
-				-- so garnish guidance fires immediately after finalization
-				local heldDrink = findHeldDrinkForGarnish(session.Player)
-				if heldDrink ~= session._lastHeldDrink then
-					session._lastHeldDrink = heldDrink
-					session.DirtyGuidance = true
-				end
-				sendGuidanceIfNeeded(session, glassTool)
 			end
 			task.wait(interval)
 		end
@@ -1194,6 +1388,7 @@ function DrinkSystemController.init()
 		effects.CollapsedValue.Value = false
 		effects.CollapsedUntil = 0
 		effects.LastCollapseAt = -math.huge
+		effects.LastStumbleAt = -math.huge
 		effects.IsStumble = false
 		-- Clear mix state so stale recipes don't carry over
 		local session = sessions[player]
@@ -1223,6 +1418,7 @@ function DrinkSystemController.init()
 
 	Players.PlayerRemoving:Connect(function(player)
 		GamepassManager.clearCacheForPlayer(player)
+		DrinkCreationManager.onPlayerRemoving(player)
 		clearSession(player)
 	end)
 end

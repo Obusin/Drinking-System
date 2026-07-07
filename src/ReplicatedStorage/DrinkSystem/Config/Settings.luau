@@ -1,6 +1,8 @@
 local Settings = {
 	MaxIngredientsPerMix      = 4,
+	MaxGlasses                = 5,
 	GlassToolNames            = { "Glass", "Highball", "Lowball", "Martini" },
+	WaterSoberAmount          = -35,  -- drunkness change when drinking Water directly
 	ShakerToolName            = "Shaker",
 	MaxInteractDistance       = 12,
 	ActionCooldown            = 0.12,
@@ -13,7 +15,7 @@ local Settings = {
 	RequireGamepassForGlass   = false,
 	RequireGamepassForMixing  = false,
 	EnableGuidance            = true,
-	EnableBottleInteractionController  = false,
+	EnableGuidanceDebug       = false,  -- flip on to print guidance sends (server) + receives (client)
 	EnableHoverInteractionController   = true,
 	EnableDrinkVisualController        = true,
 	EnableShakerController             = true,
@@ -21,13 +23,13 @@ local Settings = {
 	-- ── Drunkness ─────────────────────────────────────────────────────
 	DrunknessMax = 100,
 
-	-- Passive recovery: 100→0 in ~1.5 min naturally.
-	DrunknessRecoveryPerSecond = 1.1,
+	-- Passive recovery: 1.5x slower than before (was 1.1) — 100→0 in ~2.3 min naturally.
+	DrunknessRecoveryPerSecond = 0.73,
 
 	-- Visual effects reach full intensity at 70 drunkness (not 100),
 	-- so effects feel strong and noticeable well before you're fully maxed.
 	DrunknessVisualMax            = 70,
-	DrunknessVisualRisePerSecond  = 12,
+	DrunknessVisualRisePerSecond  = 4,   -- slow build after each sip (was 12 — read as a lurch)
 	DrunknessVisualFallPerSecond  = 1.5,
 	DrunkEffectIntensity          = 1.25,
 
@@ -76,6 +78,11 @@ local Settings = {
 	DrunkSidewaysSwayMax       = 0.72,
 
 	DrunkHiccupSoundId  = 9114396275,
+	-- World sounds (played server-side on the character so nearby players hear them)
+	PourSoundId         = 96961332439928,
+	PourSoundVolume     = 0.4,
+	DrinkSoundId        = 82098479361178,
+	DrinkSoundVolume    = 0.55,
 	EnableDrunkDebug    = false,
 	DrunkDebugInterval  = 0.5,
 

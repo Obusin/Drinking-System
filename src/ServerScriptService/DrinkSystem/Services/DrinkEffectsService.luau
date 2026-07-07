@@ -156,6 +156,9 @@ function DrinkEffects.new(player: Player): DrinkEffects
 	self.BaseJumpPower   = 50
 	self.CollapsedUntil  = 0
 	self.LastCollapseAt  = -math.huge
+	self.LastStumbleAt   = -math.huge
+	self.IsStumble       = false
+	self.NextHiccupAt    = 0
 	self.LastStage       = "Sober"
 	return self
 end
@@ -176,19 +179,34 @@ function DrinkEffects:Apply(amount: number)
 	self.DrunknessValue.Value = math.clamp(self.DrunknessValue.Value + amount, 0, self.MaxDrunkness)
 end
 
-function DrinkEffects:_setCollapsed(active: boolean, now: number, duration: number?)
+function DrinkEffects:_setCollapsed(active: boolean, now: number, duration: number?, isStumble: boolean?)
 	if self.CollapsedValue.Value == active then return end
 	self.CollapsedValue.Value = active
 	if active then
+		self.IsStumble = isStumble == true
 		self.CollapsedUntil = now + (duration or config.DrunkCollapseDuration or 5)
-		self.LastCollapseAt = now
+		-- Stumbles and full collapses track SEPARATE cooldowns. Sharing one
+		-- meant frequent stumbles kept resetting the collapse timer, so a
+		-- player stumbling their way up could never trigger the max-drunkness
+		-- ragdoll at all.
+		if self.IsStumble then
+			self.LastStumbleAt = now
+		else
+			self.LastCollapseAt = now
+		end
 	else
 		self.CollapsedUntil = 0
-		local recoveryRatio  = config.DrunkCollapseRecoveryRatio or 0.78
-		local target = self.MaxDrunkness * recoveryRatio
-		if self.DrunknessValue.Value > target then
-			self.DrunknessValue.Value = target
+		-- Only a full collapse sobers you toward the recovery ratio on wake.
+		-- Stumbles are just trips — they must not cut drunkness back down,
+		-- or drinking toward max keeps getting undone.
+		if not self.IsStumble then
+			local recoveryRatio  = config.DrunkCollapseRecoveryRatio or 0.78
+			local target = self.MaxDrunkness * recoveryRatio
+			if self.DrunknessValue.Value > target then
+				self.DrunknessValue.Value = target
+			end
 		end
+		self.IsStumble = false
 	end
 end
 
@@ -223,9 +241,11 @@ function DrinkEffects:Tick(dt: number, now: number)
 
 	if not self.CollapsedValue.Value then
 		if t >= collapseThreshold and (now - self.LastCollapseAt) >= collapseCooldown then
-			-- Full collapse at 92%+
-			self:_setCollapsed(true, now, config.DrunkCollapseDuration or 5)
-		elseif t >= stumbleThreshold and (now - self.LastCollapseAt) >= stumbleCooldown then
+			-- Full collapse at 92%+ (own cooldown — stumbles don't delay it)
+			self:_setCollapsed(true, now, config.DrunkCollapseDuration or 5, false)
+		elseif t >= stumbleThreshold
+			and (now - self.LastStumbleAt) >= stumbleCooldown
+			and (now - self.LastCollapseAt) >= stumbleCooldown then
 			-- Random stumble in the wasted range
 			local chanceAlpha = math.clamp(
 				(t - stumbleThreshold) / math.max(1 - stumbleThreshold, 0.001),
@@ -235,9 +255,18 @@ function DrinkEffects:Tick(dt: number, now: number)
 			local chanceMax = config.DrunkStumbleChancePerSecondMax or 0.45
 			local chance    = chanceMin + (chanceMax - chanceMin) * chanceAlpha
 			if math.random() < (chance * dt) then
-				self:_setCollapsed(true, now, stumbleDuration)
+				self:_setCollapsed(true, now, stumbleDuration, true)
 			end
 		end
+	end
+
+	-- Hiccups: server-played so nearby players hear them too. Frequency ramps
+	-- with drunkness; suppressed while collapsed.
+	local hiccupId = config.DrunkHiccupSoundId
+	if hiccupId and t >= 0.20 and not self.CollapsedValue.Value and now >= self.NextHiccupAt then
+		DrinkEffectsService.playCharacterSound(self.Player, hiccupId, 0.6, 0.92 + math.random() * 0.18)
+		local baseInterval = 9 - 5 * math.min(t, 1)
+		self.NextHiccupAt = now + math.max(2, baseInterval + (-1 + math.random() * 2.4))
 	end
 
 	local stage = computeStage(self.DrunknessValue.Value, self.MaxDrunkness, self.CollapsedValue.Value)
@@ -306,6 +335,27 @@ end
 
 function DrinkEffectsService.applyDrink(player: Player, amount: number)
 	DrinkEffectsService.get(player):Apply(amount)
+end
+
+-- Spatial sound on the player's character — server-created so EVERYONE nearby
+-- hears it (client-created sounds are local-only). Low rolloff keeps it subtle.
+function DrinkEffectsService.playCharacterSound(player: Player, soundId: (number | string)?, volume: number?, playbackSpeed: number?)
+	if not soundId then return end
+	local char = player.Character
+	local part = char and (char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart"))
+	if not part then return end
+	local sound = Instance.new("Sound")
+	sound.SoundId = "rbxassetid://" .. tostring(soundId)
+	sound.Volume = volume or 0.5
+	sound.PlaybackSpeed = playbackSpeed or 1
+	sound.RollOffMode = Enum.RollOffMode.InverseTapered
+	sound.RollOffMaxDistance = 45
+	sound.Parent = part
+	sound:Play()
+	sound.Ended:Once(function() sound:Destroy() end)
+	task.delay(10, function()
+		if sound.Parent then sound:Destroy() end
+	end)
 end
 
 function DrinkEffectsService.start()

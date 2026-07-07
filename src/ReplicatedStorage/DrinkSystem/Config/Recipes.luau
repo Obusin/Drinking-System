@@ -307,11 +307,16 @@ local Recipes = {
 	},
 
 	-- ── SOBER ─────────────────────────────────────────────────────────
-	["Still Water"] = {
-		DisplayName    = "Still Water",
+	-- Water works two ways (no shaker required for either):
+	--   1. No glass in hand → click the water source, drink on the spot (onPour intercept)
+	--   2. Glass in hand → pours into the glass, auto-finalizes to this recipe
+	["Water"] = {
+		DisplayName    = "Water",
 		Ingredients    = { "Water" },
 		OutputColor    = Color3.fromRGB(200, 230, 255),
 		RequireShaker  = false,
+		SkipShaker     = true,  -- bypass AUTO_SHAKER_ON_RECIPE — finalize instantly
+		FillStageOverride = 3,  -- one pour fills the whole glass
 		StrongnessOverride = -35,
 		Steps = {
 			{ Ingredient = "Water" },

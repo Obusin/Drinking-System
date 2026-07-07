@@ -27,7 +27,7 @@ local effects = DrinkEffectsClient.new(player, Settings.DrunknessMax or 100)
 effects:Start()
 
 local DRINK_ANIMATION_ID = 137780885800100
-local DRINK_SOUND_ID = 130281744609769
+local DRINK_SOUND_ID = 82098479361178
 
 local IS_MOBILE = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 
@@ -89,18 +89,13 @@ local function playDrinkAnimationAndSound()
 		currentDrinkTrack = track
 	end
 
-	local char = player.Character
-	local parentPart = char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Head"))
-	local sound = Instance.new("Sound")
-	sound.SoundId = "rbxassetid://" .. tostring(DRINK_SOUND_ID)
-	sound.Volume = 1
-	sound.PlayOnRemove = false
-	sound.Parent = parentPart or SoundService
-	sound:Play()
-	sound.Ended:Connect(function()
-		sound:Destroy()
-	end)
+	-- Drink SOUND is played server-side (DrinkEffectsService.playCharacterSound)
+	-- so nearby players hear it spatially — only the animation is local.
 end
+
+-- Shared with HoverInteractionController so drinking Water from a world
+-- source plays the same animation as sipping a held drink.
+_G.DS_PlayDrinkAnim = playDrinkAnimationAndSound
 
 local function getRootTarget(target: Instance?): Instance?
 	if not target then
@@ -173,6 +168,33 @@ local function isPointerTargetingGarnish(): boolean
 	return false
 end
 
+-- True when the cursor is over any world interactable owned by the hover
+-- controller (glass, placed drink, shaker, water/ingredient source). Clicking
+-- those must never count as a sip of the held drink.
+local function isPointerTargetingWorldItem(): boolean
+	local char = player.Character
+	if not char then return false end
+	local result = raycastFromCursor(char)
+	if not result or not result.Instance then return false end
+	local root = getRootTarget(result.Instance)
+	if not root then return false end
+
+	local function matches(inst: Instance): boolean
+		local glass = inst:GetAttribute("DS_Glass")
+		if glass == true or type(glass) == "string" then return true end
+		if inst:GetAttribute("DS_Drink") == true then return true end
+		if inst:GetAttribute("DS_Shaker") == true then return true end
+		if type(inst:GetAttribute("DS_IngredientName")) == "string" then return true end
+		return false
+	end
+
+	if matches(root) then return true end
+	for _, desc in ipairs(root:GetDescendants()) do
+		if matches(desc) then return true end
+	end
+	return false
+end
+
 -- Returns true when cursor is on a valid placement surface (DS_Surface or DS_Table).
 -- Used to intercept clicks on tables so a completed drink is placed, not consumed.
 -- Raycasts from the cursor and returns the hit surface part + world position if
@@ -212,17 +234,19 @@ local function getPlacementTarget(): (BasePart?, Vector3?)
 	return nil, nil
 end
 
-local function tryConsume(tool: Tool)
+local function tryConsume(tool: Tool, fromMobileTap: boolean?)
 	if drinkAnimLocked then return end
 	if ragdollLocked then return end
 
 	-- On mobile, Activated fires before TouchTap so the flag approach is unreliable.
-	-- Block Activated entirely for drink tools on mobile — TouchTap owns place + drink.
-	if IS_MOBILE and tool:GetAttribute("DS_Drink") == true then return end
+	-- Block Activated for drink tools on mobile — the TouchTap handler owns place+drink
+	-- and calls tryConsume with fromMobileTap=true to get past this gate.
+	if IS_MOBILE and not fromMobileTap and tool:GetAttribute("DS_Drink") == true then return end
 
 	if not IS_MOBILE then
 		if isPointerTargetingBottle() then return end
 		if isPointerTargetingGarnish() then return end
+		if isPointerTargetingWorldItem() then return end
 
 		-- Completed drink: if the click lands on a valid surface → place it, don't sip
 		if tool:GetAttribute("DS_Drink") == true then
@@ -335,6 +359,58 @@ end
 
 SetBackpackLocked.listen(function(payload)
 	setBackpackLocked(payload.Locked == true)
+end)
+
+---------------------------------------------------------------------
+-- "Shaker required" popup — shown when trying to mix without a shaker.
+-- Sits above the hotbar, out of the way.
+---------------------------------------------------------------------
+local shakerNoticeGui = Instance.new("ScreenGui")
+shakerNoticeGui.Name = "DS_ShakerNotice"
+shakerNoticeGui.ResetOnSpawn = false
+shakerNoticeGui.DisplayOrder = 55
+shakerNoticeGui.Parent = player:WaitForChild("PlayerGui")
+
+local shakerNoticeLabel = Instance.new("TextLabel")
+shakerNoticeLabel.AnchorPoint = Vector2.new(0.5, 1)
+shakerNoticeLabel.Position = UDim2.new(0.5, 0, 1, -95)  -- just above the hotbar
+shakerNoticeLabel.AutomaticSize = Enum.AutomaticSize.XY
+shakerNoticeLabel.BackgroundTransparency = 1
+shakerNoticeLabel.Font = Enum.Font.Montserrat
+shakerNoticeLabel.Text = "Shaker required"
+shakerNoticeLabel.TextSize = 22
+shakerNoticeLabel.TextColor3 = Color3.fromRGB(255, 60, 60)
+shakerNoticeLabel.Visible = false
+shakerNoticeLabel.Parent = shakerNoticeGui
+
+local shakerNoticeStroke = Instance.new("UIStroke")
+shakerNoticeStroke.Color = Color3.fromRGB(0, 0, 0)
+shakerNoticeStroke.Thickness = 1.5
+shakerNoticeStroke.Parent = shakerNoticeLabel
+
+local shakerNoticeToken = 0
+local function showShakerNotice()
+	shakerNoticeToken += 1
+	local token = shakerNoticeToken
+	shakerNoticeLabel.TextTransparency = 0
+	shakerNoticeStroke.Transparency = 0
+	shakerNoticeLabel.Visible = true
+	task.delay(1.4, function()
+		if shakerNoticeToken ~= token then return end
+		local TweenService = game:GetService("TweenService")
+		local info = TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+		TweenService:Create(shakerNoticeLabel, info, { TextTransparency = 1 }):Play()
+		TweenService:Create(shakerNoticeStroke, info, { Transparency = 1 }):Play()
+		task.delay(0.35, function()
+			if shakerNoticeToken == token then
+				shakerNoticeLabel.Visible = false
+			end
+		end)
+	end)
+end
+
+Packets.MissingShakerNotify.listen(function()
+	showShakerNotice()
 end)
 
 local function getPlaceKey(): Enum.KeyCode
@@ -468,8 +544,10 @@ if IS_MOBILE then
 	btnFrame.BackgroundTransparency = 1
 	btnFrame.Visible = false
 	btnFrame.Parent = confirmGui
-	Instance.new("UIListLayout", btnFrame).FillDirection = Enum.FillDirection.Horizontal
-	Instance.new("UIListLayout", btnFrame).Padding = UDim.new(0, 10)
+	local btnLayout = Instance.new("UIListLayout")
+	btnLayout.FillDirection = Enum.FillDirection.Horizontal
+	btnLayout.Padding = UDim.new(0, 10)
+	btnLayout.Parent = btnFrame
 
 	local function makeBtn(text, bg)
 		local btn = Instance.new("TextButton")
@@ -576,13 +654,19 @@ if IS_MOBILE then
 			local hitPos = result.Position
 
 			-- If the ray hit a side face (normal mostly horizontal), the hit XZ is on
-			-- the front wall of the counter. Push the point inward past that face so
-			-- the drink lands ON the tabletop just inside where the player tapped.
+			-- the front wall of the counter. Continue the ray to where it crosses the
+			-- tabletop plane (Y = topY) — that's where the player was actually aiming.
+			-- Falls back to a fixed inward push if the ray runs parallel to the plane.
 			local normal = result.Normal
 			if normal:Dot(Vector3.new(0, 1, 0)) < 0.7 then
-				local horizontalN = Vector3.new(normal.X, 0, normal.Z)
-				if horizontalN.Magnitude > 0.01 then
-					hitPos = hitPos - horizontalN.Unit * 1.5
+				local t = ray.Direction.Y ~= 0 and ((topY - ray.Origin.Y) / ray.Direction.Y) or nil
+				if t and t > 0 then
+					hitPos = ray.Origin + ray.Direction * t
+				else
+					local horizontalN = Vector3.new(normal.X, 0, normal.Z)
+					if horizontalN.Magnitude > 0.01 then
+						hitPos = hitPos - horizontalN.Unit * 1.5
+					end
 				end
 			end
 
@@ -604,7 +688,7 @@ if IS_MOBILE then
 			btnFrame.Visible = true
 		else
 			-- Ray missed a surface — treat as drink tap.
-			tryConsume(drinkTool)
+			tryConsume(drinkTool, true)
 		end
 	end)
 
