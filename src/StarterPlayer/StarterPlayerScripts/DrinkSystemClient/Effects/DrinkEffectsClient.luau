@@ -276,6 +276,18 @@ function DrinkEffectsClient:StartCameraSpin(duration: number)
 	self.SpinUntil = os.clock() + math.max(duration or 0, 0)
 end
 
+-- Called on respawn: kill one-shot effects instantly (spin, camera offsets),
+-- but KEEP DisplayDrunkness — it slides down smoothly as the server zeroes
+-- the real value, so the bar and effects ease out instead of snapping.
+function DrinkEffectsClient:OnRespawn()
+	self.SpinUntil = 0
+	self.SpinAngle = 0
+	self.SmoothedMotionBoost = 0
+	self.LastOffset = CFrame.new()  -- new camera — old offset no longer applies
+	self.LastFovOffset = 0
+	self.NextHiccupAt = 0
+end
+
 function DrinkEffectsClient:Start()
 	if self.Connection then return end
 	self.Connection = RunService.RenderStepped:Connect(function(dt)

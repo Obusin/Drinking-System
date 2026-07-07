@@ -367,6 +367,15 @@ Packets.SpecialDrinkEffect.listen(function(payload)
 	end
 end)
 
+-- Respawn: clear one-shot effects and stuck locks immediately. Drunkness
+-- visuals/bar are NOT snapped — they slide down as the server resets to 0.
+player.CharacterAdded:Connect(function()
+	effects:OnRespawn()
+	drinkAnimLocked = false
+	currentDrinkTrack = nil
+	applyBackpackLock()
+end)
+
 ---------------------------------------------------------------------
 -- "Shaker required" popup — shown when trying to mix without a shaker.
 -- Sits above the hotbar, out of the way.
