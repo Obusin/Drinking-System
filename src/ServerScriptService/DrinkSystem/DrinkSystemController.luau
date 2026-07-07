@@ -824,24 +824,6 @@ local function sendGuidanceIfNeeded(session: DrinkSession, glassTool: Tool?)
 	if now - session.LastGuidanceAt < interval then return end
 
 	local payload = updateGuidance(session, glassTool)
-	if Settings.EnableGuidanceDebug == true then
-		local mixCsv = "no-glass"
-		if glassTool then
-			local mix = getMixState(session, glassTool)
-			mixCsv = table.concat(ingredientsToList(mix), ",")
-			if mixCsv == "" then mixCsv = "empty" end
-		end
-		print(
-			"[DrinkSystem][GuidanceSend]",
-			session.Player.Name,
-			"| instr:", payload.Instruction,
-			"| mix:", mixCsv,
-			"| recommended:", #(payload.RecommendedIngredients or {}),
-			"| display:", #(payload.DisplayIngredients or {}),
-			"| required:", tostring(payload.RequiredItemType),
-			"| glass:", glassTool and glassTool.Name or "nil"
-		)
-	end
 	Packets.GuidanceUpdate.sendTo({
 		Instruction = payload.Instruction or "",
 		RecommendedIngredients = payload.RecommendedIngredients or {},

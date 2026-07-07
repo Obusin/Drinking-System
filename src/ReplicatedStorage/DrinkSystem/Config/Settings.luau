@@ -15,7 +15,6 @@ local Settings = {
 	RequireGamepassForGlass   = false,
 	RequireGamepassForMixing  = false,
 	EnableGuidance            = true,
-	EnableGuidanceDebug       = false,  -- flip on to print guidance sends (server) + receives (client)
 	EnableHoverInteractionController   = true,
 	EnableDrinkVisualController        = true,
 	EnableShakerController             = true,

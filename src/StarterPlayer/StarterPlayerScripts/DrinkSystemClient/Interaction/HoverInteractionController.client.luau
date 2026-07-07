@@ -371,14 +371,6 @@ GuidanceUpdate.listen(function(payload)
 	guidance.RecommendedIngredients = payload.RecommendedIngredients or {}
 	guidance.DisplayIngredients = payload.DisplayIngredients or {}
 	guidance.RequiredItemType = payload.RequiredItemType
-	if Settings.EnableGuidanceDebug == true then
-		print(
-			"[DrinkSystem][GuidanceRecv]",
-			"| instr:", payload.Instruction,
-			"| recommended:", #(guidance.RecommendedIngredients),
-			table.concat(guidance.RecommendedIngredients, ", ")
-		)
-	end
 	refreshGuidanceTargets()
 end)
 
