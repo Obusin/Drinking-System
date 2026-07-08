@@ -62,7 +62,6 @@ argon serve
 | Bukonelle Breeze | Bukonelle, Coolnag, Soda Water | No | Lime | 28 |
 | Fonador Sling | Fonador, Tropica, Soda Water | No | Orange | 25 |
 | Vermix Mule | Vermix, Soda Water, Mintverde | No | Lime | 20 |
-| Dealer's Choice | Almendra, Chocoluxe, Creamora | Yes | Cherry | 45 |
 | Heatstroke | Bilijin, Tropica, Sugar | No | Orange | 15 |
 | Minty Fresh | Mintverde, Soda Water, Simple Syrup | No | Lime | 8 |
 | Tropicali | Tropica, Coolnag, Simple Syrup | No | Orange | 12 |
@@ -102,9 +101,9 @@ Handled in `DrinkSystemController.onPour` before the glass check; guidance never
 | Buzzed | 20+ | Slight walk speed reduction |
 | Drunk | 45+ | Noticeable slowdown, screen starts wobbling |
 | Wasted | 72+ | Heavy slowdown, random stumble ragdolls |
-| Collapsed | 92+ | Full pass-out ragdoll for ~15s, once per 90s, wakes at 50% |
+| Collapsed | 92+ | Full pass-out ragdoll for ~30s, once per 90s, wakes at 50% |
 
-**Recovery:** 1.1 drunkness/second naturally (~90s to fully sober), or drink Water (-35 instantly).
+**Recovery:** 0.73 drunkness/second naturally (~2.3 min to fully sober), or drink Water (-35 instantly).
 
 ---
 
@@ -149,10 +148,10 @@ Tag the table model with **`DS_Table`** via CollectionService. No need to add in
 | `MaxInteractDistance` | 12 | Stud radius for pickup / placement |
 | `WaterSoberAmount` | -35 | Drunkness change per direct Water drink |
 | `DrunknessMax` | 100 | Drunkness ceiling |
-| `DrunknessRecoveryPerSecond` | 1.1 | Natural sober-up rate (~90s from max) |
+| `DrunknessRecoveryPerSecond` | 0.73 | Natural sober-up rate (~2.3 min from max) |
 | `DrunknessVisualMax` | 70 | Visual effects hit full intensity here, not at 100 |
 | `DrunkCollapseThreshold` | 0.92 | Fraction of max that triggers pass-out |
-| `DrunkCollapseDuration` | 15 | Seconds knocked out |
+| `DrunkCollapseDuration` | 30 | Seconds knocked out |
 | `DrunkCollapseCooldown` | 90 | Min seconds between collapses |
 | `EnableGuidance` | true | Shows ingredient highlights to guide bartender |
 | `EnableDrunkDebug` | false | Prints drunkness values to output |
