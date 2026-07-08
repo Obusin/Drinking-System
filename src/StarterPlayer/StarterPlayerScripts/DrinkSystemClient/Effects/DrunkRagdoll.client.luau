@@ -25,7 +25,7 @@ local function screenShake()
 	end)
 end
 
-local SHUFFLE_SPEED = 16
+local SHUFFLE_SPEED = 7  -- ragdoll crawl speed (was 16 — "too fast" per playtests)
 local shuffleConn: RBXScriptConnection? = nil
 local bodyVel: BodyVelocity? = nil
 
