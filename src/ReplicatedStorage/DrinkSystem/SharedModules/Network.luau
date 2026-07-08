@@ -124,8 +124,8 @@ Network.Packets = ByteNet.defineNamespace("DrinkSystem", function()
 			}),
 		}),
 
-		-- Client → server: dump the held mix/drink into a DS_Trash bin
-		RequestTrashDrink = ByteNet.definePacket({
+		-- Client → server: pour out the held mix/drink into a DS_Sink
+		RequestSinkDrink = ByteNet.definePacket({
 			value = ByteNet.struct({
 				Model = ByteNet.inst,
 			}),

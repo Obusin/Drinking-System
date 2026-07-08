@@ -30,7 +30,7 @@ local RequestPourIngredient = Packets.RequestPourIngredient
 local RequestAddGarnish = Packets.RequestAddGarnish
 local GuidanceUpdate = Packets.GuidanceUpdate
 local RequestFinalizeMix = Packets.RequestFinalizeMix
-local RequestTrashDrink = Packets.RequestTrashDrink
+local RequestSinkDrink = Packets.RequestSinkDrink
 
 ---------------------------------------------------------------------
 -- Helper: Is player holding a glass tool?
@@ -102,9 +102,9 @@ local function detectType(model)
 		end
 	end
 
-	-- Trash bin — dump the held mix/drink
-	if model:GetAttribute("DS_Trash") == true or CollectionService:HasTag(model, "DS_Trash") then
-		return "Trash"
+	-- Sink — pour out the held mix/drink
+	if model:GetAttribute("DS_Sink") == true or CollectionService:HasTag(model, "DS_Sink") then
+		return "Sink"
 	end
 
 	-- 3. Water overrides everything — anything carrying DS_IngredientName = "Water"
@@ -486,7 +486,7 @@ end)
 local function isGuidedClickAllowed(model: Model, itemType: string): boolean
 	-- Placed drinks, glasses, shakers, and the trash are always clickable —
 	-- guidance never blocks them
-	if itemType == "Drink" or itemType == "Glass" or itemType == "Shaker" or itemType == "Trash" then return true end
+	if itemType == "Drink" or itemType == "Glass" or itemType == "Shaker" or itemType == "Sink" then return true end
 
 	-- Water is drinkable any time — guidance never blocks it
 	if itemType == "Bottle" and getIngredientName(model) == "Water" then return true end
@@ -650,8 +650,8 @@ RunService.RenderStepped:Connect(function()
 			label = "Shaker"
 		elseif hoverType == "Garnish" then
 			label = hoveredModel:GetAttribute("DS_Garnish") or hoveredModel.Name
-		elseif hoverType == "Trash" then
-			label = "Trash"
+		elseif hoverType == "Sink" then
+			label = "Dispose"
 		end
 		setTooltip(label)
 		updateTooltipPosition()
@@ -675,8 +675,8 @@ local function tryInteract()
 	end
 
 	-- Do not consume click input while the player is holding a drink
-	-- unless targeting a garnish station, another drink, Water, or the Trash.
-	if t ~= "Garnish" and t ~= "Drink" and t ~= "Trash" and playerIsHoldingDrinkTool() then
+	-- unless targeting a garnish station, another drink, Water, or the Sink.
+	if t ~= "Garnish" and t ~= "Drink" and t ~= "Sink" and playerIsHoldingDrinkTool() then
 		if not (t == "Bottle" and getIngredientName(currentModel) == "Water") then
 			return
 		end
@@ -697,9 +697,9 @@ local function tryInteract()
 		return
 	end
 
-	-- Trash: dump the held mix/drink (glass resets to clean)
-	if t == "Trash" then
-		RequestTrashDrink.send({ Model = currentModel })
+	-- Sink: pour out the held mix/drink (glass resets to clean)
+	if t == "Sink" then
+		RequestSinkDrink.send({ Model = currentModel })
 		return
 	end
 

@@ -1304,7 +1304,7 @@ function DrinkSystemController.onConsumeDrink(player: Player, tool: Tool)
 	end
 end
 
--- Reset any held glass/drink back to a clean empty Glass (trash bin).
+-- Reset any held glass/drink back to a clean empty Glass (sink).
 local function resetToolToEmptyGlass(tool: Tool)
 	tool.Name = "Glass"
 	tool:SetAttribute("DS_Drink", false)
@@ -1328,24 +1328,24 @@ local function resetToolToEmptyGlass(tool: Tool)
 	GlassPresentation.reset(tool)
 end
 
-local function isTrashModel(model: Instance): boolean
-	if model:GetAttribute("DS_Trash") == true or CollectionService:HasTag(model, "DS_Trash") then
+local function isSinkModel(model: Instance): boolean
+	if model:GetAttribute("DS_Sink") == true or CollectionService:HasTag(model, "DS_Sink") then
 		return true
 	end
 	for _, d in ipairs(model:GetDescendants()) do
-		if d:GetAttribute("DS_Trash") == true then
+		if d:GetAttribute("DS_Sink") == true then
 			return true
 		end
 	end
 	return false
 end
 
-function DrinkSystemController.onTrashDrink(player: Player, model: Instance)
+function DrinkSystemController.onSinkDrink(player: Player, model: Instance)
 	if playerIsCollapsed(player) then return end
 	local session = getSession(player)
 	if not rateLimitOk(session) then return end
 	if typeof(model) ~= "Instance" then return end
-	if not isTrashModel(model) then return end
+	if not isSinkModel(model) then return end
 	if not modelDistanceOk(player, model) then return end
 
 	-- The held glass or drink (character first — must be in hand)
@@ -1364,7 +1364,7 @@ function DrinkSystemController.onTrashDrink(player: Player, model: Instance)
 	end
 	if not tool then return end
 
-	-- Never trash a drink that's mid-shake finalize
+	-- Never sink-dump a drink that's mid-shake finalize
 	local mix = session.MixByTool[tool]
 	if mix and mix.PendingPayload then return end
 
@@ -1375,7 +1375,7 @@ function DrinkSystemController.onTrashDrink(player: Player, model: Instance)
 	session.SuggestedRecipes = {}
 	session.DirtyGuidance = true
 	session.LastGuidanceAt = 0
-	debugPrint(player.Name, "trashed their drink")
+	debugPrint(player.Name, "emptied their drink in the sink")
 end
 
 function DrinkSystemController.onSelectRecipe(player: Player, recipeName: string?)
@@ -1446,8 +1446,8 @@ local function wirePackets()
 		DrinkSystemController.onSelectRecipe(player, data.RecipeName)
 	end)
 
-	Packets.RequestTrashDrink.listen(function(data, player)
-		DrinkSystemController.onTrashDrink(player, data.Model)
+	Packets.RequestSinkDrink.listen(function(data, player)
+		DrinkSystemController.onSinkDrink(player, data.Model)
 	end)
 end
 
