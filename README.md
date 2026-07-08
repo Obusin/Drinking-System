@@ -21,11 +21,12 @@ argon serve
 ## How to Play
 
 ### Bartender flow
-1. Pick up a **glass** from the bar (click the world glass model)
-2. Click **ingredient bottles** to pour — up to 4 ingredients per glass
-3. If the recipe needs a shaker, pick up the **shaker** and the mix auto-shakes
-4. **Click a table** while holding the finished drink to place it
-5. Customers pick up the placed drink and click to consume it
+1. Pick up the **shaker** (required to mix — a "Shaker required" popup reminds you) and a **glass**, in either order
+2. Click **ingredient bottles** to pour. Only **recipe-valid** pours land: the guide highlights the best next ingredients, anything that fits *some* recipe is clickable, everything else is rejected
+3. Recipes auto-shake and finalize when complete
+4. Made a mistake? Click the **sink** ("Dispose") — the glass empties back to clean
+5. **Click a table** while holding the finished drink to place it
+6. Customers pick up the placed drink and click to consume it
 
 ### Customer flow
 1. Pick up a placed **drink** from a table
@@ -47,12 +48,12 @@ argon serve
 
 | Name | Ingredients | Shaker | Garnish | Strength |
 |---|---|---|---|---|
-| Blue Screen | Vodqa, Coolnag, Soda Water | No | Lime | 100 ☠️ one-shot |
+| Blue Screen | Vodqa, Coolnag, Soda Water | No | Lime | 85 |
 | Sgm Overdrive | Sgm Jinn, Vodqa, Caffemo | Yes | Lime | 85 |
 | The Nguermo | Nguermo, Double Time, Barcandy | Yes | Cherry | 80 |
 | Barcandy Bomb | Barcandy, Vermix, Maple Syrup | Yes | Cherry | 65 |
 | Sgm Horizon | Sgm Jinn, Fonador, Simple Syrup | Yes | Orange | 60 |
-| Calliamo Crush | Calliamo, Biljin, Creamora | Yes | Cherry | 55 |
+| Calliamo Crush | Calliamo, Bilijin, Creamora | Yes | Cherry | 55 |
 | Debt Collector | JacklineDale, Maple Syrup, Creamora | Yes | Orange | 50 |
 | Dealer's Choice | Almendra, Chocoluxe, Creamora | Yes | Cherry | 45 |
 | Nguermo Noir | Nguermo, Chocoluxe, Maple Syrup | Yes | Cherry | 40 |
@@ -62,12 +63,28 @@ argon serve
 | Fonador Sling | Fonador, Tropica, Soda Water | No | Orange | 25 |
 | Vermix Mule | Vermix, Soda Water, Mintverde | No | Lime | 20 |
 | Dealer's Choice | Almendra, Chocoluxe, Creamora | Yes | Cherry | 45 |
-| Heatstroke | Biljin, Tropica, Sugar | No | Orange | 15 |
+| Heatstroke | Bilijin, Tropica, Sugar | No | Orange | 15 |
 | Minty Fresh | Mintverde, Soda Water, Simple Syrup | No | Lime | 8 |
 | Tropicali | Tropica, Coolnag, Simple Syrup | No | Orange | 12 |
 | Cocoa Rush | Cochoco, Creamora, Sugar | No | Cherry | 10 |
 
 Strength is total drunkness added across all 3 sips. Drunkness max is 100.
+
+### Secret drinks
+Flagged `Secret = true` in Recipes.luau — never shown in guidance, suggestions, or highlights.
+Players discover them; pours still validate against them (count-aware, duplicates allowed).
+
+| Name | How | Effect |
+|---|---|---|
+| Sin Obu | 3× Vodqa | 1 sip → +90 drunkness, forced 60s ragdoll, spinning vision |
+| Solaire's Spit | Pour Water twice more onto a finished Water drink | Milky white, fully sobers (-100), room-wide sound |
+
+Recipes support per-recipe `Sips = n` and `Effects = { Collapse = seconds, CameraSpin = seconds }` —
+the extensible hook for special drink variety.
+
+### Stats
+`leaderstats` show **Drinks Made** and **Drinks Drunk** (per finished glass; Water excluded),
+persisted via DataStore. Requires *Enable Studio Access to API Services* and a published place.
 
 ### Water (sober-up)
 Water is **not a recipe** — it's a direct-consume world object. Click/tap any part or model
@@ -114,7 +131,8 @@ Use **CollectionService tags** or **attributes** on world objects:
 | `DS_Drinks` | bool attribute | Bottle model or descendant | Marks an ingredient bottle |
 | `DS_IngredientName` | string attribute | Bottle model **or bare part** | Ingredient name (must match `IngredientRegistry`). Sufficient on its own — no `DS_Drinks` needed. A bare part with `DS_IngredientName = "Water"` becomes a sober-up station |
 | `DS_Shaker` | bool attribute | Shaker world model | Marks a pickupable shaker |
-| `DS_Garnish` | string attribute | Garnish model | Garnish name (e.g. `Lime`, `Cherry`) |
+| `DS_Garnish` | string attribute | Garnish model | Garnish name (e.g. `Lime`, `Cherry`, `Ice`) |
+| `DS_Sink` | bool attribute (or tag) | Sink model or part | Disposal: hover shows "Dispose"; click while holding a mix/drink resets the glass to clean |
 
 ### Placing drinks on tables
 Tag the table model with **`DS_Table`** via CollectionService. No need to add individual surface parts — the system finds the highest face automatically. Alternatively, tag/attribute specific parts with `DS_Surface` for manual control.
