@@ -11,7 +11,7 @@ local INGREDIENTS = {
 	Absmith = { Strongness = BASE_STRONGNESS, Color = BASE_COLOR },
 	Almendra = { Strongness = BASE_STRONGNESS, Color = BASE_COLOR },
 	Barcandy = { Strongness = BASE_STRONGNESS, Color = BASE_COLOR },
-	Biljin = { Strongness = BASE_STRONGNESS, Color = BASE_COLOR },
+	Bilijin = { Strongness = BASE_STRONGNESS, Color = BASE_COLOR },
 	Bukonelle = { Strongness = BASE_STRONGNESS, Color = BASE_COLOR },
 	["Double Time"] = { Strongness = BASE_STRONGNESS, Color = BASE_COLOR },
 	Fonador = { Strongness = BASE_STRONGNESS, Color = BASE_COLOR },

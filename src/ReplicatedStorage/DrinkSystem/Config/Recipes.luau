@@ -49,12 +49,12 @@ local Recipes = {
 	},
 	["Heatstroke"] = {
 		DisplayName    = "Heatstroke",
-		Ingredients    = { "Biljin", "Tropica", "Sugar" },
+		Ingredients    = { "Bilijin", "Tropica", "Sugar" },
 		OutputColor    = Color3.fromRGB(255, 146, 76),
 		RequireShaker  = false,
 		StrongnessOverride = 22,
 		Steps = {
-			{ Ingredient = "Biljin" },
+			{ Ingredient = "Bilijin" },
 			{ Ingredient = "Tropica" },
 			{ Ingredient = "Sugar" },
 		},
@@ -159,13 +159,13 @@ local Recipes = {
 	},
 	["Calliamo Crush"] = {
 		DisplayName    = "Calliamo Crush",
-		Ingredients    = { "Calliamo", "Biljin", "Creamora" },
+		Ingredients    = { "Calliamo", "Bilijin", "Creamora" },
 		OutputColor    = Color3.fromRGB(230, 120, 200),
 		RequireShaker  = true,
 		StrongnessOverride = 68,
 		Steps = {
 			{ Ingredient = "Calliamo" },
-			{ Ingredient = "Biljin" },
+			{ Ingredient = "Bilijin" },
 			{ Ingredient = "Creamora" },
 			{ Tool = "Shaker" },
 		},
