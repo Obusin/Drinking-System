@@ -184,6 +184,7 @@ local function isPointerTargetingWorldItem(): boolean
 		if glass == true or type(glass) == "string" then return true end
 		if inst:GetAttribute("DS_Drink") == true then return true end
 		if inst:GetAttribute("DS_Shaker") == true then return true end
+		if inst:GetAttribute("DS_Sink") == true then return true end
 		if type(inst:GetAttribute("DS_IngredientName")) == "string" then return true end
 		return false
 	end
