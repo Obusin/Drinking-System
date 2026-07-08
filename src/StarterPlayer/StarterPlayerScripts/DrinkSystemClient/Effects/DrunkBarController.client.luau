@@ -27,7 +27,32 @@ local screenGui    = playerGui:WaitForChild("DrunknessLevel")
 screenGui.ResetOnSpawn = false
 local canvasGroup  = screenGui:WaitForChild("CanvasGroup")
 local barContainer = canvasGroup:WaitForChild("Bar")
-local fillBar      = barContainer:WaitForChild("Bar") :: Frame
+
+-- Fill frame: prefer child named "Bar", else the first Frame child, else the
+-- container itself if it's a Frame. Warn loudly instead of hanging forever
+-- when the UI hierarchy changes in Studio.
+local fillBar: Frame? = nil
+do
+	local named = barContainer:FindFirstChild("Bar")
+	if named and named:IsA("Frame") then
+		fillBar = named
+	else
+		for _, child in ipairs(barContainer:GetChildren()) do
+			if child:IsA("Frame") then
+				fillBar = child
+				break
+			end
+		end
+	end
+	if not fillBar and barContainer:IsA("Frame") then
+		fillBar = barContainer
+	end
+end
+if not fillBar then
+	warn("[DrinkSystem][DrunkBar] No fill Frame found under", canvasGroup:GetFullName(),
+		"> Bar — expected a Frame child (the fill). Bar will not update.")
+	return
+end
 
 -- Checkpoint ticks in Design are named by their X position (".125", ".25",
 -- ".5" ...). Snap each frame to the position its name declares so the marks
