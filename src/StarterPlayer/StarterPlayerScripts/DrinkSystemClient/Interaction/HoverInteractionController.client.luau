@@ -302,6 +302,23 @@ local timerFillCorner = Instance.new("UICorner")
 timerFillCorner.CornerRadius = UDim.new(1, 0)
 timerFillCorner.Parent = timerFill
 
+-- Label so the bar explains itself: "⏱ Speed Bonus 3.2s"
+local timerLabel = Instance.new("TextLabel")
+timerLabel.AnchorPoint = Vector2.new(0.5, 1)
+timerLabel.Position = UDim2.new(0.5, 0, 0, -2)
+timerLabel.AutomaticSize = Enum.AutomaticSize.XY
+timerLabel.BackgroundTransparency = 1
+timerLabel.Font = Enum.Font.Montserrat
+timerLabel.Text = ""
+timerLabel.TextSize = 13
+timerLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+timerLabel.TextTransparency = 0.15
+timerLabel.Parent = timerBack
+local timerLabelStroke = Instance.new("UIStroke")
+timerLabelStroke.Color = Color3.fromRGB(0, 0, 0)
+timerLabelStroke.Thickness = 1
+timerLabelStroke.Parent = timerLabel
+
 local TIMER_FAST = Settings.MixTimeFastSeconds or 5
 local TIMER_OK   = Settings.MixTimeOkSeconds or 10
 
@@ -324,11 +341,17 @@ local function updateMixTimer()
 	timerFill.Size = UDim2.new(remainingFrac, 0, 1, 0)
 	if elapsed <= TIMER_FAST then
 		timerFill.BackgroundColor3 = Color3.fromRGB(110, 220, 110)
+		timerLabel.Text = string.format("⏱ Speed Bonus %.1fs", math.max(TIMER_OK - elapsed, 0))
+		timerLabel.TextColor3 = Color3.fromRGB(180, 255, 180)
 	elseif elapsed <= TIMER_OK then
 		timerFill.BackgroundColor3 = Color3.fromRGB(235, 185, 60)
+		timerLabel.Text = string.format("⏱ Speed Bonus %.1fs", math.max(TIMER_OK - elapsed, 0))
+		timerLabel.TextColor3 = Color3.fromRGB(255, 225, 150)
 	else
 		timerFill.BackgroundColor3 = Color3.fromRGB(220, 70, 60)
-		timerFill.Size = UDim2.new(1, 0, 1, 0)  -- full red bar = too slow
+		timerFill.Size = UDim2.new(1, 0, 1, 0)
+		timerLabel.Text = "⏱ Too slow — no speed bonus"
+		timerLabel.TextColor3 = Color3.fromRGB(255, 160, 150)
 	end
 	timerBack.Visible = true
 end
