@@ -57,6 +57,7 @@ type ToolStep = {
 type MixState = {
 	GlassTool: Tool,
 	StartedAt: number,
+	FirstPourAt: number?,
 	LastActionAt: number,
 	Ingredients: { {Name: string, Time: number} },
 	Garnishes: { string },
@@ -621,10 +622,15 @@ local function computeOutcome(mix: MixState, recipeName: string?, recipeDef: tab
 	end
 
 	local penalty = (missing * 7) + (extras * 8)
-	local timeTaken = os.clock() - mix.StartedAt
-	local timeScore = 10
-	if timeTaken > (Settings.MaxDrinkTime or 60) then
-		timeScore = 4
+	-- Speed: measured from the FIRST pour. Fast hands = full points.
+	local timeTaken = os.clock() - (mix.FirstPourAt or mix.StartedAt)
+	local timeScore
+	if timeTaken <= (Settings.MixTimeFastSeconds or 5) then
+		timeScore = 10
+	elseif timeTaken <= (Settings.MixTimeOkSeconds or 10) then
+		timeScore = 6
+	else
+		timeScore = 2
 	end
 
 	local score = math.clamp(math.floor(accuracyScore + orderScore + toolScore + timeScore - penalty), 0, 100)
@@ -694,7 +700,7 @@ local function updateGuidance(session: DrinkSession, glassTool: Tool?)
 			end
 			if missing then
 				-- Garnish is optional — suggest but don't block anything
-				guidance.Instruction = "Tip: Add " .. missing .. " garnish, or place the drink."
+				guidance.Instruction = "Tip: Add " .. missing .. " garnish (+5), or place the drink."
 				return guidance
 			end
 			guidance.Instruction = "Click a table to place the drink."
@@ -982,6 +988,11 @@ function DrinkSystemController.onPour(player: Player, bottleModel: Instance)
 
 	addIngredient(mix, session, ingredientName)
 	local ingredients = ingredientsToList(mix)
+	-- First pour starts the speed clock; replicate for the live mix timer bar
+	if #ingredients == 1 then
+		mix.FirstPourAt = os.clock()
+		glassTool:SetAttribute("DS_MixStart", workspace:GetServerTimeNow())
+	end
 	updateGlassMixPreview(glassTool, ingredients)
 	local previewColor = Utility.averageColors(ingredients)
 	glassTool:SetAttribute("DS_Color", previewColor)
@@ -1171,6 +1182,7 @@ function DrinkSystemController.onAddGarnish(player: Player, model: Instance)
 			local score = tonumber(drinkTool:GetAttribute("DS_Score")) or 0
 			local newScore = math.clamp(score + 5, 0, 100)
 			if newScore ~= score then
+				local oldOutcome = drinkTool:GetAttribute("DS_Outcome")
 				drinkTool:SetAttribute("DS_Score", newScore)
 				local newOutcome
 				if newScore >= 90 then newOutcome = "Perfect"
@@ -1179,11 +1191,15 @@ function DrinkSystemController.onAddGarnish(player: Player, model: Instance)
 				elseif newScore >= 35 then newOutcome = "Experimental"
 				else newOutcome = "Ruined" end
 				drinkTool:SetAttribute("DS_Outcome", newOutcome)
-				Packets.DrinkOutcome.sendTo({
-					DrinkName = drinkTool:GetAttribute("DS_DrinkName") or "Drink",
-					Outcome = newOutcome,
-					Score = newScore,
-				}, player)
+				-- Only re-toast when the garnish actually UPGRADES the grade —
+				-- a silent +5 otherwise (no double-grading noise, keeps flow)
+				if newOutcome ~= oldOutcome then
+					Packets.DrinkOutcome.sendTo({
+						DrinkName = drinkTool:GetAttribute("DS_DrinkName") or "Drink",
+						Outcome = newOutcome,
+						Score = newScore,
+					}, player)
+				end
 			end
 		end
 	end
@@ -1337,6 +1353,7 @@ local function resetToolToEmptyGlass(tool: Tool)
 	tool:SetAttribute("DS_GarnishesCsv", "")
 	tool:SetAttribute("DS_Color", nil)
 	tool:SetAttribute("DS_WaterPours", nil)
+	tool:SetAttribute("DS_MixStart", nil)
 	GlassPresentation.reset(tool)
 end
 

@@ -275,6 +275,64 @@ instructionStroke.Color = Color3.fromRGB(0, 0, 0)
 instructionStroke.Thickness = 1.2
 instructionStroke.Parent = instructionLabel
 
+-- Live mix timer: slim bar above the instruction text while mixing. Drains
+-- over MixTimeOkSeconds from the FIRST pour — green (full speed points) →
+-- amber (partial) → red (too slow). Pure pressure, no numbers, no breakdown.
+local timerBack = Instance.new("Frame")
+timerBack.AnchorPoint = Vector2.new(0.5, 1)
+timerBack.Position = UDim2.new(0.5, 0, 1, -94)
+timerBack.Size = UDim2.new(0, 180, 0, 7)
+timerBack.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+timerBack.BackgroundTransparency = 0.35
+timerBack.BorderSizePixel = 0
+timerBack.Visible = false
+timerBack.Parent = instructionGui
+local timerBackCorner = Instance.new("UICorner")
+timerBackCorner.CornerRadius = UDim.new(1, 0)
+timerBackCorner.Parent = timerBack
+
+local timerFill = Instance.new("Frame")
+timerFill.AnchorPoint = Vector2.new(0, 0.5)
+timerFill.Position = UDim2.new(0, 0, 0.5, 0)
+timerFill.Size = UDim2.new(1, 0, 1, 0)
+timerFill.BackgroundColor3 = Color3.fromRGB(110, 220, 110)
+timerFill.BorderSizePixel = 0
+timerFill.Parent = timerBack
+local timerFillCorner = Instance.new("UICorner")
+timerFillCorner.CornerRadius = UDim.new(1, 0)
+timerFillCorner.Parent = timerFill
+
+local TIMER_FAST = Settings.MixTimeFastSeconds or 5
+local TIMER_OK   = Settings.MixTimeOkSeconds or 10
+
+local function updateMixTimer()
+	local char = player.Character
+	local tool = char and char:FindFirstChildWhichIsA("Tool")
+	local mixStart = tool and tool:GetAttribute("DS_MixStart")
+	local hasMix = tool
+		and tool:GetAttribute("DS_Drink") ~= true
+		and typeof(mixStart) == "number"
+		and (tool:GetAttribute("DS_IngredientListCsv") or "") ~= ""
+
+	if not hasMix then
+		timerBack.Visible = false
+		return
+	end
+
+	local elapsed = workspace:GetServerTimeNow() - mixStart
+	local remainingFrac = math.clamp(1 - elapsed / TIMER_OK, 0, 1)
+	timerFill.Size = UDim2.new(remainingFrac, 0, 1, 0)
+	if elapsed <= TIMER_FAST then
+		timerFill.BackgroundColor3 = Color3.fromRGB(110, 220, 110)
+	elseif elapsed <= TIMER_OK then
+		timerFill.BackgroundColor3 = Color3.fromRGB(235, 185, 60)
+	else
+		timerFill.BackgroundColor3 = Color3.fromRGB(220, 70, 60)
+		timerFill.Size = UDim2.new(1, 0, 1, 0)  -- full red bar = too slow
+	end
+	timerBack.Visible = true
+end
+
 local function updateInstructionLabel()
 	local text = guidance.Instruction or ""
 	if text ~= "" and playerIsHoldingGlass() then
@@ -643,6 +701,7 @@ RunService.RenderStepped:Connect(function()
 		lastGuidanceRefreshAt = now
 		refreshGuidanceTargets()
 	end
+	updateMixTimer()
 
 	local target = getRaycastTarget()
 

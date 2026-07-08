@@ -9,6 +9,10 @@ local Settings = {
 	DrinkConsumeCooldown      = 0.35,
 	GuidanceUpdateInterval    = 0.25,
 	MaxDrinkTime              = 60,
+	-- Mix speed scoring (timer starts at FIRST pour): ≤Fast = full time points,
+	-- ≤Ok = partial, slower = minimal. Also drives the live mix timer bar.
+	MixTimeFastSeconds        = 5,
+	MixTimeOkSeconds          = 10,
 	DefaultDrinkSips          = 3,
 	PlaceKey                  = "Q",
 	BartenderGamepassId       = 0,
