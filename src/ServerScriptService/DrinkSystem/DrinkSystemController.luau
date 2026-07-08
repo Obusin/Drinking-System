@@ -1179,7 +1179,10 @@ function DrinkSystemController.onAddGarnish(player: Player, model: Instance)
 		local recipeDef = recipeName and Recipes[recipeName]
 		local wanted = recipeDef and recipeDef.Presentation and recipeDef.Presentation.Garnishes or {}
 		if table.find(wanted, garnishName) then
-			local score = tonumber(drinkTool:GetAttribute("DS_Score")) or 0
+			-- No recorded score = no bonus. Treating nil as 0 fabricated
+			-- a "Ruined (5)" grade on drinks missing the attribute.
+			local score = tonumber(drinkTool:GetAttribute("DS_Score"))
+			if not score then return end
 			local newScore = math.clamp(score + 5, 0, 100)
 			if newScore ~= score then
 				local oldOutcome = drinkTool:GetAttribute("DS_Outcome")
@@ -1236,8 +1239,15 @@ function DrinkSystemController.onShakerFinished(player: Player)
 
 	local finalized = DrinkCreationManager.finalizePendingDrink(player, glassTool)
 	setBackpackLocked(player, false)
-	if finalized and payload and payload.RecipeName ~= "Water" then
-		StatsService.incrementMade(player)
+	if finalized and payload then
+		-- finalizePendingDrink applies data normalized BEFORE scoring — write
+		-- the computed grade onto the tool or shaker drinks end up scoreless
+		-- (garnish bonus then read nil as 0 → "Ruined (5)")
+		if payload.Outcome then glassTool:SetAttribute("DS_Outcome", payload.Outcome) end
+		if payload.Score then glassTool:SetAttribute("DS_Score", payload.Score) end
+		if payload.RecipeName ~= "Water" then
+			StatsService.incrementMade(player)
+		end
 	end
 	if payload and payload.Outcome and payload.Score then
 		Packets.DrinkOutcome.sendTo({
