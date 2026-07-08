@@ -396,11 +396,24 @@ local OUTCOME_COLORS = {
 	Ruined       = Color3.fromRGB(235, 90, 80),
 }
 
+local function playOutcomeSound(outcome: string)
+	local isHigh = outcome == "Perfect" or outcome == "Good"
+	local soundId = isHigh and Settings.OutcomeHighSoundId or Settings.OutcomeLowSoundId
+	if not soundId then return end
+	local sound = Instance.new("Sound")
+	sound.SoundId = "rbxassetid://" .. tostring(soundId)
+	sound.Volume = Settings.OutcomeSoundVolume or 0.5
+	sound.Parent = SoundService
+	sound:Play()
+	sound.Ended:Once(function() sound:Destroy() end)
+end
+
 local outcomeToken = 0
 Packets.DrinkOutcome.listen(function(payload)
 	outcomeToken += 1
 	local token = outcomeToken
 	local outcome = payload.Outcome or ""
+	playOutcomeSound(outcome)
 	outcomeLabel.Text = string.format("%s — %s! (%d)", payload.DrinkName or "Drink", outcome, payload.Score or 0)
 	outcomeLabel.TextColor3 = OUTCOME_COLORS[outcome] or Color3.fromRGB(255, 255, 255)
 	outcomeLabel.TextTransparency = 0

@@ -84,6 +84,10 @@ local Settings = {
 	DrinkSoundVolume    = 0.55,
 	SolaireSoundId      = 140335089989960,  -- plays when sipping Solaire's Spit
 	SolaireSoundVolume  = 0.45,             -- low but audible
+	-- Outcome jingles (local, play with the grade toast)
+	OutcomeHighSoundId  = 113307491257691,  -- Perfect / Good
+	OutcomeLowSoundId   = 4342630136,       -- Weak / Experimental / Ruined
+	OutcomeSoundVolume  = 0.5,
 	EnableDrunkDebug    = false,
 	DrunkDebugInterval  = 0.5,
 
