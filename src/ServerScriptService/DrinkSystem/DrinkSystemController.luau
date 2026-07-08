@@ -1357,6 +1357,8 @@ function DrinkSystemController.onSinkDrink(player: Player, model: Instance)
 	session.SuggestedRecipes = {}
 	session.DirtyGuidance = true
 	session.LastGuidanceAt = 0
+	-- Pour-it-out sound so disposal has feedback
+	DrinkEffectsService.playCharacterSound(player, Settings.PourSoundId, Settings.PourSoundVolume or 0.25)
 	debugPrint(player.Name, "emptied their drink in the sink")
 end
 

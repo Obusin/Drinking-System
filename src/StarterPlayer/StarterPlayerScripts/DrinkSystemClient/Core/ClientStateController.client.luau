@@ -362,6 +362,64 @@ SetBackpackLocked.listen(function(payload)
 	setBackpackLocked(payload.Locked == true)
 end)
 
+---------------------------------------------------------------------
+-- Drink outcome toast — "Blue Screen — Perfect! (92)" when a drink
+-- finalizes. Server has always sent DrinkOutcome; nobody displayed it.
+---------------------------------------------------------------------
+local outcomeGui = Instance.new("ScreenGui")
+outcomeGui.Name = "DS_DrinkOutcome"
+outcomeGui.ResetOnSpawn = false
+outcomeGui.DisplayOrder = 56
+outcomeGui.Parent = player:WaitForChild("PlayerGui")
+
+local outcomeLabel = Instance.new("TextLabel")
+outcomeLabel.AnchorPoint = Vector2.new(0.5, 0)
+outcomeLabel.Position = UDim2.new(0.5, 0, 0.16, 0)
+outcomeLabel.AutomaticSize = Enum.AutomaticSize.XY
+outcomeLabel.BackgroundTransparency = 1
+outcomeLabel.Font = Enum.Font.MontserratBold
+outcomeLabel.Text = ""
+outcomeLabel.TextSize = 24
+outcomeLabel.Visible = false
+outcomeLabel.Parent = outcomeGui
+
+local outcomeStroke = Instance.new("UIStroke")
+outcomeStroke.Color = Color3.fromRGB(0, 0, 0)
+outcomeStroke.Thickness = 1.5
+outcomeStroke.Parent = outcomeLabel
+
+local OUTCOME_COLORS = {
+	Perfect      = Color3.fromRGB(120, 230, 120),
+	Good         = Color3.fromRGB(190, 230, 110),
+	Weak         = Color3.fromRGB(235, 190, 90),
+	Experimental = Color3.fromRGB(200, 200, 200),
+	Ruined       = Color3.fromRGB(235, 90, 80),
+}
+
+local outcomeToken = 0
+Packets.DrinkOutcome.listen(function(payload)
+	outcomeToken += 1
+	local token = outcomeToken
+	local outcome = payload.Outcome or ""
+	outcomeLabel.Text = string.format("%s — %s! (%d)", payload.DrinkName or "Drink", outcome, payload.Score or 0)
+	outcomeLabel.TextColor3 = OUTCOME_COLORS[outcome] or Color3.fromRGB(255, 255, 255)
+	outcomeLabel.TextTransparency = 0
+	outcomeStroke.Transparency = 0
+	outcomeLabel.Visible = true
+	task.delay(2.2, function()
+		if outcomeToken ~= token then return end
+		local TweenService = game:GetService("TweenService")
+		local info = TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+		TweenService:Create(outcomeLabel, info, { TextTransparency = 1 }):Play()
+		TweenService:Create(outcomeStroke, info, { Transparency = 1 }):Play()
+		task.delay(0.4, function()
+			if outcomeToken == token then
+				outcomeLabel.Visible = false
+			end
+		end)
+	end)
+end)
+
 Packets.SpecialDrinkEffect.listen(function(payload)
 	if payload.Effect == "CameraSpin" then
 		effects:StartCameraSpin(payload.Duration or 10)

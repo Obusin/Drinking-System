@@ -246,7 +246,44 @@ local guidance = {
 	RecommendedIngredients = {},  -- full valid set: gates clicks
 	DisplayIngredients = {},      -- highlighted subset; empty = highlight all recommended
 	RequiredItemType = nil,
+	Instruction = "",
 }
+
+-- Instruction label: shows the server's guidance text ("Add Coolnag." etc.)
+-- just above the hotbar while a glass is held.
+local instructionGui = Instance.new("ScreenGui")
+instructionGui.Name = "DS_GuideInstruction"
+instructionGui.ResetOnSpawn = false
+instructionGui.DisplayOrder = 54
+instructionGui.Parent = player:WaitForChild("PlayerGui")
+
+local instructionLabel = Instance.new("TextLabel")
+instructionLabel.AnchorPoint = Vector2.new(0.5, 1)
+instructionLabel.Position = UDim2.new(0.5, 0, 1, -68)
+instructionLabel.AutomaticSize = Enum.AutomaticSize.XY
+instructionLabel.BackgroundTransparency = 1
+instructionLabel.Font = Enum.Font.Montserrat
+instructionLabel.Text = ""
+instructionLabel.TextSize = 17
+instructionLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+instructionLabel.TextTransparency = 0.1
+instructionLabel.Visible = false
+instructionLabel.Parent = instructionGui
+
+local instructionStroke = Instance.new("UIStroke")
+instructionStroke.Color = Color3.fromRGB(0, 0, 0)
+instructionStroke.Thickness = 1.2
+instructionStroke.Parent = instructionLabel
+
+local function updateInstructionLabel()
+	local text = guidance.Instruction or ""
+	if text ~= "" and playerIsHoldingGlass() then
+		instructionLabel.Text = text
+		instructionLabel.Visible = true
+	else
+		instructionLabel.Visible = false
+	end
+end
 
 local guidanceTargets = {
 	Recommended = {},
@@ -440,6 +477,7 @@ local function clearGuidanceDisplay()
 	guidanceTargets.Recommended = {}
 	guidanceTargets.Required = nil
 	applyGuidanceHighlights()
+	instructionLabel.Visible = false
 end
 
 -- Clears both data and display. Used on unequip so stale data doesn't linger.
@@ -447,6 +485,7 @@ local function resetGuidance()
 	guidance.RecommendedIngredients = {}
 	guidance.DisplayIngredients = {}
 	guidance.RequiredItemType = nil
+	guidance.Instruction = ""
 	clearGuidanceDisplay()
 end
 
@@ -458,6 +497,7 @@ local function refreshGuidanceTargets()
 	guidanceTargets.Recommended = collectGuidanceHighlightTargets(getDisplayNameSet(), GUIDANCE_MAX_RECOMMENDED_HIGHLIGHTS)
 	guidanceTargets.Required = findNearestModel(isRequired)
 	applyGuidanceHighlights()
+	updateInstructionLabel()
 end
 
 GuidanceUpdate.listen(function(payload)
@@ -468,6 +508,7 @@ GuidanceUpdate.listen(function(payload)
 	guidance.RecommendedIngredients = payload.RecommendedIngredients or {}
 	guidance.DisplayIngredients = payload.DisplayIngredients or {}
 	guidance.RequiredItemType = payload.RequiredItemType
+	guidance.Instruction = payload.Instruction or ""
 	refreshGuidanceTargets()
 end)
 
