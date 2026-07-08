@@ -55,7 +55,7 @@ local function setBubbleAnchorRagdolled(player: Player, character: Model, ragdol
 				or character:FindFirstChild("Torso")
 				or character:FindFirstChild("Head")
 			if torso then
-				anchor.CFrame = CFrame.new(torso.Position + Vector3.new(0, 3.5, 0))
+				anchor.CFrame = CFrame.new(torso.Position + Vector3.new(0, 1.5, 0))
 			end
 		end)
 	else
