@@ -1153,10 +1153,40 @@ function DrinkSystemController.onAddGarnish(player: Player, model: Instance)
 		return
 	end
 
+	local hadGarnish = table.find(parseCsvList(drinkTool:GetAttribute("DS_GarnishesCsv")), garnishName) ~= nil
+
 	local existing = parseCsvList(drinkTool:GetAttribute("DS_GarnishesCsv"))
 	applyGarnishRules(existing, garnishName)
 	drinkTool:SetAttribute("DS_GarnishesCsv", table.concat(existing, ","))
 	GlassPresentation.setGarnishes(drinkTool, existing)
+
+	-- Garnish bonus: +5 (once per garnish) when it's the recipe's intended
+	-- garnish. Applied AFTER finalize since garnishing happens on the finished
+	-- drink; can upgrade the grade band — the toast re-fires to show it.
+	if not hadGarnish then
+		local recipeName = drinkTool:GetAttribute("DS_RecipeName")
+		local recipeDef = recipeName and Recipes[recipeName]
+		local wanted = recipeDef and recipeDef.Presentation and recipeDef.Presentation.Garnishes or {}
+		if table.find(wanted, garnishName) then
+			local score = tonumber(drinkTool:GetAttribute("DS_Score")) or 0
+			local newScore = math.clamp(score + 5, 0, 100)
+			if newScore ~= score then
+				drinkTool:SetAttribute("DS_Score", newScore)
+				local newOutcome
+				if newScore >= 90 then newOutcome = "Perfect"
+				elseif newScore >= 75 then newOutcome = "Good"
+				elseif newScore >= 55 then newOutcome = "Weak"
+				elseif newScore >= 35 then newOutcome = "Experimental"
+				else newOutcome = "Ruined" end
+				drinkTool:SetAttribute("DS_Outcome", newOutcome)
+				Packets.DrinkOutcome.sendTo({
+					DrinkName = drinkTool:GetAttribute("DS_DrinkName") or "Drink",
+					Outcome = newOutcome,
+					Score = newScore,
+				}, player)
+			end
+		end
+	end
 end
 
 function DrinkSystemController.onShakerFinished(player: Player)
