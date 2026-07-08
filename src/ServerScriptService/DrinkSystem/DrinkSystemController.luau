@@ -807,7 +807,7 @@ local function updateGuidance(session: DrinkSession, glassTool: Tool?)
 			table.insert(guidance.RecommendedIngredients, nextIngredient)
 			guidance.Instruction = "Add " .. nextIngredient .. "."
 		else
-			guidance.Instruction = "Finalize the mix."
+			guidance.Instruction = "Finalizing the mix."
 		end
 	else
 		local compatibleAll = RecipeRegistry.getCompatibleNextIngredients(mixIngredients)
