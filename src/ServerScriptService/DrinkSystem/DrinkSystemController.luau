@@ -1304,6 +1304,80 @@ function DrinkSystemController.onConsumeDrink(player: Player, tool: Tool)
 	end
 end
 
+-- Reset any held glass/drink back to a clean empty Glass (trash bin).
+local function resetToolToEmptyGlass(tool: Tool)
+	tool.Name = "Glass"
+	tool:SetAttribute("DS_Drink", false)
+	tool:SetAttribute("DS_DrinkTool", false)
+	tool:SetAttribute("DS_GlassTool", true)
+	tool:SetAttribute("DS_DrinkName", "Glass")
+	tool:SetAttribute("DS_Strongness", 0)
+	tool:SetAttribute("DS_IsRecipe", false)
+	tool:SetAttribute("DS_RecipeName", "")
+	tool:SetAttribute("DS_BaseIngredient", nil)
+	tool:SetAttribute("DS_Outcome", nil)
+	tool:SetAttribute("DS_Score", nil)
+	tool:SetAttribute("DS_SipsMax", nil)
+	tool:SetAttribute("DS_SipsRemaining", nil)
+	tool:SetAttribute("DS_FillStage", 0)
+	tool:SetAttribute("DS_IngredientListCsv", "")
+	tool:SetAttribute("DS_IngredientsText", "")
+	tool:SetAttribute("DS_GarnishesCsv", "")
+	tool:SetAttribute("DS_Color", nil)
+	tool:SetAttribute("DS_WaterPours", nil)
+	GlassPresentation.reset(tool)
+end
+
+local function isTrashModel(model: Instance): boolean
+	if model:GetAttribute("DS_Trash") == true or CollectionService:HasTag(model, "DS_Trash") then
+		return true
+	end
+	for _, d in ipairs(model:GetDescendants()) do
+		if d:GetAttribute("DS_Trash") == true then
+			return true
+		end
+	end
+	return false
+end
+
+function DrinkSystemController.onTrashDrink(player: Player, model: Instance)
+	if playerIsCollapsed(player) then return end
+	local session = getSession(player)
+	if not rateLimitOk(session) then return end
+	if typeof(model) ~= "Instance" then return end
+	if not isTrashModel(model) then return end
+	if not modelDistanceOk(player, model) then return end
+
+	-- The held glass or drink (character first — must be in hand)
+	local char = player.Character
+	if not char then return end
+	local tool: Tool? = nil
+	for _, inst in ipairs(char:GetChildren()) do
+		if inst:IsA("Tool") and (
+			inst:GetAttribute("DS_GlassTool") == true
+			or inst:GetAttribute("DS_Drink") == true
+			or inst:GetAttribute("DS_DrinkTool") == true
+		) then
+			tool = inst
+			break
+		end
+	end
+	if not tool then return end
+
+	-- Never trash a drink that's mid-shake finalize
+	local mix = session.MixByTool[tool]
+	if mix and mix.PendingPayload then return end
+
+	clearMixState(session, tool)
+	resetToolToEmptyGlass(tool)
+	session.SelectedRecipe = nil
+	session.SuggestedRecipe = nil
+	session.SuggestedRecipes = {}
+	session.DirtyGuidance = true
+	session.LastGuidanceAt = 0
+	debugPrint(player.Name, "trashed their drink")
+end
+
 function DrinkSystemController.onSelectRecipe(player: Player, recipeName: string?)
 	if playerIsCollapsed(player) then return end
 	local session = getSession(player)
@@ -1370,6 +1444,10 @@ local function wirePackets()
 
 	Packets.RequestSelectRecipe.listen(function(data, player)
 		DrinkSystemController.onSelectRecipe(player, data.RecipeName)
+	end)
+
+	Packets.RequestTrashDrink.listen(function(data, player)
+		DrinkSystemController.onTrashDrink(player, data.Model)
 	end)
 end
 

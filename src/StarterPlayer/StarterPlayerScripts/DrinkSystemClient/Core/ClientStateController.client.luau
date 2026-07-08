@@ -702,6 +702,15 @@ if IS_MOBILE then
 			btnFrame.Position = UDim2.new(0, tapPos.X, 0, tapPos.Y - 16)
 			btnFrame.Visible = true
 		else
+			-- Tap on the trash bin: let the hover controller handle the dump —
+			-- must NOT count as a sip.
+			local hitInst = result and result.Instance
+			while hitInst and hitInst ~= workspace do
+				if hitInst:GetAttribute("DS_Trash") == true then
+					return
+				end
+				hitInst = hitInst.Parent
+			end
 			-- Ray missed a surface — treat as drink tap.
 			tryConsume(drinkTool, true)
 		end

@@ -124,6 +124,13 @@ Network.Packets = ByteNet.defineNamespace("DrinkSystem", function()
 			}),
 		}),
 
+		-- Client → server: dump the held mix/drink into a DS_Trash bin
+		RequestTrashDrink = ByteNet.definePacket({
+			value = ByteNet.struct({
+				Model = ByteNet.inst,
+			}),
+		}),
+
 		-- Server → client: special drink effects (per-recipe, e.g. Sin Obu camera spin)
 		SpecialDrinkEffect = ByteNet.definePacket({
 			value = ByteNet.struct({
