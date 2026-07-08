@@ -52,7 +52,11 @@ local function buildGhost(tool: Tool): Model
 			desc.CanCollide    = false
 			desc.CanQuery      = false
 			desc.CastShadow    = false
-			desc.Transparency  = 0.45
+			-- Ghost-ify only VISIBLE parts. Blanket 0.45 was revealing hidden
+			-- meshes (unselected garnishes, unused fill stages) in the preview.
+			if desc.Transparency < 0.9 then
+				desc.Transparency = math.max(desc.Transparency, 0.45)
+			end
 		end
 	end
 
