@@ -61,6 +61,33 @@ local Recipes = {
 		Presentation = { Garnishes = { "Lime" } },
 	},
 
+	["Tropic Thunder"] = {
+		DisplayName    = "Tropic Thunder",
+		Ingredients    = { "Tropica", "Coolnag", "Sugar" },
+		OutputColor    = Color3.fromRGB(255, 190, 70),
+		RequireShaker  = false,
+		StrongnessOverride = 20,
+		Steps = {
+			{ Ingredient = "Tropica" },
+			{ Ingredient = "Coolnag" },
+			{ Ingredient = "Sugar" },
+		},
+		Presentation = { Garnishes = { "Orange" } },
+	},
+	["Almendra Dream"] = {
+		DisplayName    = "Almendra Dream",
+		Ingredients    = { "Almendra", "Creamora", "Simple Syrup" },
+		OutputColor    = Color3.fromRGB(235, 215, 180),
+		RequireShaker  = false,
+		StrongnessOverride = 24,
+		Steps = {
+			{ Ingredient = "Almendra" },
+			{ Ingredient = "Creamora" },
+			{ Ingredient = "Simple Syrup" },
+		},
+		Presentation = { Garnishes = { "Cherry" } },
+	},
+
 	-- ── MEDIUM ────────────────────────────────────────────────────────
 	["Fonador Sling"] = {
 		DisplayName    = "Fonador Sling",
@@ -113,6 +140,46 @@ local Recipes = {
 			{ Ingredient = "Simple Syrup" },
 		},
 		Presentation = { Garnishes = { "Cherry" } },
+	},
+
+	["Jackline Fizz"] = {
+		DisplayName    = "Jackline Fizz",
+		Ingredients    = { "JacklineDale", "Soda Water", "Sugar" },
+		OutputColor    = Color3.fromRGB(215, 170, 105),
+		RequireShaker  = false,
+		StrongnessOverride = 35,
+		Steps = {
+			{ Ingredient = "JacklineDale" },
+			{ Ingredient = "Soda Water" },
+			{ Ingredient = "Sugar" },
+		},
+		Presentation = { Garnishes = { "Lemon" } },
+	},
+	["Midnight Cocoa"] = {
+		DisplayName    = "Midnight Cocoa",
+		Ingredients    = { "Cochoco", "Caffemo", "Maple Syrup" },
+		OutputColor    = Color3.fromRGB(60, 40, 28),
+		RequireShaker  = false,
+		StrongnessOverride = 38,
+		Steps = {
+			{ Ingredient = "Cochoco" },
+			{ Ingredient = "Caffemo" },
+			{ Ingredient = "Maple Syrup" },
+		},
+		Presentation = { Garnishes = { "Cherry" } },
+	},
+	["Calliamo Sunset"] = {
+		DisplayName    = "Calliamo Sunset",
+		Ingredients    = { "Calliamo", "Tropica", "Simple Syrup" },
+		OutputColor    = Color3.fromRGB(250, 130, 120),
+		RequireShaker  = false,
+		StrongnessOverride = 42,
+		Steps = {
+			{ Ingredient = "Calliamo" },
+			{ Ingredient = "Tropica" },
+			{ Ingredient = "Simple Syrup" },
+		},
+		Presentation = { Garnishes = { "Orange" } },
 	},
 
 	-- ── STRONG (shaker required) ───────────────────────────────────────
@@ -199,6 +266,36 @@ local Recipes = {
 			{ Tool = "Shaker" },
 		},
 		Presentation = { Garnishes = { "Orange" } },
+	},
+
+	["Bukonelle Punch"] = {
+		DisplayName    = "Bukonelle Punch",
+		Ingredients    = { "Bukonelle", "Tropica", "Maple Syrup" },
+		OutputColor    = Color3.fromRGB(190, 90, 160),
+		RequireShaker  = true,
+		StrongnessOverride = 64,
+		Steps = {
+			{ Ingredient = "Bukonelle" },
+			{ Ingredient = "Tropica" },
+			{ Ingredient = "Maple Syrup" },
+			{ Tool = "Shaker" },
+		},
+		Presentation = { Garnishes = { "Orange" } },
+	},
+	["Long Shift"] = {
+		DisplayName    = "Long Shift",
+		Ingredients    = { "Caffemo", "Vodqa", "Soda Water", "Sugar" },
+		OutputColor    = Color3.fromRGB(120, 90, 60),
+		RequireShaker  = true,
+		StrongnessOverride = 70,
+		Steps = {
+			{ Ingredient = "Caffemo" },
+			{ Ingredient = "Vodqa" },
+			{ Ingredient = "Soda Water" },
+			{ Ingredient = "Sugar" },
+			{ Tool = "Shaker" },
+		},
+		Presentation = { Garnishes = { "Lemon" } },
 	},
 
 	-- ── NUCLEAR ───────────────────────────────────────────────────────
@@ -291,6 +388,21 @@ local Recipes = {
 			{ Ingredient = "Mintverde" },
 		},
 		Presentation = { Garnishes = { "Lime" } },
+	},
+
+	["Absmith Abyss"] = {
+		DisplayName    = "Absmith Abyss",
+		Ingredients    = { "Absmith", "Nguermo", "Vodqa" },
+		OutputColor    = Color3.fromRGB(35, 25, 55),
+		RequireShaker  = true,
+		StrongnessOverride = 88,
+		Steps = {
+			{ Ingredient = "Absmith" },
+			{ Ingredient = "Nguermo" },
+			{ Ingredient = "Vodqa" },
+			{ Tool = "Shaker" },
+		},
+		Presentation = { Garnishes = { "Cherry" } },
 	},
 
 	-- ── SECRET (never shown in guidance — players must discover them) ──
