@@ -194,7 +194,7 @@ local function updateDisplay()
 	local text
 	if level >= MAX_LEVEL then
 		-- Max-level reward title — overrides the zone role
-		text = string.format("🏆 Bartender Legend • Lv. %d", level)
+		text = string.format("★ Bartender Legend • Lv. %d", level)
 	else
 		text = string.format("%s • Lv. %d", role, level)
 	end

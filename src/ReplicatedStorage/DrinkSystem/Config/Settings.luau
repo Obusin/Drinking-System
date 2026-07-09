@@ -20,7 +20,7 @@ local Settings = {
 	RequireGamepassForMixing  = false,
 	EnableGuidance            = true,
 	EnableHoverInteractionController   = true,
-	EnableRecipeMenu                   = true,   -- 📖 in-game recipe book (B key / side button)
+	EnableRecipeMenu                   = true,   -- in-game recipe book (B key / side button)
 	EnableDrinkVisualController        = true,
 	EnableShakerController             = true,
 

@@ -65,12 +65,12 @@ local toggleBtn = Instance.new("TextButton")
 toggleBtn.Name = "Toggle"
 toggleBtn.AnchorPoint = Vector2.new(1, 0.5)
 toggleBtn.Position = UDim2.new(1, -10, 0.5, 0)
-toggleBtn.Size = UDim2.new(0, 44, 0, 44)
+toggleBtn.Size = UDim2.new(0, 84, 0, 40)
 toggleBtn.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
 toggleBtn.BackgroundTransparency = 0.15
 toggleBtn.BorderSizePixel = 0
-toggleBtn.Text = "📖"
-toggleBtn.TextSize = 22
+toggleBtn.Text = "Recipes"
+toggleBtn.TextSize = 15
 toggleBtn.Font = Enum.Font.Montserrat
 toggleBtn.Parent = gui
 local toggleCorner = Instance.new("UICorner")
@@ -177,10 +177,10 @@ local function buildCard(name: string, def, layoutOrder: number)
 	end
 	local extras = {}
 	if def.RequireShaker then
-		table.insert(extras, "🫙 Shake to finish")
+		table.insert(extras, "Shake to finish")
 	end
 	if garnish then
-		table.insert(extras, "🍒 Garnish: " .. garnish .. " (+5)")
+		table.insert(extras, "Garnish: " .. garnish .. " (+5)")
 	end
 	local bodyText = table.concat(lines, "\n")
 	if #extras > 0 then
@@ -229,7 +229,7 @@ end
 ---------------------------------------------------------------------
 local function setOpen(open: boolean)
 	panel.Visible = open
-	toggleBtn.Text = open and "✕" or "📖"
+	toggleBtn.Text = open and "Close" or "Recipes"
 end
 
 toggleBtn.Activated:Connect(function()

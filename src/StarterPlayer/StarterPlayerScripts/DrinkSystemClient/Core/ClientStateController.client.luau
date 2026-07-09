@@ -463,7 +463,7 @@ local levelToken = 0
 Packets.LevelUp.listen(function(payload)
 	levelToken += 1
 	local token = levelToken
-	levelLabel.Text = string.format("🍸 Bartender Level %d!", payload.Level or 0)
+	levelLabel.Text = string.format("Bartender Level %d!", payload.Level or 0)
 	levelLabel.TextTransparency = 0
 	levelStroke.Transparency = 0
 	levelLabel.Visible = true
