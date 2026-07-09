@@ -21,19 +21,6 @@ local Recipes = {
 		},
 		Presentation = { Garnishes = { "Lime" } },
 	},
-	["Tropicali"] = {
-		DisplayName    = "Tropicali",
-		Ingredients    = { "Tropica", "Coolnag", "Simple Syrup" },
-		OutputColor    = Color3.fromRGB(255, 200, 60),
-		RequireShaker  = false,
-		StrongnessOverride = 20,
-		Steps = {
-			{ Ingredient = "Tropica" },
-			{ Ingredient = "Coolnag" },
-			{ Ingredient = "Simple Syrup" },
-		},
-		Presentation = { Garnishes = { "Orange" } },
-	},
 	["Cocoa Rush"] = {
 		DisplayName    = "Cocoa Rush",
 		Ingredients    = { "Cochoco", "Creamora", "Sugar" },
