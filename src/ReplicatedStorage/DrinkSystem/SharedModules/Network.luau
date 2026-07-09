@@ -146,6 +146,13 @@ Network.Packets = ByteNet.defineNamespace("DrinkSystem", function()
 				Score = ByteNet.uint8,
 			}),
 		}),
+
+		-- Server → client: bartender level-up celebration
+		LevelUp = ByteNet.definePacket({
+			value = ByteNet.struct({
+				Level = ByteNet.uint16,
+			}),
+		}),
 	}
 end)
 

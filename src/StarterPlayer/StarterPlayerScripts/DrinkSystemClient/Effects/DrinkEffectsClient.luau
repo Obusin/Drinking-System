@@ -46,6 +46,8 @@ function DrinkEffectsClient.new(player: Player, maxDrunkness: number)
 	self.EffectFade            = 0  -- master fade 0→1, eases all effects in/out smoothly
 	self.SpinUntil             = 0  -- camera-spin special effect (e.g. Sin Obu)
 	self.SpinAngle             = 0
+	self.LastShearA            = 0  -- skew warp state (needs manual inverse)
+	self.LastShearB            = 0
 
 	self.Blur = getOrCreateEffect("DS_DrunkBlur", "BlurEffect")
 	self.DOF  = getOrCreateEffect("DS_DrunkDOF",  "DepthOfFieldEffect")
@@ -111,6 +113,15 @@ function DrinkEffectsClient:_resetCamera()
 	if self.LastFovOffset ~= 0 then
 		cam.FieldOfView -= self.LastFovOffset
 		self.LastFovOffset = 0
+	end
+	-- Undo any active shear with its exact inverse
+	local la, lb = self.LastShearA or 0, self.LastShearB or 0
+	if la ~= 0 or lb ~= 0 then
+		local det = 1 - la * lb
+		if math.abs(det) > 0.01 then
+			cam.CFrame = cam.CFrame * CFrame.new(0, 0, 0, 1 / det, -la / det, 0, -lb / det, 1 / det, 0, 0, 0, 1)
+		end
+		self.LastShearA, self.LastShearB = 0, 0
 	end
 end
 
@@ -209,6 +220,23 @@ function DrinkEffectsClient:Update(dt: number)
 	cam.FieldOfView = cam.FieldOfView - self.LastFovOffset + fovOffset
 	self.LastFovOffset = fovOffset
 
+	-- ─── SKEW/SHEAR WARP ───────────────────────────────────────────────────
+	-- Non-orthogonal matrix terms make the world MELT sideways rather than
+	-- just sway — the signature drunk-vision distortion. Handled separately
+	-- from `offset` because CFrame:Inverse() assumes orthonormal rotation and
+	-- would corrupt a shear; we build the exact inverse by hand instead.
+	local shearAmp = 0.14 * effectiveT * self.Intensity * self.EffectFade
+	local newA = math.cos(time * 0.65) * shearAmp             -- x-axis skew
+	local newB = math.sin(time * 0.4 + 1.2) * shearAmp * 0.6  -- y-axis skew, out of phase
+	local la, lb = self.LastShearA or 0, self.LastShearB or 0
+	local det = 1 - la * lb
+	if math.abs(det) > 0.01 then
+		local undo = CFrame.new(0, 0, 0, 1 / det, -la / det, 0, -lb / det, 1 / det, 0, 0, 0, 1)
+		local apply = CFrame.new(0, 0, 0, 1, newA, 0, newB, 1, 0, 0, 0, 1)
+		cam.CFrame = cam.CFrame * undo * apply
+		self.LastShearA, self.LastShearB = newA, newB
+	end
+
 	-- ─── BLUR ──────────────────────────────────────────────────────────────
 	-- Ambient blur stays SUBTLE — the heavy lifting is the depth-of-field below,
 	-- which keeps the avatar and nearby surroundings sharp and blurs only the
@@ -285,6 +313,8 @@ function DrinkEffectsClient:OnRespawn()
 	self.SmoothedMotionBoost = 0
 	self.LastOffset = CFrame.new()  -- new camera — old offset no longer applies
 	self.LastFovOffset = 0
+	self.LastShearA = 0
+	self.LastShearB = 0
 	self.NextHiccupAt = 0
 end
 

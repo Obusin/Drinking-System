@@ -39,6 +39,29 @@ local DrinkEffectsService = require(servicesFolder:WaitForChild("DrinkEffectsSer
 local GamepassManager = require(servicesFolder:WaitForChild("GamepassManager"))
 local StatsService = require(servicesFolder:WaitForChild("StatsService"))
 
+-- Per-drink callback registry: ServerScriptService/DrinkSystem/DrinkCallbacks/<Name>.luau
+-- A recipe opts in with `Callback = "<ModuleName>"`. Modules may implement:
+--   OnSip(ctx)      — every successful sip
+--   OnFinished(ctx) — the sip that empties the glass
+-- ctx = { Player, Tool, Remaining, SipAmount, Services }
+-- Adding a new special drink = one recipe entry + one module file.
+local drinkCallbacks: { [string]: any } = {}
+do
+	local callbacksFolder = script.Parent:FindFirstChild("DrinkCallbacks")
+	if callbacksFolder then
+		for _, child in ipairs(callbacksFolder:GetChildren()) do
+			if child:IsA("ModuleScript") then
+				local ok, module = pcall(require, child)
+				if ok and type(module) == "table" then
+					drinkCallbacks[child.Name] = module
+				else
+					warn("[DrinkSystem] Failed to load drink callback:", child.Name, module)
+				end
+			end
+		end
+	end
+end
+
 local DrinkSystemController = {}
 local initialized = false
 
@@ -497,8 +520,11 @@ local function finalizeDrinkNow(player: Player, session: DrinkSession, mix: MixS
 		}, player)
 	end
 	if payload.RecipeName ~= "Water" then
-		StatsService.incrementMade(player)
+		local def = payload.RecipeName and Recipes[payload.RecipeName]
+		StatsService.awardDrinkMade(player, payload.Score, payload.RecipeName, def and def.Secret == true)
 	end
+	-- Maker attribution for the serve bonus (someone else drinks your drink)
+	glassTool:SetAttribute("DS_MakerUserId", player.UserId)
 	resetMixForNewDrink(session, glassTool)
 	return result
 end
@@ -1246,8 +1272,10 @@ function DrinkSystemController.onShakerFinished(player: Player)
 		if payload.Outcome then glassTool:SetAttribute("DS_Outcome", payload.Outcome) end
 		if payload.Score then glassTool:SetAttribute("DS_Score", payload.Score) end
 		if payload.RecipeName ~= "Water" then
-			StatsService.incrementMade(player)
+			local def = payload.RecipeName and Recipes[payload.RecipeName]
+			StatsService.awardDrinkMade(player, payload.Score, payload.RecipeName, def and def.Secret == true)
 		end
+		glassTool:SetAttribute("DS_MakerUserId", player.UserId)
 	end
 	if payload and payload.Outcome and payload.Score then
 		Packets.DrinkOutcome.sendTo({
@@ -1311,27 +1339,48 @@ function DrinkSystemController.onConsumeDrink(player: Player, tool: Tool)
 	if remaining == 0 and tool then
 		local recipeName = tool:GetAttribute("DS_RecipeName")
 		if recipeName ~= "Water" and recipeName ~= "Solaire's Spit" then
-			StatsService.incrementDrunk(player)
+			StatsService.awardDrinkDrunk(player)
+			-- Serve bonus: the maker gets XP when someone ELSE finishes their drink
+			local makerUserId = tool:GetAttribute("DS_MakerUserId")
+			if typeof(makerUserId) == "number" and makerUserId ~= player.UserId then
+				local maker = Players:GetPlayerByUserId(makerUserId)
+				if maker then
+					StatsService.awardServe(maker, player.UserId)
+				end
+			end
 		end
 	end
 
-	-- Per-recipe special effects (Recipes[name].Effects) — the variety hook
+	-- Per-recipe drink callbacks — the special-drink variety hook
 	do
 		local recipeName = tool and tool:GetAttribute("DS_RecipeName")
 		local recipeDef = recipeName and Recipes[recipeName]
-		local fx = recipeDef and recipeDef.Effects
-		if fx then
-			if typeof(fx.Collapse) == "number" and fx.Collapse > 0 then
-				-- Small beat so the sip animation finishes before the fall
-				task.delay(0.8, function()
-					DrinkEffectsService.forceCollapse(player, fx.Collapse)
-				end)
+		local callbackName = recipeDef and recipeDef.Callback
+		local callback = callbackName and drinkCallbacks[callbackName]
+		if callback then
+			local ctx = {
+				Player = player,
+				Tool = tool,
+				Remaining = remaining,
+				SipAmount = perSip,
+				Services = {
+					DrinkEffectsService = DrinkEffectsService,
+					Packets = Packets,
+					Settings = Settings,
+					Recipes = Recipes,
+				},
+			}
+			if type(callback.OnSip) == "function" then
+				local ok, err = pcall(callback.OnSip, ctx)
+				if not ok then
+					warn("[DrinkSystem] Drink callback OnSip error (", callbackName, "):", err)
+				end
 			end
-			if typeof(fx.CameraSpin) == "number" and fx.CameraSpin > 0 then
-				Packets.SpecialDrinkEffect.sendTo({
-					Effect = "CameraSpin",
-					Duration = fx.CameraSpin,
-				}, player)
+			if remaining == 0 and type(callback.OnFinished) == "function" then
+				local ok, err = pcall(callback.OnFinished, ctx)
+				if not ok then
+					warn("[DrinkSystem] Drink callback OnFinished error (", callbackName, "):", err)
+				end
 			end
 		end
 	end
@@ -1558,9 +1607,15 @@ function DrinkSystemController.init()
 	DrinkEffectsService.configure(Settings)
 	DrinkEffectsService.start()
 	StatsService.init()
+	StatsService.setLevelUpHandler(function(levelPlayer, newLevel)
+		Packets.LevelUp.sendTo({ Level = newLevel }, levelPlayer)
+		DrinkEffectsService.playCharacterSound(levelPlayer, Settings.OutcomeHighSoundId, 0.5)
+	end)
 	wirePackets()
 	startGuidanceLoop()
 
+	-- FULL respawn reset: after dying, every piece of drink-system state must
+	-- look exactly like a fresh join. Anything missed here is a lingering-state bug.
 	local function onPlayerRespawn(player: Player)
 		-- Wipe glass/drink tools and inventory count
 		PickupManager.clearPlayerGlasses(player)
@@ -1572,6 +1627,8 @@ function DrinkSystemController.init()
 		effects.LastCollapseAt = -math.huge
 		effects.LastStumbleAt = -math.huge
 		effects.IsStumble = false
+		effects.LastSipAt = -math.huge   -- no stale sober-grace window
+		effects.NextHiccupAt = 0         -- hiccup scheduling starts fresh
 		-- Clear mix state so stale recipes don't carry over
 		local session = sessions[player]
 		if session then
@@ -1580,8 +1637,14 @@ function DrinkSystemController.init()
 			session.SuggestedRecipe = nil
 			session.SuggestedRecipes = {}
 			session.GlassTool = nil
+			session.PendingGlass = nil   -- dying mid-shake must not strand the pending state
 			session.DirtyGuidance = true
+			session.LastGuidanceAt = 0
 		end
+		-- Dying mid-shake: drop the pending drink and force the hotbar unlocked —
+		-- the glass it referenced was just destroyed, nothing can finish it.
+		DrinkCreationManager.onPlayerRemoving(player)
+		setBackpackLocked(player, false)
 	end
 
 	local function setupPlayer(player: Player)

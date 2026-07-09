@@ -159,6 +159,7 @@ function DrinkEffects.new(player: Player): DrinkEffects
 	self.LastStumbleAt   = -math.huge
 	self.IsStumble       = false
 	self.NextHiccupAt    = 0
+	self.LastSipAt       = -math.huge  -- sober-grace: decay pauses after a sip
 	self.LastStage       = "Sober"
 	return self
 end
@@ -169,13 +170,23 @@ function DrinkEffects:BindCharacter(character: Model?)
 	if not character then return end
 	local humanoid = character:FindFirstChildOfClass("Humanoid")
 	if not humanoid then return end
-	self.Humanoid       = humanoid
-	self.BaseWalkSpeed  = humanoid.WalkSpeed
-	self.BaseJumpPower  = getHumanoidJumpPower(humanoid)
+	self.Humanoid = humanoid
+	-- Capture the base speed only while sober: if a drunk-stage tick touched
+	-- this humanoid before binding, its CURRENT speed is already reduced and
+	-- capturing it would make the reduction permanent.
+	if self.StageValue.Value == "Sober" then
+		self.BaseWalkSpeed = humanoid.WalkSpeed
+		self.BaseJumpPower = getHumanoidJumpPower(humanoid)
+	end
 end
 
 function DrinkEffects:Apply(amount: number)
 	if amount == 0 then return end
+	-- A real drink (not water) refreshes the sober-grace window: drunkness
+	-- holds steady for SoberGraceSeconds after your last sip before decaying.
+	if amount > 0 then
+		self.LastSipAt = os.clock()
+	end
 	self.DrunknessValue.Value = math.clamp(self.DrunknessValue.Value + amount, 0, self.MaxDrunkness)
 end
 
@@ -218,9 +229,51 @@ function DrinkEffects:_updateMovement(stage: string)
 	humanoid.AutoRotate = stage ~= "Collapsed"
 end
 
+-- Bubbles particle above the head while drunk. Server-created → replicated,
+-- so the whole bar can see who's hammered.
+function DrinkEffects:_updateBubbles(t: number)
+	if config.DrunkBubblesEnabled ~= true then return end
+	local char = self.Character
+	local head = char and char:FindFirstChild("Head")
+	if not head then return end
+
+	local emitter = head:FindFirstChild("DS_DrunkBubbles")
+	local buzzedT = (config.DrunkStageThresholds and config.DrunkStageThresholds.Buzzed) or 0.20
+
+	if t >= buzzedT then
+		if not emitter then
+			emitter = Instance.new("ParticleEmitter")
+			emitter.Name = "DS_DrunkBubbles"
+			emitter.Texture = "rbxassetid://" .. tostring(config.DrunkBubblesTexture or 249902641)
+			emitter.Color = ColorSequence.new(Color3.fromRGB(255, 236, 167))
+			emitter.LightEmission = 0.05
+			emitter.Orientation = Enum.ParticleOrientation.FacingCamera
+			emitter.Size = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 0),
+				NumberSequenceKeypoint.new(0.5, 0.2),
+				NumberSequenceKeypoint.new(1, 0),
+			})
+			emitter.Speed = NumberRange.new(1.5)
+			emitter.Lifetime = NumberRange.new(3)
+			emitter.SpreadAngle = Vector2.new(25, 25)
+			emitter.Rate = 0
+			emitter.Parent = head
+		end
+		-- Rate ramps with drunkness: light fizz when buzzed → steady stream wasted
+		emitter.Rate = 0.5 + 3 * math.clamp((t - buzzedT) / math.max(1 - buzzedT, 0.001), 0, 1)
+	elseif emitter then
+		emitter.Rate = 0
+	end
+end
+
 function DrinkEffects:Tick(dt: number, now: number)
-	-- Passive recovery only when not collapsed.
-	if self.RecoveryPerSecond > 0 and self.DrunknessValue.Value > 0 and not self.CollapsedValue.Value then
+	-- Passive recovery only when not collapsed, and only after the sober-grace
+	-- window — actively drinking players keep their buzz.
+	local graceSeconds = config.SoberGraceSeconds or 0
+	if self.RecoveryPerSecond > 0
+		and self.DrunknessValue.Value > 0
+		and not self.CollapsedValue.Value
+		and (now - (self.LastSipAt or -math.huge)) >= graceSeconds then
 		self.DrunknessValue.Value = math.clamp(
 			self.DrunknessValue.Value - self.RecoveryPerSecond * dt,
 			0, self.MaxDrunkness
@@ -239,7 +292,11 @@ function DrinkEffects:Tick(dt: number, now: number)
 	local stumbleDuration    = config.DrunkStumbleDuration     or 2.2
 	local stumbleCooldown    = config.DrunkStumbleCooldown     or 4
 
-	if not self.CollapsedValue.Value then
+	-- Seated players never trip or collapse from thresholds — fighting a seat
+	-- weld glitches badly. (forceCollapse from special drinks still applies.)
+	local isSeated = self.Humanoid ~= nil and self.Humanoid.Sit == true
+
+	if not self.CollapsedValue.Value and not isSeated then
 		if t >= collapseThreshold and (now - self.LastCollapseAt) >= collapseCooldown then
 			-- Full collapse at 92%+ (own cooldown — stumbles don't delay it)
 			self:_setCollapsed(true, now, config.DrunkCollapseDuration or 5, false)
@@ -254,7 +311,10 @@ function DrinkEffects:Tick(dt: number, now: number)
 			local chanceMin = config.DrunkStumbleChancePerSecondMin or 0.12
 			local chanceMax = config.DrunkStumbleChancePerSecondMax or 0.45
 			local chance    = chanceMin + (chanceMax - chanceMin) * chanceAlpha
-			if math.random() < (chance * dt) then
+			-- Trip-when-running: moving drunk players trip much more than
+			-- standing ones. MovementValue is our replicated move alpha.
+			local moveScale = 0.3 + 1.2 * math.clamp(self.MovementValue.Value, 0, 1)
+			if math.random() < (chance * moveScale * dt) then
 				self:_setCollapsed(true, now, stumbleDuration, true)
 			end
 		end
@@ -273,6 +333,32 @@ function DrinkEffects:Tick(dt: number, now: number)
 	self.StageValue.Value   = stage
 	self.MovementValue.Value = computeMovementAlpha(self.DrunknessValue.Value, self.MaxDrunkness, self.CollapsedValue.Value)
 	self:_updateMovement(stage)
+
+	-- Drunk bubbles above the head — SERVER-side so everyone at the bar sees
+	-- who's had too many. Rate scales with drunkness; silent below Buzzed.
+	self:_updateBubbles(t)
+
+	-- Fly-away safety net: ragdoll physics occasionally launches characters.
+	-- If the root ends up absurdly far out, drag them back to spawn.
+	local char = self.Character
+	local root = char and char:FindFirstChild("HumanoidRootPart")
+	if root then
+		local pos = root.Position
+		if math.abs(pos.X) > 10000 or math.abs(pos.Y) > 10000 or math.abs(pos.Z) > 10000 then
+			local spawnCF = CFrame.new(0, 50, 0)
+			local spawnLoc = workspace:FindFirstChildWhichIsA("SpawnLocation", true)
+			if spawnLoc then
+				spawnCF = spawnLoc.CFrame + Vector3.new(0, 4, 0)
+			end
+			root.AssemblyLinearVelocity = Vector3.zero
+			root.AssemblyAngularVelocity = Vector3.zero
+			root.CFrame = spawnCF
+			if self.CollapsedValue.Value then
+				self:_setCollapsed(false, now)
+			end
+			warn("[DrinkSystem] Rescued", self.Player.Name, "from out-of-bounds position")
+		end
+	end
 
 	if config.EnableDrunkDebug == true and stage ~= self.LastStage then
 		print(

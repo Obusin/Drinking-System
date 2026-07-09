@@ -315,13 +315,10 @@ local Recipes = {
 		Secret         = true,
 		StrongnessOverride = 90,
 		Sips           = 1,  -- one gulp, then the consequences
-		-- Per-recipe special effects (extend freely for drink variety):
-		--   Collapse   = seconds of forced ragdoll (can't get up)
-		--   CameraSpin = seconds of continuously rotating vision
-		Effects = {
-			Collapse   = 60,
-			CameraSpin = 60,
-		},
+		-- Special behavior lives in ServerScriptService/DrinkSystem/DrinkCallbacks/SinObu.luau
+		-- (forced 60s ragdoll + spinning vision). New special drinks: one recipe
+		-- entry + one callback module.
+		Callback       = "SinObu",
 		Steps = {
 			{ Ingredient = "Vodqa" },
 			{ Ingredient = "Vodqa" },

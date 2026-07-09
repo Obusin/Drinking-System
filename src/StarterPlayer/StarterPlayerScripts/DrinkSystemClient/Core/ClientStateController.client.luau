@@ -439,6 +439,48 @@ Packets.SpecialDrinkEffect.listen(function(payload)
 	end
 end)
 
+---------------------------------------------------------------------
+-- Bartender level-up toast (gold, above the outcome toast)
+---------------------------------------------------------------------
+local levelLabel = Instance.new("TextLabel")
+levelLabel.AnchorPoint = Vector2.new(0.5, 0)
+levelLabel.Position = UDim2.new(0.5, 0, 0.10, 0)
+levelLabel.AutomaticSize = Enum.AutomaticSize.XY
+levelLabel.BackgroundTransparency = 1
+levelLabel.Font = Enum.Font.MontserratBold
+levelLabel.Text = ""
+levelLabel.TextSize = 30
+levelLabel.TextColor3 = Color3.fromRGB(255, 215, 90)
+levelLabel.Visible = false
+levelLabel.Parent = outcomeGui
+
+local levelStroke = Instance.new("UIStroke")
+levelStroke.Color = Color3.fromRGB(0, 0, 0)
+levelStroke.Thickness = 1.6
+levelStroke.Parent = levelLabel
+
+local levelToken = 0
+Packets.LevelUp.listen(function(payload)
+	levelToken += 1
+	local token = levelToken
+	levelLabel.Text = string.format("🍸 Bartender Level %d!", payload.Level or 0)
+	levelLabel.TextTransparency = 0
+	levelStroke.Transparency = 0
+	levelLabel.Visible = true
+	task.delay(3, function()
+		if levelToken ~= token then return end
+		local TweenService = game:GetService("TweenService")
+		local info = TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+		TweenService:Create(levelLabel, info, { TextTransparency = 1 }):Play()
+		TweenService:Create(levelStroke, info, { Transparency = 1 }):Play()
+		task.delay(0.5, function()
+			if levelToken == token then
+				levelLabel.Visible = false
+			end
+		end)
+	end)
+end)
+
 -- Respawn: clear one-shot effects and stuck locks immediately. Drunkness
 -- visuals/bar are NOT snapped — they slide down as the server resets to 0.
 player.CharacterAdded:Connect(function()

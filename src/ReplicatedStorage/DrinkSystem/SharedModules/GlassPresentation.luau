@@ -19,14 +19,50 @@ local GARNISH_NAMES = {
 	"ShadeUmbrella",
 }
 
+-- Roblox Highlights outline fully-transparent parts, so hiding via
+-- Transparency=1 alone leaves hidden garnishes/stages glowing inside hover
+-- and guidance outlines. Hidden parts are ALSO shrunk to near-zero (original
+-- size stored in attributes and restored on reveal — welds keep positions).
+local HIDDEN_SIZE = Vector3.new(0.01, 0.01, 0.01)
+
+local function applyPartVisibility(part: BasePart, transparency: number)
+	part.Transparency = transparency
+	if transparency >= 1 then
+		if part:GetAttribute("DS_OrigSize") == nil then
+			part:SetAttribute("DS_OrigSize", part.Size)
+		end
+		part.Size = HIDDEN_SIZE
+	else
+		local orig = part:GetAttribute("DS_OrigSize")
+		if typeof(orig) == "Vector3" then
+			part.Size = orig
+		end
+	end
+	-- SpecialMesh scale renders independently of part size — shrink it too
+	local mesh = part:FindFirstChildOfClass("SpecialMesh")
+	if mesh then
+		if transparency >= 1 then
+			if mesh:GetAttribute("DS_OrigScale") == nil then
+				mesh:SetAttribute("DS_OrigScale", mesh.Scale)
+			end
+			mesh.Scale = HIDDEN_SIZE
+		else
+			local origScale = mesh:GetAttribute("DS_OrigScale")
+			if typeof(origScale) == "Vector3" then
+				mesh.Scale = origScale
+			end
+		end
+	end
+end
+
 local function setVisualTransparency(instance: Instance, transparency: number)
 	if instance:IsA("BasePart") then
-		instance.Transparency = transparency
+		applyPartVisibility(instance, transparency)
 	end
 
 	for _, descendant in ipairs(instance:GetDescendants()) do
 		if descendant:IsA("BasePart") then
-			descendant.Transparency = transparency
+			applyPartVisibility(descendant, transparency)
 		end
 	end
 end
@@ -79,12 +115,12 @@ function GlassPresentation.setStage(container: Instance, stage: number?)
 
 	local drinkPart = container:FindFirstChild("DrinkPart", true)
 	if drinkPart and drinkPart:IsA("BasePart") then
-		drinkPart.Transparency = if stage ~= nil and stage > 0 then 0.05 else HIDDEN_TRANSPARENCY
+		applyPartVisibility(drinkPart, if stage ~= nil and stage > 0 then 0.05 else HIDDEN_TRANSPARENCY)
 	end
 
 	local liquidPart = container:FindFirstChild("LiquidPart", true)
 	if liquidPart and liquidPart:IsA("BasePart") then
-		liquidPart.Transparency = if stage ~= nil and stage > 0 then 0.1 else HIDDEN_TRANSPARENCY
+		applyPartVisibility(liquidPart, if stage ~= nil and stage > 0 then 0.1 else HIDDEN_TRANSPARENCY)
 	end
 end
 

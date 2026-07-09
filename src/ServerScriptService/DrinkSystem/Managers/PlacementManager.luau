@@ -282,6 +282,7 @@ function PlacementManager.placeDrinkFromTool(player: Player, drinkTool: Tool, cl
 	-- Recipe identity MUST survive placement — special drinks (Solaire's Spit
 	-- sound, Sin Obu effects) and stats key off DS_RecipeName after re-pickup.
 	worldModel:SetAttribute("DS_RecipeName", drinkTool:GetAttribute("DS_RecipeName") or "")
+	worldModel:SetAttribute("DS_MakerUserId", drinkTool:GetAttribute("DS_MakerUserId"))
 	worldModel:SetAttribute("DS_IsRecipe", drinkTool:GetAttribute("DS_IsRecipe") == true)
 	worldModel:SetAttribute("DS_BaseIngredient", drinkTool:GetAttribute("DS_BaseIngredient"))
 	worldModel:SetAttribute("DS_MaxSips", drinkTool:GetAttribute("DS_MaxSips") or drinkTool:GetAttribute("MaxSips"))

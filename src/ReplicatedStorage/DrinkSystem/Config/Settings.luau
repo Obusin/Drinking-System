@@ -20,6 +20,7 @@ local Settings = {
 	RequireGamepassForMixing  = false,
 	EnableGuidance            = true,
 	EnableHoverInteractionController   = true,
+	EnableRecipeMenu                   = true,   -- 📖 in-game recipe book (B key / side button)
 	EnableDrinkVisualController        = true,
 	EnableShakerController             = true,
 
@@ -28,6 +29,12 @@ local Settings = {
 
 	-- Passive recovery: 1.5x slower than before (was 1.1) — 100→0 in ~2.3 min naturally.
 	DrunknessRecoveryPerSecond = 0.73,
+	-- Drunkness holds steady this long after the last drink before decaying —
+	-- keeps the buzz while actively drinking.
+	SoberGraceSeconds          = 25,
+	-- Bubbles above drunk players' heads (server-side — visible to everyone)
+	DrunkBubblesEnabled        = true,
+	DrunkBubblesTexture        = 249902641,
 
 	-- Visual effects reach full intensity at 70 drunkness (not 100),
 	-- so effects feel strong and noticeable well before you're fully maxed.

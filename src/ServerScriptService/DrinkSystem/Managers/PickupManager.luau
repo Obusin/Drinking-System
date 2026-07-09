@@ -350,6 +350,7 @@ local function createDrinkToolFromWorldModel(model)
 	-- Recipe identity survives the world→tool rebuild (special drink effects,
 	-- Solaire's sound, and stats all key off DS_RecipeName)
 	tool:SetAttribute("DS_RecipeName", model:GetAttribute("DS_RecipeName") or "")
+	tool:SetAttribute("DS_MakerUserId", model:GetAttribute("DS_MakerUserId"))
 	tool:SetAttribute("DS_IsRecipe", model:GetAttribute("DS_IsRecipe") == true)
 
 	-- Re-apply fill color and garnishes onto the template's glass parts

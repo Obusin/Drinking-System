@@ -8,16 +8,29 @@ local Recipes = require(ConfigFolder:WaitForChild("Recipes"))
 
 local RecipeRegistry = {}
 
+-- COUNT-AWARE multiset equality. The old any-match version made
+-- {Vodqa, Vodqa, Vodqa} "equal" to {Vodqa, Coolnag, Soda Water} — each Vodqa
+-- entry individually found the one Vodqa — so mixes containing Vodqa could
+-- randomly finalize as Sin Obu depending on recipe iteration order.
 local function setsMatch(a, b)
 	if #a ~= #b then return false end
 
+	local counts = {}
 	for _, ingredient in ipairs(a) do
-		if not table.find(b, ingredient) then
+		counts[ingredient] = (counts[ingredient] or 0) + 1
+	end
+	for _, ingredient in ipairs(b) do
+		local remaining = counts[ingredient]
+		if not remaining then
 			return false
 		end
+		if remaining == 1 then
+			counts[ingredient] = nil
+		else
+			counts[ingredient] = remaining - 1
+		end
 	end
-
-	return true
+	return next(counts) == nil
 end
 
 function RecipeRegistry.getRecipeByIngredients(ingredientList)

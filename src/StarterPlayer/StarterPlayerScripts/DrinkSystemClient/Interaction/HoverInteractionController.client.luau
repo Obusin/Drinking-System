@@ -885,4 +885,8 @@ local function watchCharacter(character: Model)
 end
 
 if player.Character then watchCharacter(player.Character) end
-player.CharacterAdded:Connect(watchCharacter)
+player.CharacterAdded:Connect(function(character)
+	-- Respawn = fresh join: no stale guidance data or highlights
+	resetGuidance()
+	watchCharacter(character)
+end)
