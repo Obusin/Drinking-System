@@ -142,11 +142,13 @@ Network.Packets = ByteNet.defineNamespace("DrinkSystem", function()
 				ColorR = ByteNet.uint8,
 				ColorG = ByteNet.uint8,
 				ColorB = ByteNet.uint8,
+				Hours = ByteNet.uint8,
 			}),
 		}),
 		CustomDrinkState = ByteNet.definePacket({
 			value = ByteNet.struct({
-				Tokens = ByteNet.uint8,
+				-- Unspent purchased durations, e.g. {24, 8} = one 24h + one 8h slot
+				TokenHours = ByteNet.array(ByteNet.uint8),
 				ActiveName = ByteNet.optional(ByteNet.string),
 			}),
 		}),

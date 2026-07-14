@@ -1598,28 +1598,28 @@ local function wirePackets()
 		DrinkSystemController.onSelectRecipe(player, data.RecipeName)
 	end)
 
+	local function sendCustomDrinkState(player: Player)
+		local tokenHours, mine = CustomDrinkService.getState(player)
+		Packets.CustomDrinkState.sendTo({
+			TokenHours = tokenHours,
+			ActiveName = mine and mine.Name or nil,
+		}, player)
+	end
+
 	Packets.RequestCustomDrinkState.listen(function(_, player)
 		local session = getSession(player)
 		if not rateLimitOk(session) then return end
-		local tokens, mine = CustomDrinkService.getState(player)
-		Packets.CustomDrinkState.sendTo({
-			Tokens = tokens,
-			ActiveName = mine and mine.Name or nil,
-		}, player)
+		sendCustomDrinkState(player)
 	end)
 
 	Packets.SubmitCustomDrink.listen(function(data, player)
 		local session = getSession(player)
 		if not rateLimitOk(session) then return end
 		local ok, message = CustomDrinkService.create(
-			player, data.Name, data.Ingredients, data.ColorR, data.ColorG, data.ColorB
+			player, data.Name, data.Ingredients, data.ColorR, data.ColorG, data.ColorB, data.Hours
 		)
 		Packets.CustomDrinkResult.sendTo({ Ok = ok, Message = message }, player)
-		local tokens, mine = CustomDrinkService.getState(player)
-		Packets.CustomDrinkState.sendTo({
-			Tokens = tokens,
-			ActiveName = mine and mine.Name or nil,
-		}, player)
+		sendCustomDrinkState(player)
 	end)
 
 	Packets.RequestTrashDrink.listen(function(data, player)

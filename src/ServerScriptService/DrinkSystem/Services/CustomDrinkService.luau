@@ -1,9 +1,10 @@
 -- CustomDrinkService: paid player-created drinks ("your drink on the menu").
 --
 -- Flow:
---   1. Player buys the Dev Product (Settings.CustomDrinkProductId) →
---      ProcessReceipt grants a persisted CREATION TOKEN (survives crashes;
---      granting before PurchaseGranted is the golden receipt rule).
+--   1. Player buys a duration-tier Dev Product (Settings.CustomDrinkProducts:
+--      hours → product ID) → ProcessReceipt grants a persisted CREATION TOKEN
+--      for that many hours (survives crashes; granting before PurchaseGranted
+--      is the golden receipt rule).
 --   2. Client composer submits { Name, Ingredients (2-4), Color } →
 --      server validates EVERYTHING (never trust the client):
 --        - ingredients exist in IngredientRegistry
@@ -56,7 +57,7 @@ end)
 
 -- In-memory mirror of the active list (kept in sync with the folder)
 local activeDrinks: { any } = {}
-local tokensByUser: { [number]: number } = {} -- session cache of unspent tokens
+local tokensByUser: { [number]: { number } } = {} -- session cache: array of unspent durations (hours)
 
 ---------------------------------------------------------------------
 -- Publishing: DataStore record → replicated folder entry
@@ -175,35 +176,63 @@ end
 ---------------------------------------------------------------------
 -- Creation tokens (persisted — a paid token must survive a server crash)
 ---------------------------------------------------------------------
-local function loadTokens(userId: number): number
+local function loadTokens(userId: number): { number }
 	if tokensByUser[userId] then
 		return tokensByUser[userId]
 	end
-	local count = 0
+	local list: { number } = {}
 	if store then
 		local ok, data = pcall(function()
 			return store:GetAsync(TOKEN_KEY_PREFIX .. userId)
 		end)
-		if ok and type(data) == "number" then
-			count = data
+		if ok then
+			if type(data) == "table" then
+				for _, hours in ipairs(data) do
+					if type(hours) == "number" then
+						table.insert(list, hours)
+					end
+				end
+			elseif type(data) == "number" then
+				-- Legacy count-based tokens convert to 24h slots
+				for _ = 1, data do
+					table.insert(list, 24)
+				end
+			end
 		end
 	end
-	tokensByUser[userId] = count
-	return count
+	tokensByUser[userId] = list
+	return list
 end
 
-local function adjustTokens(userId: number, delta: number): boolean
-	local newCount = math.max(loadTokens(userId) + delta, 0)
+local function saveTokens(userId: number, list: { number }): boolean
 	if store then
 		local ok = pcall(function()
-			store:SetAsync(TOKEN_KEY_PREFIX .. userId, newCount)
+			store:SetAsync(TOKEN_KEY_PREFIX .. userId, list)
 		end)
 		if not ok then
 			return false
 		end
 	end
-	tokensByUser[userId] = newCount
+	tokensByUser[userId] = list
 	return true
+end
+
+local function grantToken(userId: number, hours: number): boolean
+	local list = table.clone(loadTokens(userId))
+	table.insert(list, hours)
+	return saveTokens(userId, list)
+end
+
+-- Spend one token matching `hours`. Returns success.
+local function spendToken(userId: number, hours: number): boolean
+	local list = table.clone(loadTokens(userId))
+	for i, h in ipairs(list) do
+		if h == hours then
+			table.remove(list, i)
+			return saveTokens(userId, list)
+		end
+	end
+	return false
 end
 
 ---------------------------------------------------------------------
@@ -277,13 +306,11 @@ end
 ---------------------------------------------------------------------
 -- Public API
 ---------------------------------------------------------------------
-function CustomDrinkService.getState(player: Player): (number, any?)
-	local tokens = loadTokens(player.UserId)
-	-- Free-testing mode: everyone always has a token available
-	if Settings.CustomDrinkFreeTesting == true and tokens == 0 then
-		tokens = 1
-		tokensByUser[player.UserId] = 1
-	end
+local VALID_HOURS: { [number]: boolean } = { [4] = true, [8] = true, [12] = true, [24] = true }
+
+-- Returns (tokenHours array, player's own active drink record?)
+function CustomDrinkService.getState(player: Player): ({ number }, any?)
+	local tokenHours = loadTokens(player.UserId)
 	local mine = nil
 	for _, record in ipairs(activeDrinks) do
 		if record.CreatorUserId == player.UserId then
@@ -291,13 +318,27 @@ function CustomDrinkService.getState(player: Player): (number, any?)
 			break
 		end
 	end
-	return tokens, mine
+	return tokenHours, mine
 end
 
-function CustomDrinkService.create(player: Player, rawName: string, ingredients: { string }, colorR: number, colorG: number, colorB: number): (boolean, string)
-	local tokens = CustomDrinkService.getState(player)
-	if tokens <= 0 then
-		return false, "You need to purchase a custom drink slot first"
+function CustomDrinkService.create(player: Player, rawName: string, ingredients: { string }, colorR: number, colorG: number, colorB: number, hours: number): (boolean, string)
+	hours = tonumber(hours) or 0
+	if not VALID_HOURS[hours] then
+		return false, "Pick a duration (4, 8, 12 or 24 hours)"
+	end
+
+	local freeTesting = Settings.CustomDrinkFreeTesting == true
+	if not freeTesting then
+		local owned = false
+		for _, h in ipairs(loadTokens(player.UserId)) do
+			if h == hours then
+				owned = true
+				break
+			end
+		end
+		if not owned then
+			return false, ("You don't own a %dh slot — purchase one first"):format(hours)
+		end
 	end
 
 	-- One active drink per player: keeps them scarce and the menu clean
@@ -332,12 +373,13 @@ function CustomDrinkService.create(player: Player, rawName: string, ingredients:
 		},
 		Strongness = computeStrongness(ingredients),
 		CreatedAt = os.time(),
-		ExpiresAt = os.time() + (Settings.CustomDrinkDurationHours or 24) * 3600,
+		ExpiresAt = os.time() + hours * 3600,
+		DurationHours = hours,
 	}
 
 	-- Spend the token FIRST (crash between spend and publish = player support
 	-- case; crash the other way = free drinks, which is worse)
-	if not adjustTokens(player.UserId, -1) then
+	if not freeTesting and not spendToken(player.UserId, hours) then
 		return false, "Purchase system hiccup — try again"
 	end
 
@@ -363,31 +405,51 @@ function CustomDrinkService.create(player: Player, rawName: string, ingredients:
 		end
 	end
 	if not published or not landed then
-		adjustTokens(player.UserId, 1) -- refund
+		if not freeTesting then
+			grantToken(player.UserId, hours) -- refund
+		end
 		return false, "That name was just taken — try another"
 	end
 
-	return true, ("%q is live for %d hours!"):format(name, Settings.CustomDrinkDurationHours or 24)
+	return true, ("%q is live for %d hours!"):format(name, hours)
 end
 
 ---------------------------------------------------------------------
 -- Receipt processing (Dev Product purchase → creation token)
 ---------------------------------------------------------------------
+local function hoursForProduct(productId: number): number?
+	local products = Settings.CustomDrinkProducts or {}
+	for hours, id in pairs(products) do
+		if id ~= 0 and id == productId then
+			return hours
+		end
+	end
+	return nil
+end
+
+local function anyProductConfigured(): boolean
+	for _, id in pairs(Settings.CustomDrinkProducts or {}) do
+		if id ~= 0 then
+			return true
+		end
+	end
+	return false
+end
+
 local function processReceipt(receiptInfo): Enum.ProductPurchaseDecision
-	local productId = Settings.CustomDrinkProductId
-	if not productId or productId == 0 or receiptInfo.ProductId ~= productId then
+	local hours = hoursForProduct(receiptInfo.ProductId)
+	if not hours then
 		-- Not ours — let other handlers exist someday; don't eat the receipt
 		return Enum.ProductPurchaseDecision.NotProcessedYet
 	end
-	local granted = adjustTokens(receiptInfo.PlayerId, 1)
-	if not granted then
+	if not grantToken(receiptInfo.PlayerId, hours) then
 		return Enum.ProductPurchaseDecision.NotProcessedYet -- retried later
 	end
 	local player = Players:GetPlayerByUserId(receiptInfo.PlayerId)
 	if player then
-		local tokens, mine = CustomDrinkService.getState(player)
+		local tokenHours, mine = CustomDrinkService.getState(player)
 		Packets.CustomDrinkState.sendTo({
-			Tokens = tokens,
+			TokenHours = tokenHours,
 			ActiveName = mine and mine.Name or nil,
 		}, player)
 	end
@@ -401,7 +463,7 @@ function CustomDrinkService.init()
 	ensureFolder()
 	loadActive()
 
-	if Settings.CustomDrinkProductId and Settings.CustomDrinkProductId ~= 0 then
+	if anyProductConfigured() then
 		MarketplaceService.ProcessReceipt = processReceipt
 	end
 

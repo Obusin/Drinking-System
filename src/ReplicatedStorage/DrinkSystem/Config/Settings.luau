@@ -101,9 +101,15 @@ local Settings = {
 	TrashSoundVolume    = 0.5,
 
 	-- Custom drink maker (paid "your drink on the menu")
-	CustomDrinkProductId     = 0,     -- Dev Product ID — set once created on Creator Hub
-	CustomDrinkFreeTesting   = true,  -- TRUE = anyone can create free (testing). TURN OFF FOR LAUNCH.
-	CustomDrinkDurationHours = 24,    -- how long a purchased drink stays on the menu
+	-- Duration tiers: hours → Dev Product ID. Create one product per tier on
+	-- Creator Hub (price them ascending) and fill the IDs in here.
+	CustomDrinkProducts = {
+		[4]  = 0,
+		[8]  = 0,
+		[12] = 0,
+		[24] = 0,
+	},
+	CustomDrinkFreeTesting = true,  -- TRUE = anyone can create free (testing). TURN OFF FOR LAUNCH.
 	-- Outcome jingles (local, play with the grade toast)
 	OutcomeHighSoundId  = 113307491257691,  -- Perfect / Good
 	OutcomeLowSoundId   = 4342630136,       -- Weak / Experimental / Ruined

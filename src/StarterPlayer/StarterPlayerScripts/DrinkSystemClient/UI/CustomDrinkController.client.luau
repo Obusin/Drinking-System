@@ -1,5 +1,8 @@
 -- CustomDrinkController: "Drink Lab" composer for paid player-created drinks.
 -- Toggle with the N key or the Drink Lab button (under the Recipes toggle).
+-- Left column: build your drink (name, ingredients, color, duration tier).
+-- Right column: every custom drink currently live — mix order + time left,
+-- so anyone can learn and pour them.
 -- Server validates everything; this UI is just a nice way to build the request.
 
 local Players = game:GetService("Players")
@@ -20,6 +23,7 @@ local Packets = Network.Packets
 
 local MAX_PICKS = 4
 local MIN_PICKS = 2
+local DURATION_OPTIONS = { 4, 8, 12, 24 }
 
 local COLOR_SWATCHES = {
 	Color3.fromRGB(235, 80, 70),
@@ -36,10 +40,11 @@ local COLOR_SWATCHES = {
 	Color3.fromRGB(235, 215, 180),
 }
 
-local tokens = 0
+local tokenHours: { number } = {}
 local activeName: string? = nil
 local picks: { string } = {}
 local chosenColor = COLOR_SWATCHES[3]
+local chosenHours = 24
 
 ---------------------------------------------------------------------
 -- UI scaffold (matches RecipeMenu styling)
@@ -71,7 +76,7 @@ local panel = Instance.new("Frame")
 panel.Name = "Panel"
 panel.AnchorPoint = Vector2.new(0.5, 0.5)
 panel.Position = UDim2.new(0.5, 0, 0.5, 0)
-panel.Size = UDim2.new(0, 380, 0, 470)
+panel.Size = UDim2.new(0, 660, 0, 510)
 panel.BackgroundColor3 = Color3.fromRGB(18, 18, 18)
 panel.BackgroundTransparency = 0.06
 panel.BorderSizePixel = 0
@@ -94,21 +99,26 @@ title.TextSize = 19
 title.TextColor3 = Color3.fromRGB(255, 255, 255)
 title.Parent = panel
 
+-- ── Left column: composer ────────────────────────────────────────
+local composer = Instance.new("Frame")
+composer.Position = UDim2.new(0, 14, 0, 40)
+composer.Size = UDim2.new(0, 370, 1, -54)
+composer.BackgroundTransparency = 1
+composer.Parent = panel
+
 local statusLabel = Instance.new("TextLabel")
-statusLabel.Position = UDim2.new(0, 14, 0, 38)
-statusLabel.Size = UDim2.new(1, -28, 0, 18)
+statusLabel.Size = UDim2.new(1, 0, 0, 18)
 statusLabel.BackgroundTransparency = 1
 statusLabel.Font = Enum.Font.Montserrat
 statusLabel.TextSize = 12
 statusLabel.TextXAlignment = Enum.TextXAlignment.Left
 statusLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
 statusLabel.Text = ""
-statusLabel.Parent = panel
+statusLabel.Parent = composer
 
--- Name box
 local nameBox = Instance.new("TextBox")
-nameBox.Position = UDim2.new(0, 14, 0, 62)
-nameBox.Size = UDim2.new(1, -28, 0, 34)
+nameBox.Position = UDim2.new(0, 0, 0, 24)
+nameBox.Size = UDim2.new(1, 0, 0, 34)
 nameBox.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
 nameBox.BorderSizePixel = 0
 nameBox.Font = Enum.Font.Montserrat
@@ -117,15 +127,14 @@ nameBox.Text = ""
 nameBox.TextSize = 15
 nameBox.TextColor3 = Color3.fromRGB(255, 255, 255)
 nameBox.ClearTextOnFocus = false
-nameBox.Parent = panel
+nameBox.Parent = composer
 local nameCorner = Instance.new("UICorner")
 nameCorner.CornerRadius = UDim.new(0, 10)
 nameCorner.Parent = nameBox
 
--- Picked ingredients row
 local picksLabel = Instance.new("TextLabel")
-picksLabel.Position = UDim2.new(0, 14, 0, 102)
-picksLabel.Size = UDim2.new(1, -28, 0, 30)
+picksLabel.Position = UDim2.new(0, 0, 0, 64)
+picksLabel.Size = UDim2.new(1, 0, 0, 30)
 picksLabel.BackgroundColor3 = Color3.fromRGB(26, 26, 26)
 picksLabel.BorderSizePixel = 0
 picksLabel.Font = Enum.Font.Montserrat
@@ -133,65 +142,194 @@ picksLabel.TextSize = 13
 picksLabel.TextColor3 = Color3.fromRGB(230, 210, 150)
 picksLabel.Text = ""
 picksLabel.TextWrapped = true
-picksLabel.Parent = panel
+picksLabel.Parent = composer
 local picksCorner = Instance.new("UICorner")
 picksCorner.CornerRadius = UDim.new(0, 8)
 picksCorner.Parent = picksLabel
 
--- Ingredient grid
 local grid = Instance.new("ScrollingFrame")
-grid.Position = UDim2.new(0, 14, 0, 140)
-grid.Size = UDim2.new(1, -28, 0, 200)
+grid.Position = UDim2.new(0, 0, 0, 100)
+grid.Size = UDim2.new(1, 0, 0, 190)
 grid.BackgroundTransparency = 1
 grid.BorderSizePixel = 0
 grid.ScrollBarThickness = 4
 grid.AutomaticCanvasSize = Enum.AutomaticSize.Y
 grid.CanvasSize = UDim2.new(0, 0, 0, 0)
-grid.Parent = panel
+grid.Parent = composer
 local gridLayout = Instance.new("UIGridLayout")
-gridLayout.CellSize = UDim2.new(0, 110, 0, 30)
+gridLayout.CellSize = UDim2.new(0, 116, 0, 28)
 gridLayout.CellPadding = UDim2.new(0, 6, 0, 6)
 gridLayout.SortOrder = Enum.SortOrder.Name
 gridLayout.Parent = grid
 
 -- Color swatch row
 local swatchRow = Instance.new("Frame")
-swatchRow.Position = UDim2.new(0, 14, 0, 348)
-swatchRow.Size = UDim2.new(1, -28, 0, 26)
+swatchRow.Position = UDim2.new(0, 0, 0, 298)
+swatchRow.Size = UDim2.new(1, 0, 0, 26)
 swatchRow.BackgroundTransparency = 1
-swatchRow.Parent = panel
+swatchRow.Parent = composer
 local swatchLayout = Instance.new("UIListLayout")
 swatchLayout.FillDirection = Enum.FillDirection.Horizontal
 swatchLayout.Padding = UDim.new(0, 5)
 swatchLayout.Parent = swatchRow
 
--- Result message
+-- Duration tier row (4h / 8h / 12h / 24h)
+local durationRow = Instance.new("Frame")
+durationRow.Position = UDim2.new(0, 0, 0, 332)
+durationRow.Size = UDim2.new(1, 0, 0, 30)
+durationRow.BackgroundTransparency = 1
+durationRow.Parent = composer
+local durationLayout = Instance.new("UIListLayout")
+durationLayout.FillDirection = Enum.FillDirection.Horizontal
+durationLayout.Padding = UDim.new(0, 6)
+durationLayout.Parent = durationRow
+
 local resultLabel = Instance.new("TextLabel")
-resultLabel.Position = UDim2.new(0, 14, 1, -78)
-resultLabel.Size = UDim2.new(1, -28, 0, 30)
+resultLabel.Position = UDim2.new(0, 0, 1, -86)
+resultLabel.Size = UDim2.new(1, 0, 0, 32)
 resultLabel.BackgroundTransparency = 1
 resultLabel.Font = Enum.Font.Montserrat
 resultLabel.TextSize = 13
 resultLabel.TextWrapped = true
 resultLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
 resultLabel.Text = ""
-resultLabel.Parent = panel
+resultLabel.Parent = composer
 
--- Submit button
 local submitBtn = Instance.new("TextButton")
-submitBtn.AnchorPoint = Vector2.new(0.5, 1)
-submitBtn.Position = UDim2.new(0.5, 0, 1, -12)
-submitBtn.Size = UDim2.new(1, -28, 0, 38)
+submitBtn.AnchorPoint = Vector2.new(0, 1)
+submitBtn.Position = UDim2.new(0, 0, 1, -8)
+submitBtn.Size = UDim2.new(1, 0, 0, 38)
 submitBtn.BackgroundColor3 = Color3.fromRGB(30, 120, 60)
 submitBtn.BorderSizePixel = 0
 submitBtn.Font = Enum.Font.MontserratBold
 submitBtn.TextSize = 15
 submitBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 submitBtn.Text = "Create Drink"
-submitBtn.Parent = panel
+submitBtn.Parent = composer
 local submitCorner = Instance.new("UICorner")
 submitCorner.CornerRadius = UDim.new(0, 10)
 submitCorner.Parent = submitBtn
+
+-- ── Right column: live custom drinks ("On the Menu") ─────────────
+local liveColumn = Instance.new("Frame")
+liveColumn.Position = UDim2.new(0, 398, 0, 40)
+liveColumn.Size = UDim2.new(0, 248, 1, -54)
+liveColumn.BackgroundColor3 = Color3.fromRGB(24, 24, 24)
+liveColumn.BorderSizePixel = 0
+liveColumn.Parent = panel
+local liveCorner = Instance.new("UICorner")
+liveCorner.CornerRadius = UDim.new(0, 10)
+liveCorner.Parent = liveColumn
+
+local liveTitle = Instance.new("TextLabel")
+liveTitle.Size = UDim2.new(1, 0, 0, 30)
+liveTitle.BackgroundTransparency = 1
+liveTitle.Font = Enum.Font.MontserratBold
+liveTitle.Text = "On the Menu"
+liveTitle.TextSize = 14
+liveTitle.TextColor3 = Color3.fromRGB(230, 210, 150)
+liveTitle.Parent = liveColumn
+
+local liveScroll = Instance.new("ScrollingFrame")
+liveScroll.Position = UDim2.new(0, 8, 0, 32)
+liveScroll.Size = UDim2.new(1, -16, 1, -40)
+liveScroll.BackgroundTransparency = 1
+liveScroll.BorderSizePixel = 0
+liveScroll.ScrollBarThickness = 4
+liveScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+liveScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+liveScroll.Parent = liveColumn
+local liveLayout = Instance.new("UIListLayout")
+liveLayout.Padding = UDim.new(0, 6)
+liveLayout.SortOrder = Enum.SortOrder.LayoutOrder
+liveLayout.Parent = liveScroll
+
+local function formatTimeLeft(expiresAt: number): string
+	local remaining = math.max(expiresAt - os.time(), 0)
+	local hours = math.floor(remaining / 3600)
+	local minutes = math.floor((remaining % 3600) / 60)
+	if hours > 0 then
+		return ("%dh %dm left"):format(hours, minutes)
+	end
+	return ("%dm left"):format(math.max(minutes, 1))
+end
+
+local function rebuildLiveList()
+	for _, child in ipairs(liveScroll:GetChildren()) do
+		if child:IsA("Frame") then
+			child:Destroy()
+		end
+	end
+	local dynamicFolder = DrinkSystem:FindFirstChild("DynamicRecipes")
+	local entries = dynamicFolder and dynamicFolder:GetChildren() or {}
+	if #entries == 0 then
+		local empty = Instance.new("Frame")
+		empty.Size = UDim2.new(1, 0, 0, 60)
+		empty.BackgroundTransparency = 1
+		empty.Parent = liveScroll
+		local lbl = Instance.new("TextLabel")
+		lbl.Size = UDim2.fromScale(1, 1)
+		lbl.BackgroundTransparency = 1
+		lbl.Font = Enum.Font.Montserrat
+		lbl.TextSize = 12
+		lbl.TextWrapped = true
+		lbl.TextColor3 = Color3.fromRGB(150, 150, 150)
+		lbl.Text = "No custom drinks live right now.\nYours could be first!"
+		lbl.Parent = empty
+		return
+	end
+	for i, entry in ipairs(entries) do
+		local csv = entry:GetAttribute("IngredientsCsv") or ""
+		local steps = {}
+		local n = 0
+		for token in string.gmatch(csv, "([^,]+)") do
+			n += 1
+			table.insert(steps, ("%d. %s"):format(n, token))
+		end
+		local card = Instance.new("Frame")
+		card.Size = UDim2.new(1, 0, 0, 0)
+		card.AutomaticSize = Enum.AutomaticSize.Y
+		card.BackgroundColor3 = Color3.fromRGB(32, 32, 32)
+		card.BorderSizePixel = 0
+		card.LayoutOrder = i
+		card.Parent = liveScroll
+		local cc = Instance.new("UICorner")
+		cc.CornerRadius = UDim.new(0, 8)
+		cc.Parent = card
+		local pad = Instance.new("UIPadding")
+		pad.PaddingTop = UDim.new(0, 6)
+		pad.PaddingBottom = UDim.new(0, 6)
+		pad.PaddingLeft = UDim.new(0, 8)
+		pad.PaddingRight = UDim.new(0, 8)
+		pad.Parent = card
+
+		local header = Instance.new("TextLabel")
+		header.Size = UDim2.new(1, 0, 0, 16)
+		header.BackgroundTransparency = 1
+		header.Font = Enum.Font.MontserratBold
+		header.TextSize = 13
+		header.TextXAlignment = Enum.TextXAlignment.Left
+		header.TextColor3 = entry:GetAttribute("Color") or Color3.fromRGB(255, 255, 255)
+		header.Text = entry:GetAttribute("DisplayName") or entry.Name
+		header.Parent = card
+
+		local expiresAt = tonumber(entry:GetAttribute("ExpiresAt")) or 0
+		local body = Instance.new("TextLabel")
+		body.Position = UDim2.new(0, 0, 0, 18)
+		body.Size = UDim2.new(1, 0, 0, 0)
+		body.AutomaticSize = Enum.AutomaticSize.Y
+		body.BackgroundTransparency = 1
+		body.Font = Enum.Font.Montserrat
+		body.TextSize = 11
+		body.TextWrapped = true
+		body.TextXAlignment = Enum.TextXAlignment.Left
+		body.TextYAlignment = Enum.TextYAlignment.Top
+		body.TextColor3 = Color3.fromRGB(205, 205, 205)
+		body.Text = table.concat(steps, "\n")
+			.. ("\nby %s   •   %s"):format(entry:GetAttribute("CreatorName") or "?", formatTimeLeft(expiresAt))
+		body.Parent = card
+	end
+end
 
 ---------------------------------------------------------------------
 -- State + refresh
@@ -204,20 +342,72 @@ local function refreshPicksLabel()
 	end
 end
 
+local function ownsHours(hours: number): boolean
+	for _, h in ipairs(tokenHours) do
+		if h == hours then
+			return true
+		end
+	end
+	return false
+end
+
 local function refreshStatus()
+	local freeTesting = Settings.CustomDrinkFreeTesting == true
 	if activeName then
 		statusLabel.Text = ('Your drink "%s" is live on the menu!'):format(activeName)
 		submitBtn.Text = "Drink already active"
 		submitBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-	elseif tokens > 0 then
-		statusLabel.Text = ("Creation slots: %d"):format(tokens)
-		submitBtn.Text = "Create Drink"
+	elseif freeTesting or ownsHours(chosenHours) then
+		if freeTesting then
+			statusLabel.Text = "Free testing mode — create away!"
+		else
+			statusLabel.Text = ("Slots owned: %d"):format(#tokenHours)
+		end
+		submitBtn.Text = ("Create Drink (%dh)"):format(chosenHours)
 		submitBtn.BackgroundColor3 = Color3.fromRGB(30, 120, 60)
 	else
-		statusLabel.Text = "No creation slot — purchase one to put YOUR drink on the menu"
-		submitBtn.Text = "Buy a Drink Slot"
+		statusLabel.Text = "Pick a duration, then buy the slot to go live"
+		submitBtn.Text = ("Buy %dh Slot"):format(chosenHours)
 		submitBtn.BackgroundColor3 = Color3.fromRGB(120, 90, 20)
 	end
+end
+
+-- Duration buttons
+local durationButtons: { [number]: TextButton } = {}
+local function refreshDurationSelection()
+	for hours, btn in pairs(durationButtons) do
+		local selected = hours == chosenHours
+		btn.BackgroundColor3 = selected and Color3.fromRGB(60, 90, 140) or Color3.fromRGB(34, 34, 34)
+		local stroke = btn:FindFirstChildOfClass("UIStroke")
+		if stroke then
+			stroke.Transparency = selected and 0 or 1
+		end
+	end
+	refreshStatus()
+end
+for _, hours in ipairs(DURATION_OPTIONS) do
+	local btn = Instance.new("TextButton")
+	btn.Size = UDim2.new(0, 62, 1, 0)
+	btn.BackgroundColor3 = Color3.fromRGB(34, 34, 34)
+	btn.BorderSizePixel = 0
+	btn.Font = Enum.Font.MontserratBold
+	btn.TextSize = 13
+	btn.TextColor3 = Color3.fromRGB(235, 235, 235)
+	btn.Text = hours .. "h"
+	btn.Parent = durationRow
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, 8)
+	c.Parent = btn
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = Color3.fromRGB(140, 180, 255)
+	stroke.Thickness = 1.5
+	stroke.Transparency = 1
+	stroke.Parent = btn
+	durationButtons[hours] = btn
+	btn.Activated:Connect(function()
+		chosenHours = hours
+		refreshDurationSelection()
+	end)
 end
 
 -- Ingredient buttons (Water excluded — server rejects it anyway)
@@ -303,13 +493,13 @@ for _, color in ipairs(COLOR_SWATCHES) do
 end
 refreshSwatchSelection()
 refreshPicksLabel()
-refreshStatus()
+refreshDurationSelection()
 
 ---------------------------------------------------------------------
 -- Networking
 ---------------------------------------------------------------------
 Packets.CustomDrinkState.listen(function(data)
-	tokens = data.Tokens or 0
+	tokenHours = data.TokenHours or {}
 	activeName = data.ActiveName
 	refreshStatus()
 end)
@@ -326,8 +516,10 @@ end)
 
 submitBtn.Activated:Connect(function()
 	if activeName then return end
-	if tokens <= 0 then
-		local productId = Settings.CustomDrinkProductId
+	local freeTesting = Settings.CustomDrinkFreeTesting == true
+	if not freeTesting and not ownsHours(chosenHours) then
+		local products = Settings.CustomDrinkProducts or {}
+		local productId = products[chosenHours]
 		if productId and productId ~= 0 then
 			MarketplaceService:PromptProductPurchase(player, productId)
 		else
@@ -341,18 +533,37 @@ submitBtn.Activated:Connect(function()
 		resultLabel.TextColor3 = Color3.fromRGB(240, 130, 120)
 		return
 	end
-	local r = math.floor(chosenColor.R * 255)
-	local g = math.floor(chosenColor.G * 255)
-	local b = math.floor(chosenColor.B * 255)
 	Packets.SubmitCustomDrink.send({
 		Name = nameBox.Text,
 		Ingredients = picks,
-		ColorR = r,
-		ColorG = g,
-		ColorB = b,
+		ColorR = math.floor(chosenColor.R * 255),
+		ColorG = math.floor(chosenColor.G * 255),
+		ColorB = math.floor(chosenColor.B * 255),
+		Hours = chosenHours,
 	})
 	resultLabel.Text = "Mixing it up…"
 	resultLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+end)
+
+---------------------------------------------------------------------
+-- Live list wiring: rebuild on folder changes + tick the countdowns
+---------------------------------------------------------------------
+task.spawn(function()
+	local dynamicFolder = DrinkSystem:WaitForChild("DynamicRecipes", 60)
+	if dynamicFolder then
+		dynamicFolder.ChildAdded:Connect(function()
+			task.defer(rebuildLiveList)
+		end)
+		dynamicFolder.ChildRemoved:Connect(function()
+			task.defer(rebuildLiveList)
+		end)
+	end
+	while true do
+		if panel.Visible then
+			rebuildLiveList()
+		end
+		task.wait(30)
+	end
 end)
 
 ---------------------------------------------------------------------
@@ -363,6 +574,7 @@ local function setOpen(open: boolean)
 	if open then
 		resultLabel.Text = ""
 		Packets.RequestCustomDrinkState.send({})
+		rebuildLiveList()
 	end
 end
 
