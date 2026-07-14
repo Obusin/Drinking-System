@@ -9,6 +9,17 @@ local STAGE_NAMES = {
 	[3] = { "3", "Stage3" },
 }
 
+-- Every part name that can represent the drink's liquid across templates.
+-- "Water"/"WaterPart" cover water visuals that older code left visible after
+-- a sink reset because only DrinkPart/LiquidPart were being swept.
+local LIQUID_PART_NAMES = {
+	{ Name = "DrinkPart", VisibleTransparency = 0.05 },
+	{ Name = "LiquidPart", VisibleTransparency = 0.1 },
+	{ Name = "Liquid", VisibleTransparency = 0.1 },
+	{ Name = "Water", VisibleTransparency = 0.1 },
+	{ Name = "WaterPart", VisibleTransparency = 0.1 },
+}
+
 local GARNISH_NAMES = {
 	"Cherry",
 	"Lemon",
@@ -113,14 +124,11 @@ function GlassPresentation.setStage(container: Instance, stage: number?)
 		end
 	end
 
-	local drinkPart = container:FindFirstChild("DrinkPart", true)
-	if drinkPart and drinkPart:IsA("BasePart") then
-		applyPartVisibility(drinkPart, if stage ~= nil and stage > 0 then 0.05 else HIDDEN_TRANSPARENCY)
-	end
-
-	local liquidPart = container:FindFirstChild("LiquidPart", true)
-	if liquidPart and liquidPart:IsA("BasePart") then
-		applyPartVisibility(liquidPart, if stage ~= nil and stage > 0 then 0.1 else HIDDEN_TRANSPARENCY)
+	for _, entry in ipairs(LIQUID_PART_NAMES) do
+		local part = container:FindFirstChild(entry.Name, true)
+		if part and part:IsA("BasePart") then
+			applyPartVisibility(part, if stage ~= nil and stage > 0 then entry.VisibleTransparency else HIDDEN_TRANSPARENCY)
+		end
 	end
 end
 
@@ -140,13 +148,11 @@ function GlassPresentation.setLiquidTransparency(container: Instance, transparen
 			end
 		end
 	end
-	local drinkPart = container:FindFirstChild("DrinkPart", true)
-	if drinkPart and drinkPart:IsA("BasePart") and drinkPart.Transparency < 0.9 then
-		drinkPart.Transparency = transparency
-	end
-	local liquidPart = container:FindFirstChild("LiquidPart", true)
-	if liquidPart and liquidPart:IsA("BasePart") and liquidPart.Transparency < 0.9 then
-		liquidPart.Transparency = transparency
+	for _, entry in ipairs(LIQUID_PART_NAMES) do
+		local part = container:FindFirstChild(entry.Name, true)
+		if part and part:IsA("BasePart") and part.Transparency < 0.9 then
+			part.Transparency = transparency
+		end
 	end
 end
 
@@ -162,14 +168,11 @@ function GlassPresentation.setFillColor(container: Instance, color: Color3?)
 		end
 	end
 
-	local drinkPart = container:FindFirstChild("DrinkPart", true)
-	if drinkPart and drinkPart:IsA("BasePart") then
-		drinkPart.Color = color
-	end
-
-	local liquidPart = container:FindFirstChild("LiquidPart", true)
-	if liquidPart and liquidPart:IsA("BasePart") then
-		liquidPart.Color = color
+	for _, entry in ipairs(LIQUID_PART_NAMES) do
+		local part = container:FindFirstChild(entry.Name, true)
+		if part and part:IsA("BasePart") then
+			part.Color = color
+		end
 	end
 end
 

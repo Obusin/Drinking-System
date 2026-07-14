@@ -29,6 +29,32 @@ do
 end
 
 local currentShakerClone: Model? = nil
+local currentShakeSound: Sound? = nil
+
+-- Shake sound plays on the character root so nearby players hear it too
+-- (it replicates because the client owns its character)
+local function startShakeSound(character: Model)
+	if not Settings.ShakerSoundId then return end
+	local root = character:FindFirstChild("HumanoidRootPart")
+	if not root then return end
+	local sound = Instance.new("Sound")
+	sound.Name = "DS_ShakeSound"
+	sound.SoundId = "rbxassetid://" .. tostring(Settings.ShakerSoundId)
+	sound.Volume = Settings.ShakerSoundVolume or 0.5
+	sound.Looped = true
+	sound.RollOffMaxDistance = 40
+	sound.Parent = root
+	sound:Play()
+	currentShakeSound = sound
+end
+
+local function stopShakeSound()
+	if currentShakeSound then
+		currentShakeSound:Stop()
+		currentShakeSound:Destroy()
+		currentShakeSound = nil
+	end
+end
 
 local function getAnimator()
 	local char = player.Character or player.CharacterAdded:Wait()
@@ -106,8 +132,10 @@ StartShakerSequence.listen(function(payload: table)
 	if not shakerToolTemplate then
 		warn("[ShakerController] Missing ShakerTool template; playing animation only")
 		local track = animator:LoadAnimation(SHAKER_ANIMATION)
+		startShakeSound(char)
 		track:Play()
 		track.Stopped:Connect(function()
+			stopShakeSound()
 			ShakerFinished.send({})
 		end)
 		return
@@ -133,10 +161,12 @@ StartShakerSequence.listen(function(payload: table)
 	attachShakerToLeftHand(visualModel, char)
 
 	local track = animator:LoadAnimation(SHAKER_ANIMATION)
+	startShakeSound(char)
 	track:Play()
 
 	track.Stopped:Connect(function()
 		cleanupShakerClone()
+		stopShakeSound()
 		-- Tell server shaker is done
 		ShakerFinished.send({})
 	end)

@@ -95,6 +95,10 @@ local Settings = {
 	DrinkSoundVolume    = 0.55,
 	SolaireSoundId      = 140335089989960,  -- plays when sipping Solaire's Spit
 	SolaireSoundVolume  = 0.45,             -- low but audible
+	ShakerSoundId       = 82990263580916,   -- loops while the shake animation plays
+	ShakerSoundVolume   = 0.5,
+	TrashSoundId        = 103865555979173,  -- glass thrown into a DS_Trash can
+	TrashSoundVolume    = 0.5,
 	-- Outcome jingles (local, play with the grade toast)
 	OutcomeHighSoundId  = 113307491257691,  -- Perfect / Good
 	OutcomeLowSoundId   = 4342630136,       -- Weak / Experimental / Ruined

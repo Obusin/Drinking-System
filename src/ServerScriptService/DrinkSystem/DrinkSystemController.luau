@@ -1456,6 +1456,13 @@ function DrinkSystemController.onSinkDrink(player: Player, model: Instance)
 	local mix = session.MixByTool[tool]
 	if mix and mix.PendingPayload then return end
 
+	-- Nothing to dump: empty glass with no mix in progress. Silently ignore so
+	-- clicking the sink repeatedly can't spam the pour sound.
+	local hasContent = tool:GetAttribute("DS_Drink") == true
+		or (tonumber(tool:GetAttribute("DS_FillStage")) or 0) > 0
+		or (mix ~= nil and #mix.Ingredients > 0)
+	if not hasContent then return end
+
 	clearMixState(session, tool)
 	resetToolToEmptyGlass(tool)
 	session.SelectedRecipe = nil
@@ -1466,6 +1473,60 @@ function DrinkSystemController.onSinkDrink(player: Player, model: Instance)
 	-- Pour-it-out sound so disposal has feedback
 	DrinkEffectsService.playCharacterSound(player, Settings.PourSoundId, Settings.PourSoundVolume or 0.25)
 	debugPrint(player.Name, "emptied their drink in the sink")
+end
+
+-- Trash can (DS_Trash): destroys the held glass/drink entirely — unlike the
+-- sink, the glass is gone and the player must grab a new one.
+local function isTrashModel(model: Instance): boolean
+	if model:GetAttribute("DS_Trash") == true or CollectionService:HasTag(model, "DS_Trash") then
+		return true
+	end
+	for _, d in ipairs(model:GetDescendants()) do
+		if d:GetAttribute("DS_Trash") == true then
+			return true
+		end
+	end
+	return false
+end
+
+function DrinkSystemController.onTrashDrink(player: Player, model: Instance)
+	if playerIsCollapsed(player) then return end
+	local session = getSession(player)
+	if not rateLimitOk(session) then return end
+	if typeof(model) ~= "Instance" then return end
+	if not isTrashModel(model) then return end
+	if not modelDistanceOk(player, model) then return end
+
+	local char = player.Character
+	if not char then return end
+	local tool: Tool? = nil
+	for _, inst in ipairs(char:GetChildren()) do
+		if inst:IsA("Tool") and (
+			inst:GetAttribute("DS_GlassTool") == true
+			or inst:GetAttribute("DS_Drink") == true
+			or inst:GetAttribute("DS_DrinkTool") == true
+		) then
+			tool = inst
+			break
+		end
+	end
+	if not tool then return end
+
+	-- Never trash a drink that's mid-shake finalize
+	local mix = session.MixByTool[tool]
+	if mix and mix.PendingPayload then return end
+
+	clearMixState(session, tool)
+	session.SelectedRecipe = nil
+	session.SuggestedRecipe = nil
+	session.SuggestedRecipes = {}
+	session.DirtyGuidance = true
+	if session.GlassTool == tool then
+		session.GlassTool = nil
+	end
+	tool:Destroy() -- PickupManager's Destroying hook frees the inventory slot
+	DrinkEffectsService.playCharacterSound(player, Settings.TrashSoundId or Settings.PourSoundId, Settings.TrashSoundVolume or 0.5)
+	debugPrint(player.Name, "threw their glass in the trash")
 end
 
 function DrinkSystemController.onSelectRecipe(player: Player, recipeName: string?)
@@ -1534,6 +1595,10 @@ local function wirePackets()
 
 	Packets.RequestSelectRecipe.listen(function(data, player)
 		DrinkSystemController.onSelectRecipe(player, data.RecipeName)
+	end)
+
+	Packets.RequestTrashDrink.listen(function(data, player)
+		DrinkSystemController.onTrashDrink(player, data.Model)
 	end)
 
 	Packets.RequestSinkDrink.listen(function(data, player)

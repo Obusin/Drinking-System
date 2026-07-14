@@ -108,9 +108,19 @@ local function setupPlayer(player: Player)
 	end
 end
 
+-- Dedupe: PlayerRemoving and BindToClose can both fire for the same player
+-- on shutdown; writing the same key twice back-to-back floods the DataStore
+-- queue ("request was added to queue" warning)
+local lastSaveAt: { [number]: number } = {}
+
 local function savePlayer(player: Player)
 	local stats = statsByPlayer[player]
 	if not stats or not store then return end
+	local now = os.clock()
+	if lastSaveAt[player.UserId] and now - lastSaveAt[player.UserId] < 6 then
+		return
+	end
+	lastSaveAt[player.UserId] = now
 	local payload = {
 		Level = stats.LevelValue.Value,
 		XP = math.floor(stats.XP),
@@ -266,6 +276,9 @@ function StatsService.init()
 	Players.PlayerRemoving:Connect(function(player)
 		savePlayer(player)
 		statsByPlayer[player] = nil
+		task.delay(10, function()
+			lastSaveAt[player.UserId] = nil
+		end)
 	end)
 	game:BindToClose(function()
 		for _, player in ipairs(Players:GetPlayers()) do

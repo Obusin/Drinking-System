@@ -21,6 +21,7 @@ local Settings = require(ConfigFolder:WaitForChild("Settings"))
 if Settings.EnableHoverInteractionController ~= true then
 	return
 end
+local MenuPanelBus = require(script.Parent.Parent:WaitForChild("UI"):WaitForChild("MenuPanelBus"))
 local Network = require(SharedModules:WaitForChild("Network"))
 local RecipeRegistry = require(SharedModules:WaitForChild("RecipeRegistry"))
 local Packets = Network.Packets
@@ -31,6 +32,7 @@ local RequestAddGarnish = Packets.RequestAddGarnish
 local GuidanceUpdate = Packets.GuidanceUpdate
 local RequestFinalizeMix = Packets.RequestFinalizeMix
 local RequestSinkDrink = Packets.RequestSinkDrink
+local RequestTrashDrink = Packets.RequestTrashDrink
 
 ---------------------------------------------------------------------
 -- Helper: Is player holding a glass tool?
@@ -63,15 +65,32 @@ end
 ---------------------------------------------------------------------
 -- Helper: Get root model from a hit part
 ---------------------------------------------------------------------
+local function isMenuInstance(inst: Instance): boolean
+	return inst:GetAttribute("DS_Menu") == true or CollectionService:HasTag(inst, "DS_Menu")
+end
+
+local function getTaggedMenuRoot(inst: Instance): Instance?
+	local current: Instance? = inst
+	while current and current ~= workspace do
+		if isMenuInstance(current) then
+			return current
+		end
+		current = current.Parent
+	end
+	return nil
+end
+
 local function getRootModel(part)
 	if not part then return nil end
+	local menuRoot = getTaggedMenuRoot(part)
+	if menuRoot then return menuRoot end
 	return part:FindFirstAncestorOfClass("Model")
 		or part:FindFirstAncestorOfClass("Tool")
 		or part
 end
 
 ---------------------------------------------------------------------
--- Detect interactable type (Bottle / Glass / Shaker / Garnish)
+-- Detect interactable type (Bottle / Glass / Shaker / Garnish / Menu)
 ---------------------------------------------------------------------
 -- True when the instance is any player's character or inside one.
 -- MUST cover ALL players, not just the local one: other players' equipped
@@ -102,9 +121,18 @@ local function detectType(model)
 		end
 	end
 
+	if isMenuInstance(model) then
+		return "Menu"
+	end
+
 	-- Sink — pour out the held mix/drink
 	if model:GetAttribute("DS_Sink") == true or CollectionService:HasTag(model, "DS_Sink") then
 		return "Sink"
+	end
+
+	-- Trash — throw the held glass/drink away entirely
+	if model:GetAttribute("DS_Trash") == true or CollectionService:HasTag(model, "DS_Trash") then
+		return "Trash"
 	end
 
 	-- 3. Water overrides everything — anything carrying DS_IngredientName = "Water"
@@ -237,6 +265,45 @@ local function getIngredientName(model: Model): string?
 		end
 	end
 	return nil
+end
+
+local function getMenuLabel(model: Instance): string
+	local directLabel = model:GetAttribute("DS_MenuLabel")
+	if type(directLabel) == "string" and directLabel ~= "" then
+		return directLabel
+	end
+
+	for _, d in ipairs(model:GetDescendants()) do
+		if d:FindFirstAncestorOfClass("Model") == model and isMenuInstance(d) then
+			local descendantLabel = d:GetAttribute("DS_MenuLabel")
+			if type(descendantLabel) == "string" and descendantLabel ~= "" then
+				return descendantLabel
+			end
+		end
+	end
+
+	return "Menu"
+end
+
+local function isWithinInteractDistance(inst: Instance): boolean
+	local char = player.Character
+	local root = char and char:FindFirstChild("HumanoidRootPart")
+	if not root or not root:IsA("BasePart") then
+		return false
+	end
+
+	local targetPart: BasePart?
+	if inst:IsA("BasePart") then
+		targetPart = inst
+	else
+		targetPart = inst:FindFirstChildWhichIsA("BasePart", true)
+	end
+	if not targetPart then
+		return false
+	end
+
+	local maxDist = Settings.MaxInteractDistance or 12
+	return (targetPart.Position - root.Position).Magnitude <= maxDist
 end
 
 ---------------------------------------------------------------------
@@ -596,7 +663,7 @@ end)
 local function isGuidedClickAllowed(model: Model, itemType: string): boolean
 	-- Placed drinks, glasses, shakers, and the trash are always clickable —
 	-- guidance never blocks them
-	if itemType == "Drink" or itemType == "Glass" or itemType == "Shaker" or itemType == "Sink" then return true end
+	if itemType == "Drink" or itemType == "Glass" or itemType == "Shaker" or itemType == "Sink" or itemType == "Trash" then return true end
 
 	-- Water is drinkable any time — guidance never blocks it
 	if itemType == "Bottle" and getIngredientName(model) == "Water" then return true end
@@ -748,6 +815,11 @@ RunService.RenderStepped:Connect(function()
 		hoverHighlight.Enabled = true
 	end
 
+	-- Publish what's being hovered so other controllers (drink consume) can
+	-- yield to the interaction: hovering an interactable means the click is
+	-- meant for it, NEVER a sip of the held drink.
+	_G.DS_HoverInteractType = hoverType
+
 	if hoveredModel and hoverType then
 		applyHighlight(hoveredModel)
 		local label
@@ -763,6 +835,10 @@ RunService.RenderStepped:Connect(function()
 			label = hoveredModel:GetAttribute("DS_Garnish") or hoveredModel.Name
 		elseif hoverType == "Sink" then
 			label = "Dispose"
+		elseif hoverType == "Trash" then
+			label = "Throw away"
+		elseif hoverType == "Menu" then
+			label = getMenuLabel(hoveredModel)
 		end
 		setTooltip(label)
 		updateTooltipPosition()
@@ -781,13 +857,19 @@ local function tryInteract()
 
 	local t = detectType(currentModel)
 	if not t then return end
+	if t == "Menu" then
+		if isWithinInteractDistance(currentModel) then
+			MenuPanelBus.SetOpen(true)
+		end
+		return
+	end
 	if not isGuidedClickAllowed(currentModel, t) then
 		return
 	end
 
 	-- Do not consume click input while the player is holding a drink
 	-- unless targeting a garnish station, another drink, Water, or the Sink.
-	if t ~= "Garnish" and t ~= "Drink" and t ~= "Sink" and playerIsHoldingDrinkTool() then
+	if t ~= "Garnish" and t ~= "Drink" and t ~= "Sink" and t ~= "Trash" and playerIsHoldingDrinkTool() then
 		if not (t == "Bottle" and getIngredientName(currentModel) == "Water") then
 			return
 		end
@@ -811,6 +893,12 @@ local function tryInteract()
 	-- Sink: pour out the held mix/drink (glass resets to clean)
 	if t == "Sink" then
 		RequestSinkDrink.send({ Model = currentModel })
+		return
+	end
+
+	-- Trash: throw the held glass/drink away entirely
+	if t == "Trash" then
+		RequestTrashDrink.send({ Model = currentModel })
 		return
 	end
 

@@ -239,6 +239,10 @@ local function tryConsume(tool: Tool, fromMobileTap: boolean?)
 	if drinkAnimLocked then return end
 	if ragdollLocked then return end
 
+	-- Hovering ANY highlighted interactable (sink, bottle, menu, trash, …)
+	-- means this click belongs to that interaction — never sip through it.
+	if _G.DS_HoverInteractType ~= nil then return end
+
 	-- On mobile, Activated fires before TouchTap so the flag approach is unreliable.
 	-- Block Activated for drink tools on mobile — the TouchTap handler owns place+drink
 	-- and calls tryConsume with fromMobileTap=true to get past this gate.
@@ -700,12 +704,17 @@ if IS_MOBILE then
 
 	local pendingPosition: Vector3? = nil
 	local pendingTool: Tool? = nil
+	-- Place/Cancel Activated fires BEFORE the same tap's TouchTap event; without
+	-- this window the leftover TouchTap raycasts past the (now hidden) buttons
+	-- and registers as a sip
+	local suppressTapUntil = 0
 
 	local function hideConfirm()
 		btnFrame.Visible = false
 		pendingPosition = nil
 		pendingTool = nil
 		placementPreview:hideGhost()
+		suppressTapUntil = os.clock() + 0.35
 	end
 
 	local function getEquippedDrink(): Tool?
@@ -741,8 +750,12 @@ if IS_MOBILE then
 		hideConfirm()
 	end)
 
-	UserInputService.TouchTap:Connect(function(touchPositions)
+	UserInputService.TouchTap:Connect(function(touchPositions, gameProcessed)
 		if not touchPositions[1] then return end
+
+		-- Tap landed on UI (Place/Cancel, hotbar, any button) — never a sip
+		if gameProcessed then return end
+		if os.clock() < suppressTapUntil then return end
 
 		-- Any tap while buttons are showing: dismiss (Place/Cancel handle their own Activated)
 		if btnFrame.Visible then

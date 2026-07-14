@@ -308,7 +308,7 @@ Recipes currently configured in source:
   - shaker required: `no`
   - garnish: `Lime`
 - `Debt Collector`
-  - ingredients: `JacklineDale` + `Maple Syrup` + `Creamora`
+  - ingredients: `Jaxline` + `Maple Syrup` + `Creamora`
   - shaker required: `yes`
   - garnish: `Orange`
 - `Heatstroke`
@@ -327,14 +327,14 @@ If you want the "what can players actually make right now?" answer from the curr
 ### Recipe drinks
 
 - `Blue Screen` = `Vodqa` + `Coolnag` + `Soda Water`
-- `Debt Collector` = `JacklineDale` + `Maple Syrup` + `Creamora` + shaker
+- `Debt Collector` = `Jaxline` + `Maple Syrup` + `Creamora` + shaker
 - `Heatstroke` = `Biljin` + `Tropica` + `Sugar`
 - `Dealer's Choice` = `Almendra` + `Chocoluxe` + `Creamora` + shaker
 
 ### Non-recipe outputs that still work
 
 - any single ingredient poured into an empty glass with no selected recipe becomes a straight drink
-  - examples: `Vodqa`, `JacklineDale`, `Biljin`, `Almendra`, etc.
+  - examples: `Vodqa`, `Jaxline`, `Biljin`, `Almendra`, etc.
 - custom multi-ingredient mixes can still be finalized even if they do not match a recipe
 - if the mix exceeds `MaxIngredientsPerMix`, the controller can output `Toxication`
 
@@ -343,7 +343,7 @@ If you want the "what can players actually make right now?" answer from the curr
 - `Vodqa`
 - `Coolnag`
 - `Soda Water`
-- `JacklineDale`
+- `Jaxline`
 - `Maple Syrup`
 - `Creamora`
 - `Biljin`

@@ -15,7 +15,7 @@ local INGREDIENTS = {
 	Bukonelle = { Strongness = BASE_STRONGNESS, Color = BASE_COLOR },
 	["Double Time"] = { Strongness = BASE_STRONGNESS, Color = BASE_COLOR },
 	Fonador = { Strongness = BASE_STRONGNESS, Color = BASE_COLOR },
-	JacklineDale = { Strongness = BASE_STRONGNESS, Color = BASE_COLOR },
+	Jaxline = { Strongness = BASE_STRONGNESS, Color = BASE_COLOR },
 	Nguermo = { Strongness = BASE_STRONGNESS, Color = BASE_COLOR },
 	Vermix = { Strongness = BASE_STRONGNESS, Color = BASE_COLOR },
 	Vodqa = { Strongness = BASE_STRONGNESS, Color = BASE_COLOR },
