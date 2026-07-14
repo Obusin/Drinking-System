@@ -19,6 +19,16 @@ local IceCubeService = {}
 local TEMPLATE_FOLDER_NAME = "IceCubeTemplates"
 local PADDING = Vector3.new(2, 2.5, 2) -- extra room so the rig doesn't clip the walls
 
+-- Deliberately slippery — a bump should send the cube (and its passenger)
+-- sliding a good distance, not just nudge in place.
+local ICE_PHYSICAL_PROPERTIES = PhysicalProperties.new(
+	0.9,  -- density — sane mass, not floaty, not a boulder
+	0.05, -- friction — LOW, this is the "slide" feel
+	0.1,  -- elasticity — barely bouncy
+	1,    -- frictionWeight
+	1     -- elasticityWeight
+)
+
 type TrapState = {
 	Cube: BasePart,
 	Weld: WeldConstraint,
@@ -52,10 +62,15 @@ local function release(player: Player)
 
 	local char = player.Character
 	local humanoid = char and char:FindFirstChildOfClass("Humanoid")
-	if humanoid then
+	if humanoid and humanoid.Health > 0 then
 		humanoid.WalkSpeed = humanoid:GetAttribute("DS_PreIceWalkSpeed") or 16
 		humanoid.JumpPower = humanoid:GetAttribute("DS_PreIceJumpPower") or 50
 		humanoid.AutoRotate = true
+		-- Hand control back — GettingUp is the standard "resume normal
+		-- control" transition out of a forced Physics state
+		if humanoid:GetState() == Enum.HumanoidStateType.Physics then
+			humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+		end
 	end
 end
 
@@ -96,6 +111,7 @@ function IceCubeService.Trap(player: Player, duration: number?)
 	cube.Material = Enum.Material.Ice
 	cube.Transparency = 0.25
 	cube.Color = Color3.fromRGB(200, 235, 255)
+	cube.CustomPhysicalProperties = ICE_PHYSICAL_PROPERTIES
 	cube.Parent = workspace
 
 	-- Rigid attach: the character's whole rig follows the cube through
@@ -115,9 +131,13 @@ function IceCubeService.Trap(player: Player, duration: number?)
 	local dur = duration or 20
 	local expiresAt = os.clock() + dur
 
-	-- Pin movement every frame — DrunkEffectsService also writes WalkSpeed
-	-- continuously based on drunk stage, so a one-time set alone would get
-	-- overwritten within a tick. This wins every frame instead.
+	-- Pin every frame: Enum.HumanoidStateType.Physics is the hard lock — it
+	-- strips ALL input/AI control from the humanoid (no walking, no jumping,
+	-- no auto-rotate) while the character stays a normal, pushable physics
+	-- body — same technique this project's own ragdoll system already uses.
+	-- WalkSpeed/JumpPower are zeroed too as a belt-and-suspenders (and
+	-- because DrunkEffectsService writes WalkSpeed every frame based on
+	-- drunk stage, which a one-time set alone would lose the race against).
 	local conn = RunService.Heartbeat:Connect(function()
 		if not humanoid.Parent then
 			release(player) -- character died/respawned mid-trap
@@ -126,6 +146,9 @@ function IceCubeService.Trap(player: Player, duration: number?)
 		humanoid.WalkSpeed = 0
 		humanoid.JumpPower = 0
 		humanoid.AutoRotate = false
+		if humanoid:GetState() ~= Enum.HumanoidStateType.Physics then
+			humanoid:ChangeState(Enum.HumanoidStateType.Physics)
+		end
 		if os.clock() >= expiresAt then
 			release(player)
 		end
