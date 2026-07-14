@@ -21,8 +21,8 @@ local IngredientRegistry = require(SharedModules:WaitForChild("IngredientRegistr
 local Network = require(SharedModules:WaitForChild("Network"))
 local Packets = Network.Packets
 
-local MAX_PICKS = 4
-local MIN_PICKS = 2
+local MAX_PICKS = 6
+local MIN_PICKS = 4
 local DURATION_OPTIONS = { 4, 8, 12, 24 }
 
 local COLOR_SWATCHES = {
@@ -174,10 +174,9 @@ swatchLayout.FillDirection = Enum.FillDirection.Horizontal
 swatchLayout.Padding = UDim.new(0, 5)
 swatchLayout.Parent = swatchRow
 
--- Drunkness slider (5 → dynamic ceiling based on picked ingredients)
+-- Drunkness slider: flat 5-75 range (server clamps the same bounds)
 local STRONGNESS_MIN = 5
 local STRONGNESS_HARD_CAP = 75
-local STRONGNESS_PER_ALCOHOL = 22 -- mirror of the server ceiling formula
 local chosenStrongness = 40
 
 local sliderRow = Instance.new("Frame")
@@ -241,27 +240,9 @@ local function strengthBand(v: number): (string, Color3)
 	end
 end
 
--- Ceiling mirrors the server: alcoholic picks raise it, mixers barely do.
--- (Server re-derives and clamps — this is just honest UI.)
-local function strongnessCeiling(): number
-	local ceiling = 0
-	for _, ingName in ipairs(picks) do
-		local def = IngredientRegistry.get(ingName)
-		if def and (def.Strongness or 0) > 0 then
-			ceiling += STRONGNESS_PER_ALCOHOL
-		else
-			ceiling += 4
-		end
-	end
-	return math.clamp(ceiling, STRONGNESS_MIN, STRONGNESS_HARD_CAP)
-end
-
 local function refreshSlider()
-	local ceiling = strongnessCeiling()
-	chosenStrongness = math.clamp(chosenStrongness, STRONGNESS_MIN, ceiling)
-	-- Full track = 5..ceiling, so the knob always spans the whole width and
-	-- never jams partway (the old 5..75 mapping pinned it at the ceiling)
-	local alpha = (chosenStrongness - STRONGNESS_MIN) / math.max(ceiling - STRONGNESS_MIN, 1)
+	chosenStrongness = math.clamp(chosenStrongness, STRONGNESS_MIN, STRONGNESS_HARD_CAP)
+	local alpha = (chosenStrongness - STRONGNESS_MIN) / (STRONGNESS_HARD_CAP - STRONGNESS_MIN)
 	knob.Position = UDim2.new(alpha, 0, 0.5, 0)
 	fill.Size = UDim2.new(alpha, 0, 1, 0)
 	local bandName, bandColor = strengthBand(chosenStrongness)
@@ -272,9 +253,8 @@ end
 
 local draggingSlider = false
 local function setFromX(x: number)
-	local ceiling = strongnessCeiling()
 	local alpha = math.clamp((x - track.AbsolutePosition.X) / math.max(track.AbsoluteSize.X, 1), 0, 1)
-	chosenStrongness = math.floor(STRONGNESS_MIN + alpha * (ceiling - STRONGNESS_MIN) + 0.5)
+	chosenStrongness = math.floor(STRONGNESS_MIN + alpha * (STRONGNESS_HARD_CAP - STRONGNESS_MIN) + 0.5)
 	refreshSlider()
 end
 

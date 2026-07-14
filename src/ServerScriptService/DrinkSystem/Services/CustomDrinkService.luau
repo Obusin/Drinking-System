@@ -41,8 +41,10 @@ local STORE_NAME = "DS_CustomDrinks_v1"
 local ACTIVE_KEY = "active_v1" -- one shared record: array of live custom drinks
 local TOKEN_KEY_PREFIX = "token_" -- token_<userId> = number of unspent creations
 
-local MIN_INGREDIENTS = 2
-local MAX_INGREDIENTS = 4
+-- 4-6 ingredients: house recipes use 1-4, so a 4+ requirement plus the
+-- exact-match collision check keeps custom combos from shadowing them
+local MIN_INGREDIENTS = 4
+local MAX_INGREDIENTS = 6
 local MAX_NAME_LENGTH = 24
 local MIN_NAME_LENGTH = 3
 local STRONGNESS_PER_ALCOHOL = 22 -- Strongness 1 ingredients pay this much
@@ -238,29 +240,13 @@ end
 ---------------------------------------------------------------------
 -- Validation
 ---------------------------------------------------------------------
--- The creator picks the drunkness level with a slider; the server only
--- enforces the bounds. An ingredient-derived value caps the TOP end so an
--- all-mixer drink can't be sold as a face-melter: each alcoholic ingredient
--- raises the ceiling, mixers barely move it.
+-- The creator picks the drunkness level with a slider; the server just
+-- enforces the flat bounds (custom drinks never reach collapse tier).
 local STRONGNESS_MIN = 5
 
-local function maxStrongnessFor(ingredients: { string }): number
-	local ceiling = 0
-	for _, name in ipairs(ingredients) do
-		local def = IngredientRegistry.get(name)
-		if def and (def.Strongness or 0) > 0 then
-			ceiling += STRONGNESS_PER_ALCOHOL
-		else
-			ceiling += 4
-		end
-	end
-	return math.clamp(ceiling, STRONGNESS_MIN, STRONGNESS_CAP)
-end
-
-local function resolveStrongness(requested: number?, ingredients: { string }): number
-	local ceiling = maxStrongnessFor(ingredients)
-	local value = tonumber(requested) or ceiling
-	return math.clamp(math.floor(value), STRONGNESS_MIN, ceiling)
+local function resolveStrongness(requested: number?): number
+	local value = tonumber(requested) or 40
+	return math.clamp(math.floor(value), STRONGNESS_MIN, STRONGNESS_CAP)
 end
 
 local function filterName(player: Player, rawName: string): (string?, string?)
@@ -382,7 +368,7 @@ function CustomDrinkService.create(player: Player, rawName: string, ingredients:
 			math.clamp(math.floor(tonumber(colorG) or 120), 0, 255),
 			math.clamp(math.floor(tonumber(colorB) or 60), 0, 255),
 		},
-		Strongness = resolveStrongness(strongness, ingredients),
+		Strongness = resolveStrongness(strongness),
 		CreatedAt = os.time(),
 		ExpiresAt = os.time() + hours * 3600,
 		DurationHours = hours,

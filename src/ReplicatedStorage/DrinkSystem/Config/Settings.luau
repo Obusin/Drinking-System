@@ -1,5 +1,5 @@
 local Settings = {
-	MaxIngredientsPerMix      = 4,
+	MaxIngredientsPerMix      = 6,  -- custom drinks go up to 6 (house recipes stay 1-4)
 	MaxGlasses                = 5,
 	GlassToolNames            = { "Glass", "Highball", "Lowball", "Martini" },
 	WaterSoberAmount          = -35,  -- drunkness change when drinking Water directly
