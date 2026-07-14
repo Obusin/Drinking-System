@@ -76,7 +76,7 @@ local panel = Instance.new("Frame")
 panel.Name = "Panel"
 panel.AnchorPoint = Vector2.new(0.5, 0.5)
 panel.Position = UDim2.new(0.5, 0, 0.5, 0)
-panel.Size = UDim2.new(0, 660, 0, 510)
+panel.Size = UDim2.new(0, 660, 0, 560)
 panel.BackgroundColor3 = Color3.fromRGB(18, 18, 18)
 panel.BackgroundTransparency = 0.06
 panel.BorderSizePixel = 0
@@ -173,9 +173,139 @@ swatchLayout.FillDirection = Enum.FillDirection.Horizontal
 swatchLayout.Padding = UDim.new(0, 5)
 swatchLayout.Parent = swatchRow
 
+-- Drunkness slider (5 → dynamic ceiling based on picked ingredients)
+local STRONGNESS_MIN = 5
+local STRONGNESS_HARD_CAP = 75
+local STRONGNESS_PER_ALCOHOL = 22 -- mirror of the server ceiling formula
+local chosenStrongness = 40
+
+local sliderRow = Instance.new("Frame")
+sliderRow.Position = UDim2.new(0, 0, 0, 332)
+sliderRow.Size = UDim2.new(1, 0, 0, 34)
+sliderRow.BackgroundTransparency = 1
+sliderRow.Parent = composer
+
+local sliderLabel = Instance.new("TextLabel")
+sliderLabel.Size = UDim2.new(0, 118, 1, 0)
+sliderLabel.BackgroundTransparency = 1
+sliderLabel.Font = Enum.Font.Montserrat
+sliderLabel.TextSize = 12
+sliderLabel.TextXAlignment = Enum.TextXAlignment.Left
+sliderLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
+sliderLabel.Text = ""
+sliderLabel.Parent = sliderRow
+
+local track = Instance.new("Frame")
+track.AnchorPoint = Vector2.new(0, 0.5)
+track.Position = UDim2.new(0, 122, 0.5, 0)
+track.Size = UDim2.new(1, -122, 0, 6)
+track.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+track.BorderSizePixel = 0
+track.Parent = sliderRow
+local trackCorner = Instance.new("UICorner")
+trackCorner.CornerRadius = UDim.new(1, 0)
+trackCorner.Parent = track
+
+local fill = Instance.new("Frame")
+fill.Size = UDim2.new(0, 0, 1, 0)
+fill.BackgroundColor3 = Color3.fromRGB(235, 200, 90)
+fill.BorderSizePixel = 0
+fill.Parent = track
+local fillCorner = Instance.new("UICorner")
+fillCorner.CornerRadius = UDim.new(1, 0)
+fillCorner.Parent = fill
+
+local knob = Instance.new("TextButton")
+knob.AnchorPoint = Vector2.new(0.5, 0.5)
+knob.Position = UDim2.new(0, 0, 0.5, 0)
+knob.Size = UDim2.new(0, 18, 0, 18)
+knob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+knob.BorderSizePixel = 0
+knob.Text = ""
+knob.ZIndex = 2
+knob.Parent = track
+local knobCorner = Instance.new("UICorner")
+knobCorner.CornerRadius = UDim.new(1, 0)
+knobCorner.Parent = knob
+
+local function strengthBand(v: number): (string, Color3)
+	if v <= 25 then
+		return "Light", Color3.fromRGB(140, 220, 140)
+	elseif v <= 48 then
+		return "Medium", Color3.fromRGB(235, 200, 90)
+	elseif v <= 75 then
+		return "Strong", Color3.fromRGB(240, 140, 70)
+	else
+		return "Nuclear", Color3.fromRGB(235, 80, 70)
+	end
+end
+
+-- Ceiling mirrors the server: alcoholic picks raise it, mixers barely do.
+-- (Server re-derives and clamps — this is just honest UI.)
+local function strongnessCeiling(): number
+	local ceiling = 0
+	for _, ingName in ipairs(picks) do
+		local def = IngredientRegistry.get(ingName)
+		if def and (def.Strongness or 0) > 0 then
+			ceiling += STRONGNESS_PER_ALCOHOL
+		else
+			ceiling += 4
+		end
+	end
+	return math.clamp(ceiling, STRONGNESS_MIN, STRONGNESS_HARD_CAP)
+end
+
+local function refreshSlider()
+	local ceiling = strongnessCeiling()
+	chosenStrongness = math.clamp(chosenStrongness, STRONGNESS_MIN, ceiling)
+	local alpha = (chosenStrongness - STRONGNESS_MIN) / math.max(STRONGNESS_HARD_CAP - STRONGNESS_MIN, 1)
+	knob.Position = UDim2.new(alpha, 0, 0.5, 0)
+	fill.Size = UDim2.new(alpha, 0, 1, 0)
+	local bandName, bandColor = strengthBand(chosenStrongness)
+	fill.BackgroundColor3 = bandColor
+	sliderLabel.Text = ("Drunkness: %d  %s"):format(chosenStrongness, bandName)
+	sliderLabel.TextColor3 = bandColor
+end
+
+local draggingSlider = false
+local function setFromX(x: number)
+	local alpha = math.clamp((x - track.AbsolutePosition.X) / math.max(track.AbsoluteSize.X, 1), 0, 1)
+	chosenStrongness = math.floor(STRONGNESS_MIN + alpha * (STRONGNESS_HARD_CAP - STRONGNESS_MIN) + 0.5)
+	refreshSlider()
+end
+
+local function beginDrag(input: InputObject)
+	draggingSlider = true
+	setFromX(input.Position.X)
+end
+knob.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1
+		or input.UserInputType == Enum.UserInputType.Touch then
+		beginDrag(input)
+	end
+end)
+track.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1
+		or input.UserInputType == Enum.UserInputType.Touch then
+		beginDrag(input)
+	end
+end)
+UserInputService.InputChanged:Connect(function(input)
+	if draggingSlider and (input.UserInputType == Enum.UserInputType.MouseMovement
+		or input.UserInputType == Enum.UserInputType.Touch) then
+		setFromX(input.Position.X)
+	end
+end)
+UserInputService.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1
+		or input.UserInputType == Enum.UserInputType.Touch then
+		draggingSlider = false
+	end
+end)
+
 -- Duration tier row (4h / 8h / 12h / 24h)
 local durationRow = Instance.new("Frame")
-durationRow.Position = UDim2.new(0, 0, 0, 332)
+durationRow.Position = UDim2.new(0, 0, 0, 372)
 durationRow.Size = UDim2.new(1, 0, 0, 30)
 durationRow.BackgroundTransparency = 1
 durationRow.Parent = composer
@@ -494,6 +624,7 @@ end
 refreshSwatchSelection()
 refreshPicksLabel()
 refreshDurationSelection()
+refreshSlider()
 
 ---------------------------------------------------------------------
 -- Networking
@@ -540,6 +671,7 @@ submitBtn.Activated:Connect(function()
 		ColorG = math.floor(chosenColor.G * 255),
 		ColorB = math.floor(chosenColor.B * 255),
 		Hours = chosenHours,
+		Strongness = chosenStrongness,
 	})
 	resultLabel.Text = "Mixing it up…"
 	resultLabel.TextColor3 = Color3.fromRGB(200, 200, 200)

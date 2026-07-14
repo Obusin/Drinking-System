@@ -238,17 +238,29 @@ end
 ---------------------------------------------------------------------
 -- Validation
 ---------------------------------------------------------------------
-local function computeStrongness(ingredients: { string }): number
-	local total = 0
+-- The creator picks the drunkness level with a slider; the server only
+-- enforces the bounds. An ingredient-derived value caps the TOP end so an
+-- all-mixer drink can't be sold as a face-melter: each alcoholic ingredient
+-- raises the ceiling, mixers barely move it.
+local STRONGNESS_MIN = 5
+
+local function maxStrongnessFor(ingredients: { string }): number
+	local ceiling = 0
 	for _, name in ipairs(ingredients) do
 		local def = IngredientRegistry.get(name)
 		if def and (def.Strongness or 0) > 0 then
-			total += STRONGNESS_PER_ALCOHOL
+			ceiling += STRONGNESS_PER_ALCOHOL
 		else
-			total += 4 -- mixers still add a little kick
+			ceiling += 4
 		end
 	end
-	return math.clamp(total, 10, STRONGNESS_CAP)
+	return math.clamp(ceiling, STRONGNESS_MIN, STRONGNESS_CAP)
+end
+
+local function resolveStrongness(requested: number?, ingredients: { string }): number
+	local ceiling = maxStrongnessFor(ingredients)
+	local value = tonumber(requested) or ceiling
+	return math.clamp(math.floor(value), STRONGNESS_MIN, ceiling)
 end
 
 local function filterName(player: Player, rawName: string): (string?, string?)
@@ -321,7 +333,7 @@ function CustomDrinkService.getState(player: Player): ({ number }, any?)
 	return tokenHours, mine
 end
 
-function CustomDrinkService.create(player: Player, rawName: string, ingredients: { string }, colorR: number, colorG: number, colorB: number, hours: number): (boolean, string)
+function CustomDrinkService.create(player: Player, rawName: string, ingredients: { string }, colorR: number, colorG: number, colorB: number, hours: number, strongness: number?): (boolean, string)
 	hours = tonumber(hours) or 0
 	if not VALID_HOURS[hours] then
 		return false, "Pick a duration (4, 8, 12 or 24 hours)"
@@ -371,7 +383,7 @@ function CustomDrinkService.create(player: Player, rawName: string, ingredients:
 			math.clamp(math.floor(tonumber(colorG) or 120), 0, 255),
 			math.clamp(math.floor(tonumber(colorB) or 60), 0, 255),
 		},
-		Strongness = computeStrongness(ingredients),
+		Strongness = resolveStrongness(strongness, ingredients),
 		CreatedAt = os.time(),
 		ExpiresAt = os.time() + hours * 3600,
 		DurationHours = hours,

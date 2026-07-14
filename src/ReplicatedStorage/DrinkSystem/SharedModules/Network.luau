@@ -143,6 +143,7 @@ Network.Packets = ByteNet.defineNamespace("DrinkSystem", function()
 				ColorG = ByteNet.uint8,
 				ColorB = ByteNet.uint8,
 				Hours = ByteNet.uint8,
+				Strongness = ByteNet.uint8,
 			}),
 		}),
 		CustomDrinkState = ByteNet.definePacket({
