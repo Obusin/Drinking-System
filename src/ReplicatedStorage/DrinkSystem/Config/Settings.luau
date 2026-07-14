@@ -99,6 +99,11 @@ local Settings = {
 	ShakerSoundVolume   = 0.5,
 	TrashSoundId        = 103865555979173,  -- glass thrown into a DS_Trash can
 	TrashSoundVolume    = 0.5,
+
+	-- Custom drink maker (paid "your drink on the menu")
+	CustomDrinkProductId     = 0,     -- Dev Product ID — set once created on Creator Hub
+	CustomDrinkFreeTesting   = true,  -- TRUE = anyone can create free (testing). TURN OFF FOR LAUNCH.
+	CustomDrinkDurationHours = 24,    -- how long a purchased drink stays on the menu
 	-- Outcome jingles (local, play with the grade toast)
 	OutcomeHighSoundId  = 113307491257691,  -- Perfect / Good
 	OutcomeLowSoundId   = 4342630136,       -- Weak / Experimental / Ruined

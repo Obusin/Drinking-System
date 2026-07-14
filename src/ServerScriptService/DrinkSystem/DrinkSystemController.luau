@@ -38,6 +38,7 @@ local ConsumptionManager = require(managersFolder:WaitForChild("ConsumptionManag
 local DrinkEffectsService = require(servicesFolder:WaitForChild("DrinkEffectsService"))
 local GamepassManager = require(servicesFolder:WaitForChild("GamepassManager"))
 local StatsService = require(servicesFolder:WaitForChild("StatsService"))
+local CustomDrinkService = require(servicesFolder:WaitForChild("CustomDrinkService"))
 
 -- Per-drink callback registry: ServerScriptService/DrinkSystem/DrinkCallbacks/<Name>.luau
 -- A recipe opts in with `Callback = "<ModuleName>"`. Modules may implement:
@@ -520,7 +521,7 @@ local function finalizeDrinkNow(player: Player, session: DrinkSession, mix: MixS
 		}, player)
 	end
 	if payload.RecipeName ~= "Water" then
-		local def = payload.RecipeName and Recipes[payload.RecipeName]
+		local def = payload.RecipeName and RecipeRegistry.get(payload.RecipeName)
 		StatsService.awardDrinkMade(player, payload.Score, payload.RecipeName, def and def.Secret == true)
 	end
 	-- Maker attribution for the serve bonus (someone else drinks your drink)
@@ -537,7 +538,7 @@ local function findMatchingRecipesForSession(mix: MixState, maxCount: number?): 
 	end
 	local ranked = {}
 
-	for name, def in pairs(Recipes) do
+	for name, def in pairs(RecipeRegistry.getAll()) do
 		local required = def.Ingredients or {}
 		-- Secret recipes never appear in guidance/suggestions
 		local fits = def.Secret ~= true
@@ -709,7 +710,7 @@ local function updateGuidance(session: DrinkSession, glassTool: Tool?)
 		local drinkTool = findHeldDrinkForGarnish(session.Player)
 		if drinkTool then
 			local recipeName = drinkTool:GetAttribute("DS_DrinkName")
-			local recipeDef = recipeName and Recipes[recipeName] or nil
+			local recipeDef = recipeName and RecipeRegistry.get(recipeName) or nil
 			local requiredGarnishes = recipeDef and recipeDef.Presentation and recipeDef.Presentation.Garnishes or {}
 			local currentGarnishesCsv = drinkTool:GetAttribute("DS_GarnishesCsv") or ""
 			local currentGarnishes = {}
@@ -766,7 +767,7 @@ local function updateGuidance(session: DrinkSession, glassTool: Tool?)
 		-- secret-only ingredients must not glow and leak the secret.
 		local recipeIngredients = {}
 		local seen = {}
-		for _, def in pairs(Recipes) do
+		for _, def in pairs(RecipeRegistry.getAll()) do
 			if def.Secret ~= true then
 				for _, ing in ipairs(def.Ingredients or {}) do
 					if not seen[ing] then
@@ -782,7 +783,7 @@ local function updateGuidance(session: DrinkSession, glassTool: Tool?)
 	end
 
 	local recipeName = session.SelectedRecipe
-	local recipeDef = recipeName and Recipes[recipeName] or nil
+	local recipeDef = recipeName and RecipeRegistry.get(recipeName) or nil
 
 	if not recipeDef then
 		-- All fitting recipes (not just top 6) so the recommended set covers
@@ -813,7 +814,7 @@ local function updateGuidance(session: DrinkSession, glassTool: Tool?)
 		end
 
 		recipeName = session.SuggestedRecipe
-		recipeDef = recipeName and Recipes[recipeName] or nil
+		recipeDef = recipeName and RecipeRegistry.get(recipeName) or nil
 	else
 		session.SuggestedRecipes = {}
 		session.SuggestedRecipe = nil
@@ -952,7 +953,7 @@ function DrinkSystemController.onPour(player: Player, bottleModel: Instance)
 				BottleModel = bottleModel,
 			}, player)
 			if pours >= 3 then
-				local secretDef = Recipes["Solaire's Spit"]
+				local secretDef = RecipeRegistry.get("Solaire's Spit")
 				if secretDef then
 					local payload = buildDrinkPayload("Solaire's Spit", secretDef, { "Water", "Water", "Water" }, true)
 					payload.Outcome = "Perfect"
@@ -1104,7 +1105,7 @@ function DrinkSystemController.onFinalize(player: Player)
 
 	local ingredients = ingredientsToList(mix)
 	local recipeName = session.SelectedRecipe
-	local recipeDef = recipeName and Recipes[recipeName] or nil
+	local recipeDef = recipeName and RecipeRegistry.get(recipeName) or nil
 
 	-- Never force a selected recipe if current ingredients do not exactly match it.
 	if recipeDef and not ingredientSetMatchesRecipe(ingredients, recipeDef) then
@@ -1202,7 +1203,7 @@ function DrinkSystemController.onAddGarnish(player: Player, model: Instance)
 	-- drink; can upgrade the grade band — the toast re-fires to show it.
 	if not hadGarnish then
 		local recipeName = drinkTool:GetAttribute("DS_RecipeName")
-		local recipeDef = recipeName and Recipes[recipeName]
+		local recipeDef = recipeName and RecipeRegistry.get(recipeName)
 		local wanted = recipeDef and recipeDef.Presentation and recipeDef.Presentation.Garnishes or {}
 		if table.find(wanted, garnishName) then
 			-- No recorded score = no bonus. Treating nil as 0 fabricated
@@ -1258,7 +1259,7 @@ function DrinkSystemController.onShakerFinished(player: Player)
 
 	local payload = mix.PendingPayload
 	if payload then
-		local outcome, score = computeOutcome(mix, payload.RecipeName, Recipes[payload.RecipeName])
+		local outcome, score = computeOutcome(mix, payload.RecipeName, RecipeRegistry.get(payload.RecipeName))
 		payload.Outcome = outcome
 		payload.Score = score
 	end
@@ -1272,7 +1273,7 @@ function DrinkSystemController.onShakerFinished(player: Player)
 		if payload.Outcome then glassTool:SetAttribute("DS_Outcome", payload.Outcome) end
 		if payload.Score then glassTool:SetAttribute("DS_Score", payload.Score) end
 		if payload.RecipeName ~= "Water" then
-			local def = payload.RecipeName and Recipes[payload.RecipeName]
+			local def = payload.RecipeName and RecipeRegistry.get(payload.RecipeName)
 			StatsService.awardDrinkMade(player, payload.Score, payload.RecipeName, def and def.Secret == true)
 		end
 		glassTool:SetAttribute("DS_MakerUserId", player.UserId)
@@ -1354,7 +1355,7 @@ function DrinkSystemController.onConsumeDrink(player: Player, tool: Tool)
 	-- Per-recipe drink callbacks — the special-drink variety hook
 	do
 		local recipeName = tool and tool:GetAttribute("DS_RecipeName")
-		local recipeDef = recipeName and Recipes[recipeName]
+		local recipeDef = recipeName and RecipeRegistry.get(recipeName)
 		local callbackName = recipeDef and recipeDef.Callback
 		local callback = callbackName and drinkCallbacks[callbackName]
 		if callback then
@@ -1541,7 +1542,7 @@ function DrinkSystemController.onSelectRecipe(player: Player, recipeName: string
 		return
 	end
 
-	if recipeName and Recipes[recipeName] then
+	if recipeName and RecipeRegistry.get(recipeName) then
 		session.SelectedRecipe = recipeName
 		session.SuggestedRecipe = nil
 		session.SuggestedRecipes = {}
@@ -1595,6 +1596,30 @@ local function wirePackets()
 
 	Packets.RequestSelectRecipe.listen(function(data, player)
 		DrinkSystemController.onSelectRecipe(player, data.RecipeName)
+	end)
+
+	Packets.RequestCustomDrinkState.listen(function(_, player)
+		local session = getSession(player)
+		if not rateLimitOk(session) then return end
+		local tokens, mine = CustomDrinkService.getState(player)
+		Packets.CustomDrinkState.sendTo({
+			Tokens = tokens,
+			ActiveName = mine and mine.Name or nil,
+		}, player)
+	end)
+
+	Packets.SubmitCustomDrink.listen(function(data, player)
+		local session = getSession(player)
+		if not rateLimitOk(session) then return end
+		local ok, message = CustomDrinkService.create(
+			player, data.Name, data.Ingredients, data.ColorR, data.ColorG, data.ColorB
+		)
+		Packets.CustomDrinkResult.sendTo({ Ok = ok, Message = message }, player)
+		local tokens, mine = CustomDrinkService.getState(player)
+		Packets.CustomDrinkState.sendTo({
+			Tokens = tokens,
+			ActiveName = mine and mine.Name or nil,
+		}, player)
 	end)
 
 	Packets.RequestTrashDrink.listen(function(data, player)
@@ -1672,6 +1697,7 @@ function DrinkSystemController.init()
 	DrinkEffectsService.configure(Settings)
 	DrinkEffectsService.start()
 	StatsService.init()
+	CustomDrinkService.init()
 	StatsService.setLevelUpHandler(function(levelPlayer, newLevel)
 		Packets.LevelUp.sendTo({ Level = newLevel }, levelPlayer)
 		DrinkEffectsService.playCharacterSound(levelPlayer, Settings.OutcomeHighSoundId, 0.5)

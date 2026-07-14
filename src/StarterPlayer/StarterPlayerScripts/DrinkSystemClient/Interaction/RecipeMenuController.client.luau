@@ -13,6 +13,8 @@ local DrinkSystem = ReplicatedStorage:WaitForChild("DrinkSystem")
 local ConfigFolder = DrinkSystem:WaitForChild("Config")
 local Settings = require(ConfigFolder:WaitForChild("Settings"))
 local Recipes = require(ConfigFolder:WaitForChild("Recipes"))
+local SharedModules = DrinkSystem:WaitForChild("SharedModules")
+local RecipeRegistry = require(SharedModules:WaitForChild("RecipeRegistry"))
 
 if Settings.EnableRecipeMenu == false then
 	return
@@ -124,7 +126,7 @@ listLayout.Parent = scroll
 ---------------------------------------------------------------------
 -- Recipe cards
 ---------------------------------------------------------------------
-local function buildCard(name: string, def, layoutOrder: number)
+local function buildCard(name: string, def, layoutOrder: number, creatorCredit: string?)
 	local strongness = def.StrongnessOverride or 0
 	local bandName, bandColor = strengthBand(strongness)
 	local ingredients = orderedIngredients(def)
@@ -186,6 +188,9 @@ local function buildCard(name: string, def, layoutOrder: number)
 	if #extras > 0 then
 		bodyText ..= "\n" .. table.concat(extras, "   ")
 	end
+	if creatorCredit then
+		bodyText ..= "\nby " .. creatorCredit
+	end
 
 	local body = Instance.new("TextLabel")
 	body.BackgroundTransparency = 1
@@ -202,27 +207,57 @@ local function buildCard(name: string, def, layoutOrder: number)
 	body.Parent = card
 end
 
--- Sort: lightest first, sober-ups last; secrets never shown
-local sorted = {}
-for name, def in pairs(Recipes) do
-	if def.Secret ~= true then
-		table.insert(sorted, { Name = name, Def = def })
+-- Sort: guest creations first (they're paid — give them the spotlight),
+-- then lightest first, sober-ups last; secrets never shown
+local function rebuildCards()
+	for _, child in ipairs(scroll:GetChildren()) do
+		if child:IsA("Frame") then
+			child:Destroy()
+		end
+	end
+	local sorted = {}
+	for name, def in pairs(RecipeRegistry.getAll()) do
+		if def.Secret ~= true then
+			table.insert(sorted, { Name = name, Def = def })
+		end
+	end
+	table.sort(sorted, function(a, b)
+		if (a.Def.Custom == true) ~= (b.Def.Custom == true) then
+			return a.Def.Custom == true  -- guest creations float to the top
+		end
+		local sa = a.Def.StrongnessOverride or 0
+		local sb = b.Def.StrongnessOverride or 0
+		if (sa < 0) ~= (sb < 0) then
+			return sb < 0  -- sober-ups sort to the bottom
+		end
+		if sa ~= sb then
+			return sa < sb
+		end
+		return a.Name < b.Name
+	end)
+	for i, entry in ipairs(sorted) do
+		buildCard(entry.Name, entry.Def, i, entry.Def.Custom and entry.Def.CreatorName or nil)
 	end
 end
-table.sort(sorted, function(a, b)
-	local sa = a.Def.StrongnessOverride or 0
-	local sb = b.Def.StrongnessOverride or 0
-	if (sa < 0) ~= (sb < 0) then
-		return sb < 0  -- sober-ups sort to the bottom
+rebuildCards()
+
+-- Rebuild live when custom drinks appear/expire
+task.spawn(function()
+	local dynamicFolder = DrinkSystem:WaitForChild("DynamicRecipes", 30)
+	if not dynamicFolder then return end
+	local pending = false
+	local function scheduleRebuild()
+		if pending then return end
+		pending = true
+		task.defer(function()
+			pending = false
+			rebuildCards()
+		end)
 	end
-	if sa ~= sb then
-		return sa < sb
-	end
-	return a.Name < b.Name
+	dynamicFolder.ChildAdded:Connect(scheduleRebuild)
+	dynamicFolder.ChildRemoved:Connect(scheduleRebuild)
+	scheduleRebuild()
 end)
-for i, entry in ipairs(sorted) do
-	buildCard(entry.Name, entry.Def, i)
-end
 
 ---------------------------------------------------------------------
 -- Toggle

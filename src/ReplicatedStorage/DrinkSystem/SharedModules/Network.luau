@@ -131,6 +131,32 @@ Network.Packets = ByteNet.defineNamespace("DrinkSystem", function()
 			}),
 		}),
 
+		-- Custom drink maker (paid "your drink on the menu" feature)
+		RequestCustomDrinkState = ByteNet.definePacket({
+			value = ByteNet.struct({}),
+		}),
+		SubmitCustomDrink = ByteNet.definePacket({
+			value = ByteNet.struct({
+				Name = ByteNet.string,
+				Ingredients = ByteNet.array(ByteNet.string),
+				ColorR = ByteNet.uint8,
+				ColorG = ByteNet.uint8,
+				ColorB = ByteNet.uint8,
+			}),
+		}),
+		CustomDrinkState = ByteNet.definePacket({
+			value = ByteNet.struct({
+				Tokens = ByteNet.uint8,
+				ActiveName = ByteNet.optional(ByteNet.string),
+			}),
+		}),
+		CustomDrinkResult = ByteNet.definePacket({
+			value = ByteNet.struct({
+				Ok = ByteNet.bool,
+				Message = ByteNet.string,
+			}),
+		}),
+
 		-- Client → server: throw the held glass/drink away entirely (DS_Trash)
 		RequestTrashDrink = ByteNet.definePacket({
 			value = ByteNet.struct({
