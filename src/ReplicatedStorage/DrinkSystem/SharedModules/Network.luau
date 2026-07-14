@@ -150,7 +150,7 @@ Network.Packets = ByteNet.defineNamespace("DrinkSystem", function()
 			value = ByteNet.struct({
 				-- Unspent purchased durations, e.g. {24, 8} = one 24h + one 8h slot
 				TokenHours = ByteNet.array(ByteNet.uint8),
-				ActiveName = ByteNet.optional(ByteNet.string),
+				ActiveCount = ByteNet.uint8,
 			}),
 		}),
 		CustomDrinkResult = ByteNet.definePacket({

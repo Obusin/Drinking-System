@@ -1599,10 +1599,10 @@ local function wirePackets()
 	end)
 
 	local function sendCustomDrinkState(player: Player)
-		local tokenHours, mine = CustomDrinkService.getState(player)
+		local tokenHours, mineCount = CustomDrinkService.getState(player)
 		Packets.CustomDrinkState.sendTo({
 			TokenHours = tokenHours,
-			ActiveName = mine and mine.Name or nil,
+			ActiveCount = mineCount,
 		}, player)
 	end
 

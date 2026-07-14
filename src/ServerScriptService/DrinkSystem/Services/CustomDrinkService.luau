@@ -319,18 +319,18 @@ end
 -- Public API
 ---------------------------------------------------------------------
 local VALID_HOURS: { [number]: boolean } = { [4] = true, [8] = true, [12] = true, [24] = true }
+local MAX_ACTIVE_PER_PLAYER = 5 -- menu-spam guard, not a monetization limit
 
--- Returns (tokenHours array, player's own active drink record?)
-function CustomDrinkService.getState(player: Player): ({ number }, any?)
+-- Returns (tokenHours array, how many live drinks this player has)
+function CustomDrinkService.getState(player: Player): ({ number }, number)
 	local tokenHours = loadTokens(player.UserId)
-	local mine = nil
+	local mineCount = 0
 	for _, record in ipairs(activeDrinks) do
 		if record.CreatorUserId == player.UserId then
-			mine = record
-			break
+			mineCount += 1
 		end
 	end
-	return tokenHours, mine
+	return tokenHours, mineCount
 end
 
 function CustomDrinkService.create(player: Player, rawName: string, ingredients: { string }, colorR: number, colorG: number, colorB: number, hours: number, strongness: number?): (boolean, string)
@@ -353,11 +353,10 @@ function CustomDrinkService.create(player: Player, rawName: string, ingredients:
 		end
 	end
 
-	-- One active drink per player: keeps them scarce and the menu clean
-	for _, record in ipairs(activeDrinks) do
-		if record.CreatorUserId == player.UserId then
-			return false, "You already have an active drink — wait for it to expire"
-		end
+	-- Soft cap so one player can't flood the whole menu
+	local _, mineCount = CustomDrinkService.getState(player)
+	if mineCount >= MAX_ACTIVE_PER_PLAYER then
+		return false, ("You already have %d live drinks — wait for one to expire"):format(mineCount)
 	end
 
 	local okIng, ingErr = validateIngredients(ingredients)
@@ -399,8 +398,7 @@ function CustomDrinkService.create(player: Player, rawName: string, ingredients:
 		-- Re-check collisions under the write lock (another server may have
 		-- registered the same name/combo in the meantime)
 		for _, existing in ipairs(list) do
-			if existing.Name == record.Name
-				or existing.CreatorUserId == player.UserId then
+			if existing.Name == record.Name then
 				return list -- unchanged: signal by absence below
 			end
 		end
@@ -459,10 +457,10 @@ local function processReceipt(receiptInfo): Enum.ProductPurchaseDecision
 	end
 	local player = Players:GetPlayerByUserId(receiptInfo.PlayerId)
 	if player then
-		local tokenHours, mine = CustomDrinkService.getState(player)
+		local tokenHours, mineCount = CustomDrinkService.getState(player)
 		Packets.CustomDrinkState.sendTo({
 			TokenHours = tokenHours,
-			ActiveName = mine and mine.Name or nil,
+			ActiveCount = mineCount,
 		}, player)
 	end
 	return Enum.ProductPurchaseDecision.PurchaseGranted

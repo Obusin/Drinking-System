@@ -41,7 +41,8 @@ local COLOR_SWATCHES = {
 }
 
 local tokenHours: { number } = {}
-local activeName: string? = nil
+local activeCount = 0
+local MAX_ACTIVE = 5
 local picks: { string } = {}
 local chosenColor = COLOR_SWATCHES[3]
 local chosenHours = 24
@@ -258,7 +259,9 @@ end
 local function refreshSlider()
 	local ceiling = strongnessCeiling()
 	chosenStrongness = math.clamp(chosenStrongness, STRONGNESS_MIN, ceiling)
-	local alpha = (chosenStrongness - STRONGNESS_MIN) / math.max(STRONGNESS_HARD_CAP - STRONGNESS_MIN, 1)
+	-- Full track = 5..ceiling, so the knob always spans the whole width and
+	-- never jams partway (the old 5..75 mapping pinned it at the ceiling)
+	local alpha = (chosenStrongness - STRONGNESS_MIN) / math.max(ceiling - STRONGNESS_MIN, 1)
 	knob.Position = UDim2.new(alpha, 0, 0.5, 0)
 	fill.Size = UDim2.new(alpha, 0, 1, 0)
 	local bandName, bandColor = strengthBand(chosenStrongness)
@@ -269,8 +272,9 @@ end
 
 local draggingSlider = false
 local function setFromX(x: number)
+	local ceiling = strongnessCeiling()
 	local alpha = math.clamp((x - track.AbsolutePosition.X) / math.max(track.AbsoluteSize.X, 1), 0, 1)
-	chosenStrongness = math.floor(STRONGNESS_MIN + alpha * (STRONGNESS_HARD_CAP - STRONGNESS_MIN) + 0.5)
+	chosenStrongness = math.floor(STRONGNESS_MIN + alpha * (ceiling - STRONGNESS_MIN) + 0.5)
 	refreshSlider()
 end
 
@@ -483,9 +487,9 @@ end
 
 local function refreshStatus()
 	local freeTesting = Settings.CustomDrinkFreeTesting == true
-	if activeName then
-		statusLabel.Text = ('Your drink "%s" is live on the menu!'):format(activeName)
-		submitBtn.Text = "Drink already active"
+	if activeCount >= MAX_ACTIVE then
+		statusLabel.Text = ("You have %d live drinks (max %d)"):format(activeCount, MAX_ACTIVE)
+		submitBtn.Text = "Menu limit reached"
 		submitBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
 	elseif freeTesting or ownsHours(chosenHours) then
 		if freeTesting then
@@ -631,7 +635,7 @@ refreshSlider()
 ---------------------------------------------------------------------
 Packets.CustomDrinkState.listen(function(data)
 	tokenHours = data.TokenHours or {}
-	activeName = data.ActiveName
+	activeCount = data.ActiveCount or 0
 	refreshStatus()
 end)
 
@@ -646,7 +650,7 @@ Packets.CustomDrinkResult.listen(function(data)
 end)
 
 submitBtn.Activated:Connect(function()
-	if activeName then return end
+	if activeCount >= MAX_ACTIVE then return end
 	local freeTesting = Settings.CustomDrinkFreeTesting == true
 	if not freeTesting and not ownsHours(chosenHours) then
 		local products = Settings.CustomDrinkProducts or {}
