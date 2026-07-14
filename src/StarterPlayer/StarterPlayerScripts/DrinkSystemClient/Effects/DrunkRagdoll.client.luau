@@ -27,7 +27,8 @@ end
 
 local SHUFFLE_SPEED = 7  -- ragdoll crawl speed (was 16 — "too fast" per playtests)
 local shuffleConn: RBXScriptConnection? = nil
-local bodyVel: BodyVelocity? = nil
+local shuffleVel: LinearVelocity? = nil
+local shuffleAttachment: Attachment? = nil
 
 local function stopClientAnims()
 	local character = player.Character
@@ -40,11 +41,26 @@ local function stopClientAnims()
 end
 
 local function startShuffle(hrp: BasePart, humanoid: Humanoid, character: Model)
-	local bv = Instance.new("BodyVelocity")
-	bv.MaxForce = Vector3.new(1e4, 0, 1e4)
-	bv.Velocity = Vector3.zero
-	bv.Parent   = hrp
-	bodyVel = bv
+	-- LinearVelocity actuator (BodyVelocity is deprecated). Plane mode with a
+	-- world-space XZ plane: it only drives horizontal crawl velocity, leaving
+	-- Y fully to gravity/physics — same behavior BodyVelocity gave with
+	-- MaxForce.Y = 0, but on the supported constraint.
+	local attachment = Instance.new("Attachment")
+	attachment.Name = "DS_ShuffleAttachment"
+	attachment.Parent = hrp
+	shuffleAttachment = attachment
+
+	local bv = Instance.new("LinearVelocity")
+	bv.Name = "DS_ShuffleVelocity"
+	bv.Attachment0 = attachment
+	bv.RelativeTo = Enum.ActuatorRelativeTo.World
+	bv.VelocityConstraintMode = Enum.VelocityConstraintMode.Plane
+	bv.PrimaryTangentAxis = Vector3.xAxis
+	bv.SecondaryTangentAxis = Vector3.zAxis
+	bv.PlaneVelocity = Vector2.zero
+	bv.MaxForce = 1e4
+	bv.Parent = hrp
+	shuffleVel = bv
 
 	shuffleConn = RunService.Heartbeat:Connect(function(dt)
 		if not bv.Parent then return end
@@ -57,10 +73,10 @@ local function startShuffle(hrp: BasePart, humanoid: Humanoid, character: Model)
 
 		local dir = humanoid.MoveDirection
 		if dir.Magnitude > 0.1 then
-			bv.Velocity = dir * SHUFFLE_SPEED
+			bv.PlaneVelocity = Vector2.new(dir.X, dir.Z) * SHUFFLE_SPEED
 			hrp.AssemblyAngularVelocity = Vector3.new(0, math.sin(time() * 1.5) * 3, 0)
 		else
-			bv.Velocity = Vector3.zero
+			bv.PlaneVelocity = Vector2.zero
 			hrp.AssemblyAngularVelocity = Vector3.zero
 		end
 	end)
@@ -68,15 +84,18 @@ end
 
 local function stopShuffle()
 	if shuffleConn then shuffleConn:Disconnect(); shuffleConn = nil end
-	if bodyVel and bodyVel.Parent then bodyVel:Destroy() end
-	bodyVel = nil
-	-- Sweep for ANY leftover BodyVelocity on the root — a survivor here keeps
-	-- pushing the character and causes the post-ragdoll sliding.
+	if shuffleVel and shuffleVel.Parent then shuffleVel:Destroy() end
+	shuffleVel = nil
+	if shuffleAttachment and shuffleAttachment.Parent then shuffleAttachment:Destroy() end
+	shuffleAttachment = nil
+	-- Sweep for ANY leftover velocity actuator on the root — a survivor here
+	-- keeps pushing the character and causes the post-ragdoll sliding.
 	local character = player.Character
 	local hrp = character and character:FindFirstChild("HumanoidRootPart")
 	if hrp then
 		for _, child in ipairs(hrp:GetChildren()) do
-			if child:IsA("BodyVelocity") then
+			if child:IsA("LinearVelocity") or child:IsA("BodyVelocity")
+				or (child:IsA("Attachment") and child.Name == "DS_ShuffleAttachment") then
 				child:Destroy()
 			end
 		end
@@ -100,7 +119,8 @@ end
 -- Respawn safety: never carry shuffle state into a fresh character
 player.CharacterAdded:Connect(function()
 	if shuffleConn then shuffleConn:Disconnect(); shuffleConn = nil end
-	bodyVel = nil
+	shuffleVel = nil
+	shuffleAttachment = nil
 end)
 
 applyEvent.OnClientEvent:Connect(function(isRagdolling: boolean)
