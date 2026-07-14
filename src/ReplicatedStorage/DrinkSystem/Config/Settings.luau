@@ -110,6 +110,10 @@ local Settings = {
 		[24] = 0,
 	},
 	CustomDrinkFreeTesting = true,  -- TRUE = anyone can create free (testing). TURN OFF FOR LAUNCH.
+
+	-- Ice Cube secret (Water + Ice garnish → freeze + trap in a sliding ice cube)
+	IceCubeDuration = 20,
+	EnableIceCubeTestButton = true,  -- on-screen button to trigger it instantly for QA. TURN OFF FOR LAUNCH.
 	-- Outcome jingles (local, play with the grade toast)
 	OutcomeHighSoundId  = 113307491257691,  -- Perfect / Good
 	OutcomeLowSoundId   = 4342630136,       -- Weak / Experimental / Ruined

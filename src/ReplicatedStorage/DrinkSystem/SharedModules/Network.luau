@@ -160,6 +160,11 @@ Network.Packets = ByteNet.defineNamespace("DrinkSystem", function()
 			}),
 		}),
 
+		-- QA-only: trigger the Ice Cube secret instantly, no drink required
+		RequestTestIceCube = ByteNet.definePacket({
+			value = ByteNet.struct({}),
+		}),
+
 		-- Client → server: throw the held glass/drink away entirely (DS_Trash)
 		RequestTrashDrink = ByteNet.definePacket({
 			value = ByteNet.struct({

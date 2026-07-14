@@ -39,6 +39,7 @@ local DrinkEffectsService = require(servicesFolder:WaitForChild("DrinkEffectsSer
 local GamepassManager = require(servicesFolder:WaitForChild("GamepassManager"))
 local StatsService = require(servicesFolder:WaitForChild("StatsService"))
 local CustomDrinkService = require(servicesFolder:WaitForChild("CustomDrinkService"))
+local IceCubeService = require(servicesFolder:WaitForChild("IceCubeService"))
 
 -- Per-drink callback registry: ServerScriptService/DrinkSystem/DrinkCallbacks/<Name>.luau
 -- A recipe opts in with `Callback = "<ModuleName>"`. Modules may implement:
@@ -1369,6 +1370,7 @@ function DrinkSystemController.onConsumeDrink(player: Player, tool: Tool)
 					Packets = Packets,
 					Settings = Settings,
 					Recipes = Recipes,
+					IceCubeService = IceCubeService,
 				},
 			}
 			if type(callback.OnSip) == "function" then
@@ -1622,6 +1624,13 @@ local function wirePackets()
 		sendCustomDrinkState(player)
 	end)
 
+	Packets.RequestTestIceCube.listen(function(_, player)
+		if Settings.EnableIceCubeTestButton ~= true then return end
+		local session = getSession(player)
+		if not rateLimitOk(session) then return end
+		IceCubeService.Trap(player, Settings.IceCubeDuration or 20)
+	end)
+
 	Packets.RequestTrashDrink.listen(function(data, player)
 		DrinkSystemController.onTrashDrink(player, data.Model)
 	end)
@@ -1698,6 +1707,7 @@ function DrinkSystemController.init()
 	DrinkEffectsService.start()
 	StatsService.init()
 	CustomDrinkService.init()
+	IceCubeService.init()
 	StatsService.setLevelUpHandler(function(levelPlayer, newLevel)
 		Packets.LevelUp.sendTo({ Level = newLevel }, levelPlayer)
 		DrinkEffectsService.playCharacterSound(levelPlayer, Settings.OutcomeHighSoundId, 0.5)

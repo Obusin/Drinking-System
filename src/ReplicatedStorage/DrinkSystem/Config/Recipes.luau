@@ -662,6 +662,10 @@ local Recipes = {
 		SkipShaker     = true,  -- bypass AUTO_SHAKER_ON_RECIPE — finalize instantly
 		FillStageOverride = 3,  -- one pour fills the whole glass
 		StrongnessOverride = -35,
+		-- Garnish-gated secret: add "Ice" as a garnish before sipping and the
+		-- IceCube callback freezes + traps you. Plain Water (no Ice garnish)
+		-- is completely unaffected — see DrinkCallbacks/IceCube.luau.
+		Callback       = "IceCube",
 		Steps = {
 			{ Ingredient = "Water" },
 		},
