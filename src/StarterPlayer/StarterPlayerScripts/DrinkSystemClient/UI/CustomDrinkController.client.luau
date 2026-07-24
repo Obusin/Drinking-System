@@ -543,9 +543,9 @@ local vpCurrentFillH  = 0.1   -- lerped toward target each Heartbeat
 
 -- Procedural glass geometry constants (cylinder rotated 90° around Z)
 local VP_LIQ_ROT   = CFrame.Angles(0, 0, math.rad(90))
-local VP_LIQ_DIAM  = 0.78   -- diameter of liquid cylinder
-local VP_LIQ_BOT   = -1.02  -- Y of liquid centre when height ≈ 0
-local VP_LIQ_MAX_H = 1.82   -- height at level 3 (full)
+local VP_LIQ_DIAM  = 0.88   -- exposed liquid diameter (no glass shell around it)
+local VP_LIQ_BOT   = -1.05  -- Y of liquid centre when height ≈ 0 (just above base)
+local VP_LIQ_MAX_H = 1.85   -- height at level 3 — liquid top reaches just below rim
 
 local function buildFallbackGlass(): (Model, BasePart)
 	local model = Instance.new("Model")
@@ -560,25 +560,28 @@ local function buildFallbackGlass(): (Model, BasePart)
 	-- upright cylinder: Roblox cylinders extend along local X,
 	-- so rotate 90° around Z to make them stand upright
 	local rot = CFrame.Angles(0, 0, math.rad(90))
-	-- SmoothPlastic (not Glass) — Glass material is reflective in ViewportFrame
-	-- and hides anything inside it.
-	local body = mk()
-	body.Name = "Body"
-	body.Shape = Enum.PartType.Cylinder
-	body.Size = Vector3.new(2.2, 1.0, 1.0)
-	body.CFrame = rot
-	body.Material = Enum.Material.SmoothPlastic
-	body.Color = Color3.fromRGB(195, 222, 255)
-	body.Transparency = 0.80
-	body.Parent = model
+	-- No glass-body cylinder: ViewportFrame does not render parts that sit
+	-- inside another transparent part, so a surrounding glass shell always
+	-- hides the liquid regardless of transparency. Instead, expose the liquid
+	-- directly and frame it with just a base disk and a thin top rim.
 	local base = mk()
+	base.Name = "Base"
 	base.Shape = Enum.PartType.Cylinder
-	base.Size = Vector3.new(0.12, 1.2, 1.2)
-	base.CFrame = CFrame.new(0, -1.16, 0) * rot
+	base.Size = Vector3.new(0.14, 1.1, 1.1)
+	base.CFrame = CFrame.new(0, -1.17, 0) * rot
 	base.Material = Enum.Material.SmoothPlastic
-	base.Color = Color3.fromRGB(195, 222, 255)
-	base.Transparency = 0.65
+	base.Color = Color3.fromRGB(210, 228, 255)
+	base.Transparency = 0.4
 	base.Parent = model
+	local rim = mk()
+	rim.Name = "Rim"
+	rim.Shape = Enum.PartType.Cylinder
+	rim.Size = Vector3.new(0.07, 1.0, 1.0)
+	rim.CFrame = CFrame.new(0, 0.96, 0) * rot
+	rim.Material = Enum.Material.SmoothPlastic
+	rim.Color = Color3.fromRGB(210, 228, 255)
+	rim.Transparency = 0.3
+	rim.Parent = model
 	local liquid = mk()
 	liquid.Name = "Liquid"
 	liquid.Shape = Enum.PartType.Cylinder
@@ -586,7 +589,7 @@ local function buildFallbackGlass(): (Model, BasePart)
 	liquid.CFrame = CFrame.new(0, VP_LIQ_BOT + vpCurrentFillH / 2, 0) * rot
 	liquid.Material = Enum.Material.Neon
 	liquid.Color = chosenColor
-	liquid.Transparency = 0.12
+	liquid.Transparency = 0
 	liquid.Parent = model
 	model.PrimaryPart = body
 	return model, liquid
