@@ -537,14 +537,15 @@ local vpCenter      = Vector3.zero
 local vpRadius      = 4.0
 local vpBias        = 0.2
 local vpAngle       = 0
-local vpIsProcedural = false
-local vpFillTween: Tween? = nil
+local vpIsProcedural  = false
+local vpTargetFillH   = 0.1   -- driven by refreshViewport
+local vpCurrentFillH  = 0.1   -- lerped toward target each Heartbeat
 
 -- Procedural glass geometry constants (cylinder rotated 90° around Z)
-local VP_LIQ_ROT    = CFrame.Angles(0, 0, math.rad(90))
-local VP_LIQ_DIAM   = 0.72   -- diameter of liquid cylinder
-local VP_LIQ_BOT    = -1.02  -- Y center of liquid when height ≈ 0
-local VP_LIQ_MAX_H  = 1.82   -- Y extent at full (level 3)
+local VP_LIQ_ROT   = CFrame.Angles(0, 0, math.rad(90))
+local VP_LIQ_DIAM  = 0.78   -- diameter of liquid cylinder
+local VP_LIQ_BOT   = -1.02  -- Y of liquid centre when height ≈ 0
+local VP_LIQ_MAX_H = 1.82   -- height at level 3 (full)
 
 local function buildFallbackGlass(): (Model, BasePart)
 	local model = Instance.new("Model")
@@ -559,31 +560,33 @@ local function buildFallbackGlass(): (Model, BasePart)
 	-- upright cylinder: Roblox cylinders extend along local X,
 	-- so rotate 90° around Z to make them stand upright
 	local rot = CFrame.Angles(0, 0, math.rad(90))
+	-- SmoothPlastic (not Glass) — Glass material is reflective in ViewportFrame
+	-- and hides anything inside it.
 	local body = mk()
 	body.Name = "Body"
 	body.Shape = Enum.PartType.Cylinder
-	body.Size = Vector3.new(2.2, 0.88, 0.88)
+	body.Size = Vector3.new(2.2, 1.0, 1.0)
 	body.CFrame = rot
-	body.Material = Enum.Material.Glass
-	body.Color = Color3.fromRGB(200, 228, 255)
-	body.Transparency = 0.55
+	body.Material = Enum.Material.SmoothPlastic
+	body.Color = Color3.fromRGB(195, 222, 255)
+	body.Transparency = 0.80
 	body.Parent = model
 	local base = mk()
 	base.Shape = Enum.PartType.Cylinder
-	base.Size = Vector3.new(0.12, 1.1, 1.1)
+	base.Size = Vector3.new(0.12, 1.2, 1.2)
 	base.CFrame = CFrame.new(0, -1.16, 0) * rot
-	base.Material = Enum.Material.Glass
-	base.Color = Color3.fromRGB(200, 228, 255)
-	base.Transparency = 0.45
+	base.Material = Enum.Material.SmoothPlastic
+	base.Color = Color3.fromRGB(195, 222, 255)
+	base.Transparency = 0.65
 	base.Parent = model
 	local liquid = mk()
 	liquid.Name = "Liquid"
 	liquid.Shape = Enum.PartType.Cylinder
-	liquid.Size = Vector3.new(0.05, VP_LIQ_DIAM, VP_LIQ_DIAM)  -- starts empty; refreshViewport fills it
-	liquid.CFrame = CFrame.new(0, VP_LIQ_BOT, 0) * rot
+	liquid.Size = Vector3.new(vpCurrentFillH, VP_LIQ_DIAM, VP_LIQ_DIAM)
+	liquid.CFrame = CFrame.new(0, VP_LIQ_BOT + vpCurrentFillH / 2, 0) * rot
 	liquid.Material = Enum.Material.Neon
 	liquid.Color = chosenColor
-	liquid.Transparency = 0.22
+	liquid.Transparency = 0.12
 	liquid.Parent = model
 	model.PrimaryPart = body
 	return model, liquid
@@ -650,6 +653,8 @@ setupViewportGlass()
 
 RunService.Heartbeat:Connect(function(dt)
 	if not panel.Visible then return end
+
+	-- orbit camera
 	vpAngle += dt * 0.5
 	local lookAt = vpCenter + Vector3.new(0, vpBias, 0)
 	vpCamera.CFrame = CFrame.new(
@@ -660,6 +665,17 @@ RunService.Heartbeat:Connect(function(dt)
 		),
 		lookAt
 	)
+
+	-- lerp liquid fill height toward target (avoids TweenService quirks in WorldModel)
+	if vpIsProcedural and vpGlassLiquid then
+		local diff = vpTargetFillH - vpCurrentFillH
+		if math.abs(diff) > 0.001 then
+			vpCurrentFillH += diff * math.min(dt * 10, 1)
+			local cy = VP_LIQ_BOT + vpCurrentFillH / 2
+			vpGlassLiquid.Size   = Vector3.new(vpCurrentFillH, VP_LIQ_DIAM, VP_LIQ_DIAM)
+			vpGlassLiquid.CFrame = CFrame.new(0, cy, 0) * VP_LIQ_ROT
+		end
+	end
 end)
 
 -- assign the real body; forward declaration above lets rebuildChips / swatch
@@ -672,21 +688,10 @@ refreshViewport = function()
 		vpGlassLiquid.Color = chosenColor
 	end
 
-	-- Fill level (procedural glass only — real mesh parts don't resize cleanly)
-	if vpIsProcedural and vpGlassLiquid then
-		local fraction = n / MAX_PICKS                         -- 0 → 1
-		local h = math.max(0.05, VP_LIQ_MAX_H * fraction)
-		local cy = VP_LIQ_BOT + h / 2
-		if vpFillTween then vpFillTween:Cancel() end
-		vpFillTween = TweenService:Create(
-			vpGlassLiquid,
-			TweenInfo.new(0.28, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
-			{
-				Size   = Vector3.new(h, VP_LIQ_DIAM, VP_LIQ_DIAM),
-				CFrame = CFrame.new(0, cy, 0) * VP_LIQ_ROT,
-			}
-		)
-		vpFillTween:Play()
+	-- Fill level: set target; Heartbeat lerps the liquid up/down smoothly
+	if vpIsProcedural then
+		local fraction = n / MAX_PICKS
+		vpTargetFillH = math.max(0.1, VP_LIQ_MAX_H * fraction)
 	end
 
 	-- Overlay label: name · Level N · color chip
