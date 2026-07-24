@@ -6,6 +6,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 local MarketplaceService = game:GetService("MarketplaceService")
 local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
 
@@ -70,6 +71,10 @@ local picks: { string } = {}
 local chosenColor      = COLOR_SWATCHES[3]
 local chosenHours      = 24
 local chosenStrongness = 40
+
+-- forward declaration so closures inside rebuildChips / swatch buttons can
+-- reference refreshViewport before its real body is assigned below
+local refreshViewport: () -> () = function() end
 
 -- ── UI helpers ────────────────────────────────────────────────────────────
 
@@ -408,6 +413,8 @@ addCorner(submitBtn, 10)
 
 -- ── On the Menu — right column ─────────────────────────────────────────────
 
+local VP_H = 238  -- height of the 3-D drink preview viewport
+
 local liveCol = Instance.new("Frame")
 liveCol.Position = UDim2.new(0, RX, 0, HDR_H + PAD)
 liveCol.Size = UDim2.new(0, RW, 1, -(HDR_H + PAD * 2))
@@ -449,9 +456,64 @@ liveTitle.Size = UDim2.new(1, -16, 1, 0)
 liveTitle.TextXAlignment = Enum.TextXAlignment.Left
 liveTitle.ZIndex = 3
 
+-- ── 3-D drink preview ─────────────────────────────────────────────────────
+
+local viewport = Instance.new("ViewportFrame")
+viewport.Position = UDim2.new(0, 0, 0, 40)
+viewport.Size = UDim2.new(1, 0, 0, VP_H)
+viewport.BackgroundColor3 = Color3.fromRGB(7, 6, 11)
+viewport.BorderSizePixel = 0
+viewport.LightColor = Color3.fromRGB(245, 232, 210)
+viewport.LightDirection = Vector3.new(-1, -2, -0.8)
+viewport.Ambient = Color3.fromRGB(48, 44, 60)
+viewport.ZIndex = 1
+viewport.Parent = liveCol
+
+local vpWorldModel = Instance.new("WorldModel")
+vpWorldModel.Parent = viewport
+
+local vpCamera = Instance.new("Camera")
+vpCamera.FieldOfView = 42
+vpCamera.Parent = viewport
+viewport.CurrentCamera = vpCamera
+
+-- Bottom-fade label overlay (drink name + count)
+local vpOverlay = Instance.new("Frame")
+vpOverlay.AnchorPoint = Vector2.new(0, 1)
+vpOverlay.Position = UDim2.new(0, 0, 1, 0)
+vpOverlay.Size = UDim2.new(1, 0, 0, 52)
+vpOverlay.BackgroundColor3 = C.Surface
+vpOverlay.BackgroundTransparency = 1
+vpOverlay.BorderSizePixel = 0
+vpOverlay.ZIndex = 2
+vpOverlay.Parent = viewport
+local vpGrad = Instance.new("UIGradient")
+vpGrad.Rotation = 90
+vpGrad.Transparency = NumberSequence.new({
+	NumberSequenceKeypoint.new(0, 0.05),
+	NumberSequenceKeypoint.new(1, 1),
+})
+vpGrad.Parent = vpOverlay
+
+local vpLabel = mkLabel(vpOverlay, "Design your drink →", 11, false, C.TextMute)
+vpLabel.AnchorPoint = Vector2.new(0, 1)
+vpLabel.Position = UDim2.new(0, 12, 1, -9)
+vpLabel.Size = UDim2.new(1, -16, 0, 14)
+vpLabel.TextXAlignment = Enum.TextXAlignment.Left
+vpLabel.ZIndex = 3
+
+-- Amber rule between viewport and live list
+local vpRule = Instance.new("Frame")
+vpRule.Position = UDim2.new(0, 0, 0, 40 + VP_H)
+vpRule.Size = UDim2.new(1, 0, 0, 1)
+vpRule.BackgroundColor3 = C.Accent
+vpRule.BackgroundTransparency = 0.65
+vpRule.BorderSizePixel = 0
+vpRule.Parent = liveCol
+
 local liveScroll = Instance.new("ScrollingFrame")
-liveScroll.Position = UDim2.new(0, 7, 0, 46)
-liveScroll.Size = UDim2.new(1, -14, 1, -54)
+liveScroll.Position = UDim2.new(0, 7, 0, 40 + VP_H + 6)
+liveScroll.Size = UDim2.new(1, -14, 1, -(40 + VP_H + 12))
 liveScroll.BackgroundTransparency = 1
 liveScroll.BorderSizePixel = 0
 liveScroll.ScrollBarThickness = 3
@@ -467,6 +529,148 @@ local livePad = Instance.new("UIPadding")
 livePad.PaddingTop = UDim.new(0, 4)
 livePad.PaddingBottom = UDim.new(0, 4)
 livePad.Parent = liveScroll
+
+-- ── Viewport glass setup ──────────────────────────────────────────────────
+
+local vpGlassLiquid: BasePart? = nil
+local vpCenter    = Vector3.zero
+local vpRadius    = 4.0
+local vpBias      = 0.2    -- upward look-at bias so glass is framed centrally
+local vpAngle     = 0
+
+local function buildFallbackGlass(): (Model, BasePart)
+	local model = Instance.new("Model")
+	model.Name = "DS_VPGlass"
+	local function mk(): Part
+		local p = Instance.new("Part")
+		p.Anchored = true
+		p.CanCollide = false
+		p.CastShadow = false
+		return p
+	end
+	-- upright cylinder: Roblox cylinders extend along local X,
+	-- so rotate 90° around Z to make them stand upright
+	local rot = CFrame.Angles(0, 0, math.rad(90))
+	local body = mk()
+	body.Name = "Body"
+	body.Shape = Enum.PartType.Cylinder
+	body.Size = Vector3.new(2.2, 0.88, 0.88)
+	body.CFrame = rot
+	body.Material = Enum.Material.Glass
+	body.Color = Color3.fromRGB(200, 228, 255)
+	body.Transparency = 0.55
+	body.Parent = model
+	local base = mk()
+	base.Shape = Enum.PartType.Cylinder
+	base.Size = Vector3.new(0.12, 1.1, 1.1)
+	base.CFrame = CFrame.new(0, -1.16, 0) * rot
+	base.Material = Enum.Material.Glass
+	base.Color = Color3.fromRGB(200, 228, 255)
+	base.Transparency = 0.45
+	base.Parent = model
+	local liquid = mk()
+	liquid.Name = "Liquid"
+	liquid.Shape = Enum.PartType.Cylinder
+	liquid.Size = Vector3.new(1.3, 0.72, 0.72)
+	liquid.CFrame = CFrame.new(0, -0.45, 0) * rot
+	liquid.Material = Enum.Material.Neon
+	liquid.Color = chosenColor
+	liquid.Transparency = 0.22
+	liquid.Parent = model
+	model.PrimaryPart = body
+	return model, liquid
+end
+
+local function setupViewportGlass()
+	for _, c in ipairs(vpWorldModel:GetChildren()) do c:Destroy() end
+	vpGlassLiquid = nil
+
+	local model: Model
+	local liquid: BasePart?
+
+	local templates = DrinkSystem:FindFirstChild("GlassTemplates")
+	local template = templates and (
+		templates:FindFirstChildWhichIsA("Tool") or
+		templates:FindFirstChildWhichIsA("Model")
+	)
+
+	if template then
+		if template:IsA("Tool") then
+			model = Instance.new("Model")
+			model.Name = "DS_VPGlass"
+			for _, child in ipairs(template:GetChildren()) do
+				if child:IsA("BasePart") or child:IsA("MeshPart") or child:IsA("UnionOperation") then
+					child:Clone().Parent = model
+				end
+			end
+		else
+			model = template:Clone()
+		end
+		for _, p in ipairs(model:GetDescendants()) do
+			if p:IsA("BasePart") then
+				local n = p.Name:lower()
+				if n == "liquid" or n == "fill" or n == "water" or n == "drink" or n == "content" then
+					liquid = p; break
+				end
+			end
+		end
+	else
+		model, liquid = buildFallbackGlass()
+	end
+
+	for _, d in ipairs(model:GetDescendants()) do
+		if d:IsA("BasePart") then
+			d.Anchored = true
+			d.CanCollide = false
+		end
+	end
+	model.Parent = vpWorldModel
+
+	local ok, cf, sz = pcall(function() return model:GetBoundingBox() end)
+	vpCenter = ok and cf.Position or Vector3.zero
+	local tallest = ok and math.max(sz.X, sz.Y, sz.Z) or 2.5
+	vpRadius = math.max(tallest, 1.5) * 2.2
+	vpBias   = ok and (sz.Y * 0.1) or 0.2
+
+	vpGlassLiquid = liquid
+	if liquid then liquid.Color = chosenColor end
+end
+
+setupViewportGlass()
+
+RunService.Heartbeat:Connect(function(dt)
+	if not panel.Visible then return end
+	vpAngle += dt * 0.5
+	local lookAt = vpCenter + Vector3.new(0, vpBias, 0)
+	vpCamera.CFrame = CFrame.new(
+		lookAt + Vector3.new(
+			math.sin(vpAngle) * vpRadius,
+			vpRadius * 0.38,
+			math.cos(vpAngle) * vpRadius
+		),
+		lookAt
+	)
+end)
+
+-- assign the real body; forward declaration above lets rebuildChips / swatch
+-- Activated handlers call this safely before we reach this point at runtime
+refreshViewport = function()
+	if vpGlassLiquid then
+		vpGlassLiquid.Color = chosenColor
+	end
+	local name = nameBox.Text
+	local n = #picks
+	if name ~= "" then
+		vpLabel.Text = name .. (n > 0 and ("  ·  " .. n .. " ing.") or "")
+		vpLabel.TextColor3 = C.TextSub
+	elseif n > 0 then
+		vpLabel.Text = n .. (n == 1 and " ingredient" or " ingredients") .. " picked"
+		vpLabel.TextColor3 = C.TextMute
+	else
+		vpLabel.Text = "Design your drink →"
+		vpLabel.TextColor3 = C.TextMute
+	end
+end
 
 -- ── Ingredient buttons ────────────────────────────────────────────────────
 
@@ -562,6 +766,7 @@ local function rebuildChips()
 			end
 			rebuildChips()
 			refreshAllIngBtns()
+			refreshViewport()
 		end)
 	end
 end
@@ -588,7 +793,7 @@ for _, col in ipairs(COLOR_SWATCHES) do
 	addCorner(b, 13)
 	addStroke(b, Color3.fromRGB(255, 255, 255), 2, 1)
 	table.insert(swatchBtns, b)
-	b.Activated:Connect(function() chosenColor = col; refreshSwatches() end)
+	b.Activated:Connect(function() chosenColor = col; refreshSwatches(); refreshViewport() end)
 end
 
 -- ── Drunkness slider ──────────────────────────────────────────────────────
@@ -852,6 +1057,7 @@ for _, name in ipairs(ingNames) do
 			end
 			rebuildChips()
 			refreshAllIngBtns()
+			refreshViewport()
 		end)
 	end
 end
@@ -863,6 +1069,8 @@ rebuildChips()
 refreshSlider()
 refreshDuration()
 refreshStatus()
+refreshViewport()
+nameBox:GetPropertyChangedSignal("Text"):Connect(refreshViewport)
 
 -- ── Networking ────────────────────────────────────────────────────────────
 
