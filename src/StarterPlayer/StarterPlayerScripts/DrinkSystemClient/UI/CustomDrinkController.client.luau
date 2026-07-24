@@ -112,7 +112,6 @@ local function mkSectionLabel(parent: GuiObject, text: string, y: number): TextL
 	l.Position = UDim2.new(0, 2, 0, y)
 	l.Size = UDim2.new(1, 0, 0, 13)
 	l.TextXAlignment = Enum.TextXAlignment.Left
-	l.LetterSpacing = 2
 	return l
 end
 
