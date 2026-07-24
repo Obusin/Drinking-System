@@ -15,7 +15,7 @@ local CollectionService = game:GetService("CollectionService")
 local player = Players.LocalPlayer
 
 local playerGui = player:WaitForChild("PlayerGui")
-local roleGui = playerGui:WaitForChild("Role", 15)
+local roleGui = playerGui:WaitForChild("DrunknessLevel", 15)
 if not roleGui then
 	warn("[DrinkSystem][Role] StarterGui.Role not found — role display disabled")
 	return

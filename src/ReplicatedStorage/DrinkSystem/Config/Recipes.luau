@@ -184,12 +184,12 @@ local Recipes = {
 
 	["Jaxline Fizz"] = {
 		DisplayName    = "Jaxline Fizz",
-		Ingredients    = { "Jaxline", "Soda Water", "Sugar" },
+		Ingredients    = { "JaclineDale", "Soda Water", "Sugar" },
 		OutputColor    = Color3.fromRGB(215, 170, 105),
 		RequireShaker  = false,
 		StrongnessOverride = 35,
 		Steps = {
-			{ Ingredient = "Jaxline" },
+			{ Ingredient = "JaclineDale" },
 			{ Ingredient = "Soda Water" },
 			{ Ingredient = "Sugar" },
 		},
@@ -333,12 +333,12 @@ local Recipes = {
 	},
 	["Debt Collector"] = {
 		DisplayName    = "Debt Collector",
-		Ingredients    = { "Jaxline", "Maple Syrup", "Creamora" },
+		Ingredients    = { "JaclineDale", "Maple Syrup", "Creamora" },
 		OutputColor    = Color3.fromRGB(116, 74, 50),
 		RequireShaker  = true,
 		StrongnessOverride = 65,
 		Steps = {
-			{ Ingredient = "Jaxline" },
+			{ Ingredient = "JaclineDale" },
 			{ Ingredient = "Maple Syrup" },
 			{ Ingredient = "Creamora" },
 			{ Tool = "Shaker" },
@@ -448,12 +448,12 @@ local Recipes = {
 	},
 	["Double Debt"] = {
 		DisplayName    = "Double Debt",
-		Ingredients    = { "Jaxline", "Double Time", "Maple Syrup" },
+		Ingredients    = { "JaclineDale", "Double Time", "Maple Syrup" },
 		OutputColor    = Color3.fromRGB(140, 95, 45),
 		RequireShaker  = true,
 		StrongnessOverride = 68,
 		Steps = {
-			{ Ingredient = "Jaxline" },
+			{ Ingredient = "JaclineDale" },
 			{ Ingredient = "Double Time" },
 			{ Ingredient = "Maple Syrup" },
 			{ Tool = "Shaker" },
@@ -650,6 +650,150 @@ local Recipes = {
 		Presentation = { Garnishes = {} },
 	},
 
+	["NOX Society"] = {
+		DisplayName    = "NOX Society",
+		Ingredients    = { "Caffemo", "Vodqa", "JaclineDale", "Double Time" },
+		OutputColor    = Color3.fromRGB(15, 10, 25),
+		RequireShaker  = true,
+		Secret         = true,
+		StrongnessOverride = 95,
+		Callback       = "InstantDeath",
+		Steps = {
+			{ Ingredient = "Caffemo" },
+			{ Ingredient = "Vodqa" },
+			{ Ingredient = "JaclineDale" },
+			{ Ingredient = "Double Time" },
+			{ Tool = "Shaker" },
+		},
+		Presentation = { Garnishes = { "Ice Cube" } },
+	},
+	["Skyline"] = {
+		DisplayName    = "Skyline",
+		Ingredients    = { "Bilijin", "Barcandy", "Almendra", "Bukonelle", "Coolnag" },
+		OutputColor    = Color3.fromRGB(255, 90, 140),
+		RequireShaker  = true,
+		Secret         = true,
+		StrongnessOverride = 95,
+		Callback       = "InstantDeath",
+		Steps = {
+			{ Ingredient = "Bilijin" },
+			{ Ingredient = "Barcandy" },
+			{ Ingredient = "Almendra" },
+			{ Ingredient = "Bukonelle" },
+			{ Ingredient = "Coolnag" },
+			{ Tool = "Shaker" },
+		},
+		Presentation = { Garnishes = {} },
+	},
+	["Bee Swarm"] = {
+		DisplayName    = "Bee Swarm",
+		Ingredients    = { "Maple Syrup", "Sugar", "Sugar" },
+		OutputColor    = Color3.fromRGB(235, 190, 60),
+		RequireShaker  = false,
+		Secret         = true,
+		StrongnessOverride = 20,
+		Callback       = "BeeSwarm",
+		Steps = {
+			{ Ingredient = "Maple Syrup" },
+			{ Ingredient = "Sugar" },
+			{ Ingredient = "Sugar" },
+		},
+		Presentation = { Garnishes = {} },
+	},
+	["Chicken Dinner"] = {
+		DisplayName    = "Chicken Dinner",
+		Ingredients    = { "Soda Water", "Vermix", "Caffemo" },
+		OutputColor    = Color3.fromRGB(235, 200, 120),
+		RequireShaker  = false,
+		Secret         = true,
+		StrongnessOverride = 30,
+		Callback       = "ChickenDinner",
+		Steps = {
+			{ Ingredient = "Soda Water" },
+			{ Ingredient = "Vermix" },
+			{ Ingredient = "Caffemo" },
+		},
+		Presentation = { Garnishes = {} },
+	},
+	["Owner's Delight"] = {
+		DisplayName    = "Owner's Delight",
+		Ingredients    = { "Caffemo", "Caffemo", "Caffemo", "Caffemo" },
+		OutputColor    = Color3.fromRGB(70, 45, 25),
+		RequireShaker  = false,
+		Secret         = true,
+		StrongnessOverride = 50,
+		Callback       = "OwnersDelight",
+		Steps = {
+			{ Ingredient = "Caffemo" },
+			{ Ingredient = "Caffemo" },
+			{ Ingredient = "Caffemo" },
+			{ Ingredient = "Caffemo" },
+		},
+		Presentation = { Garnishes = {} },
+	},
+	["Hotdog Bread Drink"] = {
+		DisplayName    = "Hotdog Bread Drink",
+		Ingredients    = { "Bukonelle", "Bukonelle", "Soda Water" },
+		OutputColor    = Color3.fromRGB(200, 160, 90),
+		RequireShaker  = false,
+		Secret         = true,
+		StrongnessOverride = 35,
+		Callback       = "HotdogBreadDrink",
+		Steps = {
+			{ Ingredient = "Bukonelle" },
+			{ Ingredient = "Bukonelle" },
+			{ Ingredient = "Soda Water" },
+		},
+		Presentation = { Garnishes = { "Ice Cube" } },
+	},
+	["Birthday Party"] = {
+		DisplayName    = "Birthday Party",
+		Ingredients    = { "Soda Water", "Sugar" },
+		OutputColor    = Color3.fromRGB(255, 170, 210),
+		RequireShaker  = false,
+		Secret         = true,
+		StrongnessOverride = 25,
+		Callback       = "BirthdayParty",
+		Steps = {
+			{ Ingredient = "Soda Water" },
+			{ Ingredient = "Sugar" },
+		},
+		-- Cosmetic only — garnishing doesn't gate the effect, just looks the part
+		Presentation = { Garnishes = { "Lime", "Shade Umbrella", "Ice Cube" } },
+	},
+	["Olkab's Hair"] = {
+		DisplayName    = "Olkab's Hair",
+		Ingredients    = { "Absmith", "Absmith", "Absmith", "Absmith" },
+		OutputColor    = Color3.fromRGB(55, 40, 65),
+		RequireShaker  = false,
+		Secret         = true,
+		StrongnessOverride = 55,
+		Callback       = "OlkabsHair",
+		Steps = {
+			{ Ingredient = "Absmith" },
+			{ Ingredient = "Absmith" },
+			{ Ingredient = "Absmith" },
+			{ Ingredient = "Absmith" },
+		},
+		Presentation = { Garnishes = {} },
+	},
+	["Relapse Drink"] = {
+		DisplayName    = "Relapse Drink",
+		Ingredients    = { "Fonador", "Fonador", "Fonador", "Fonador" },
+		OutputColor    = Color3.fromRGB(120, 30, 20),
+		RequireShaker  = false,
+		Secret         = true,
+		StrongnessOverride = 70,
+		Callback       = "RelapseDrink",
+		Steps = {
+			{ Ingredient = "Fonador" },
+			{ Ingredient = "Fonador" },
+			{ Ingredient = "Fonador" },
+			{ Ingredient = "Fonador" },
+		},
+		Presentation = { Garnishes = { "Ice Cube" } },
+	},
+
 	-- ── SOBER ─────────────────────────────────────────────────────────
 	-- Water works two ways (no shaker required for either):
 	--   1. No glass in hand → click the water source, drink on the spot (onPour intercept)
@@ -662,14 +806,16 @@ local Recipes = {
 		SkipShaker     = true,  -- bypass AUTO_SHAKER_ON_RECIPE — finalize instantly
 		FillStageOverride = 3,  -- one pour fills the whole glass
 		StrongnessOverride = -35,
-		-- Garnish-gated secret: add "Ice" as a garnish before sipping and the
-		-- IceCube callback freezes + traps you. Plain Water (no Ice garnish)
-		-- is completely unaffected — see DrinkCallbacks/IceCube.luau.
+		-- Garnish-gated secret: adding "Ice" or "Ice Cube" as a garnish plays
+		-- a shake flourish (see DrinkSystemController.onAddGarnish); the
+		-- freeze/trap itself only fires once actually SIPPED — see
+		-- DrinkCallbacks/IceCube.luau. Plain Water (no ice garnish) is
+		-- completely unaffected either way.
 		Callback       = "IceCube",
 		Steps = {
 			{ Ingredient = "Water" },
 		},
-		Presentation = { Garnishes = {} },
+		Presentation = { Garnishes = { "Ice Cube" } },
 	},
 }
 

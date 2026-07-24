@@ -1,14 +1,11 @@
--- IceCube: garnish-gated Water variant. Pour a plain Water, add "Ice" as a
--- garnish, then sip it → the drinker gets frozen and trapped in a sliding
--- ice cube (see Services/IceCubeService.luau) for a short time.
---
--- Plain Water (no Ice garnish) is completely untouched — this only reacts
--- to the garnished variant, checked at sip time via DS_GarnishesCsv.
+-- IceCube: fires the freeze/trap on an actual SIP of a Water drink carrying
+-- the Ice/Ice Cube garnish. The shake flourish already played the moment
+-- the garnish was added (see DrinkSystemController.onAddGarnish) — this is
+-- purely "you drank it, now you're frozen."
 
 local IceCube = {}
 
 -- ctx: { Player, Tool, Remaining, SipAmount, Services }
--- Services: { DrinkEffectsService, Packets, Settings, Recipes, IceCubeService }
 function IceCube.OnSip(ctx)
 	local tool = ctx.Tool
 	if not tool then
@@ -18,7 +15,7 @@ function IceCube.OnSip(ctx)
 	local garnishCsv = tool:GetAttribute("DS_GarnishesCsv") or ""
 	local hasIce = false
 	for token in string.gmatch(garnishCsv, "([^,]+)") do
-		if token == "Ice" then
+		if token == "Ice" or token == "Ice Cube" then
 			hasIce = true
 			break
 		end
@@ -27,15 +24,13 @@ function IceCube.OnSip(ctx)
 		return -- plain Water — normal sober-up sip, nothing special
 	end
 
-	-- Multi-sip water: only trap once per drink
 	if tool:GetAttribute("DS_IceCubeTriggered") == true then
 		return
 	end
 	tool:SetAttribute("DS_IceCubeTriggered", true)
 
 	local Services = ctx.Services
-	-- Small beat so the sip animation finishes before they get frozen solid
-	task.delay(0.5, function()
+	task.delay(0.3, function()
 		Services.IceCubeService.Trap(ctx.Player, Services.Settings.IceCubeDuration or 20)
 	end)
 end

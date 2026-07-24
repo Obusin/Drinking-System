@@ -111,9 +111,63 @@ local Settings = {
 	},
 	CustomDrinkFreeTesting = true,  -- TRUE = anyone can create free (testing). TURN OFF FOR LAUNCH.
 
-	-- Ice Cube secret (Water + Ice garnish → freeze + trap in a sliding ice cube)
+	-- Ice Cube secret (Water + Ice garnish → shake, then freeze + trap in a
+	-- sliding ice cube). Fires the moment the garnish is added, not on sip.
+	IceCubeShakeDuration = 1.8,
 	IceCubeDuration = 20,
 	EnableIceCubeTestButton = true,  -- on-screen button to trigger it instantly for QA. TURN OFF FOR LAUNCH.
+
+	-- Bee Swarm secret (visual-only effect, not yet wired to a recipe)
+	BeeSwarmDuration      = 7,       -- matches the sound clip length
+	BeeSwarmSoundId       = 127842099060677,
+	BeeSwarmSoundVolume   = 0.5,
+	BeeSwarmAnimationId   = 77426382296799, -- "shooing the bees away"
+	EnableBeeSwarmTestButton = true, -- on-screen button to trigger it instantly for QA. TURN OFF FOR LAUNCH.
+
+	-- On-screen buttons to fire ANY drink callback by name for QA, no
+	-- brewing required. TURN OFF FOR LAUNCH.
+	EnableSecretEffectTestButtons = true,
+
+	-- Live outfit refresh (apply whatever avatar is currently saved on the
+	-- account, without a full respawn — see AvatarRefreshService)
+	EnableOutfitRefresh   = true,
+	OutfitRefreshSoundId  = 112485797063762,
+	OutfitRefreshVolume   = 0.5,
+	OutfitRefreshCooldown = 5, -- seconds — ApplyDescription is a real API call, don't let it be spammed
+
+	-- Chicken Dinner secret (Soda Water + Vermix + Caffemo)
+	ChickenDinnerSoundId     = 131137853843046,
+	ChickenDinnerSoundVolume = 0.5,
+
+	-- Owner's Delight secret (Caffemo x4) — inverted controls
+	OwnersDelightDuration = 12,
+
+	-- Hotdog Bread Drink secret (Bukonelle x2 + Soda Water) — smoke from head
+	HotdogSmokeDuration = 10,
+
+	-- Birthday Party secret (Soda Water + Sugar) — low gravity + bouncy jumps
+	BirthdayPartyDuration               = 12,
+	BirthdayPartyGravityCounterFraction = 0.6,  -- 0 = normal gravity, 1 = weightless
+	BirthdayPartyJumpPower              = 90,
+
+	-- Relapse Drink secret (Fonador x4) — movement stays free the whole time.
+	-- Standing still for RelapseIdleThreshold seconds re-triggers the
+	-- stumble animation (+ a small drunkness bump) as long as they stay
+	-- idle, at most once every RelapseMinInterval seconds, for the whole
+	-- RelapseEffectDuration window — then it just stops.
+	RelapseAnimationId    = 93645548410631,
+	RelapseEffectDuration = 25,
+	RelapseIdleThreshold  = 3,
+	RelapseMinInterval    = 4,
+	RelapseDrunknessBump  = 6,
+
+	-- Olkab's Hair secret (Absmith x4) — strips Hair accessories for a while,
+	-- restores exactly what was removed (same Handle/weld state)
+	OlkabsHairDuration      = 20,
+	OlkabsHairYoinkDelay    = 1.5, -- lets the sip animation finish before the yoink
+	OlkabsHairYoinkSoundId  = 90539754123219,
+	OlkabsHairYoinkVolume   = 0.6,
+
 	-- Outcome jingles (local, play with the grade toast)
 	OutcomeHighSoundId  = 113307491257691,  -- Perfect / Good
 	OutcomeLowSoundId   = 4342630136,       -- Weak / Experimental / Ruined

@@ -40,6 +40,9 @@ local GamepassManager = require(servicesFolder:WaitForChild("GamepassManager"))
 local StatsService = require(servicesFolder:WaitForChild("StatsService"))
 local CustomDrinkService = require(servicesFolder:WaitForChild("CustomDrinkService"))
 local IceCubeService = require(servicesFolder:WaitForChild("IceCubeService"))
+local BeeSwarmService = require(servicesFolder:WaitForChild("BeeSwarmService"))
+local RelapseService = require(servicesFolder:WaitForChild("RelapseService"))
+local AvatarRefreshService = require(servicesFolder:WaitForChild("AvatarRefreshService"))
 
 -- Per-drink callback registry: ServerScriptService/DrinkSystem/DrinkCallbacks/<Name>.luau
 -- A recipe opts in with `Callback = "<ModuleName>"`. Modules may implement:
@@ -306,6 +309,9 @@ local function canonicalizeGarnishName(name: string?): string?
 	end
 	if lowered == "ice" then
 		return "Ice"
+	end
+	if lowered == "ice cube" or lowered == "icecube" then
+		return "Ice Cube"
 	end
 
 	return trimmed
@@ -1199,6 +1205,31 @@ function DrinkSystemController.onAddGarnish(player: Player, model: Instance)
 	drinkTool:SetAttribute("DS_GarnishesCsv", table.concat(existing, ","))
 	GlassPresentation.setGarnishes(drinkTool, existing)
 
+	-- Ice Cube secret: Water + Ice Cube garnish COMING TOGETHER plays a shake
+	-- flourish only — the actual freeze/trap waits for a real SIP (see
+	-- DrinkCallbacks/IceCube.luau). Reuses the existing shaker visual packet
+	-- purely for show: session.PendingGlass is never set here, so the
+	-- ShakerFinished round-trip this triggers client-side is a safe no-op
+	-- against the real mixing state machine.
+	if (garnishName == "Ice Cube" or garnishName == "Ice")
+		and drinkTool:GetAttribute("DS_RecipeName") == "Water"
+		and drinkTool:GetAttribute("DS_IceCubeShakeTriggered") ~= true then
+		drinkTool:SetAttribute("DS_IceCubeShakeTriggered", true)
+		-- Cosmetic rename only — DS_RecipeName stays "Water" underneath so
+		-- the freeze callback dispatch and sober-up logic keep working.
+		drinkTool.Name = "Blizzard Quadrado"
+		drinkTool:SetAttribute("DS_DrinkName", "Blizzard Quadrado")
+		Packets.StartShakerSequence.sendTo(toWireDrinkPayload({
+			RecipeName = "Water",
+			DisplayName = "Blizzard Quadrado",
+			Color = drinkTool:GetAttribute("DS_Color"),
+			Strongness = drinkTool:GetAttribute("DS_Strongness") or 0,
+			RequiresShaker = true,
+			Ingredients = { "Water" },
+			IsRecipe = true,
+		}), player)
+	end
+
 	-- Garnish bonus: +5 (once per garnish) when it's the recipe's intended
 	-- garnish. Applied AFTER finalize since garnishing happens on the finished
 	-- drink; can upgrade the grade band — the toast re-fires to show it.
@@ -1371,6 +1402,8 @@ function DrinkSystemController.onConsumeDrink(player: Player, tool: Tool)
 					Settings = Settings,
 					Recipes = Recipes,
 					IceCubeService = IceCubeService,
+					RelapseService = RelapseService,
+					BeeSwarmService = BeeSwarmService,
 				},
 			}
 			if type(callback.OnSip) == "function" then
@@ -1395,6 +1428,18 @@ function DrinkSystemController.onConsumeDrink(player: Player, tool: Tool)
 end
 
 -- Reset any held glass/drink back to a clean empty Glass (sink).
+-- Every secret-drink callback marks its own one-shot flag as "DS_<Name>Triggered"
+-- so a multi-sip drink only fires once per hold. That flag must NOT survive
+-- past the drink it belongs to — sweeping by naming convention (rather than
+-- hardcoding each one here) means new secret drinks are covered automatically.
+local function clearEffectTriggerFlags(tool: Instance)
+	for name in pairs(tool:GetAttributes()) do
+		if string.match(name, "^DS_.+Triggered$") then
+			tool:SetAttribute(name, nil)
+		end
+	end
+end
+
 local function resetToolToEmptyGlass(tool: Tool)
 	tool.Name = "Glass"
 	tool:SetAttribute("DS_Drink", false)
@@ -1416,6 +1461,7 @@ local function resetToolToEmptyGlass(tool: Tool)
 	tool:SetAttribute("DS_Color", nil)
 	tool:SetAttribute("DS_WaterPours", nil)
 	tool:SetAttribute("DS_MixStart", nil)
+	clearEffectTriggerFlags(tool)
 	GlassPresentation.reset(tool)
 end
 
@@ -1631,6 +1677,48 @@ local function wirePackets()
 		IceCubeService.Trap(player, Settings.IceCubeDuration or 20)
 	end)
 
+	Packets.RequestTestBeeSwarm.listen(function(_, player)
+		if Settings.EnableBeeSwarmTestButton ~= true then return end
+		local session = getSession(player)
+		if not rateLimitOk(session) then return end
+		BeeSwarmService.Start(player, Settings.BeeSwarmDuration or 7)
+	end)
+
+	Packets.RequestRefreshOutfit.listen(function(_, player)
+		local session = getSession(player)
+		if not rateLimitOk(session) then return end
+		local ok, message = AvatarRefreshService.Refresh(player, IceCubeService)
+		Packets.RefreshOutfitResult.sendTo({ Ok = ok, Message = message }, player)
+	end)
+
+	Packets.RequestTestSecretEffect.listen(function(data, player)
+		if Settings.EnableSecretEffectTestButtons ~= true then return end
+		local session = getSession(player)
+		if not rateLimitOk(session) then return end
+		local callback = drinkCallbacks[data.EffectName]
+		if not callback or type(callback.OnSip) ~= "function" then return end
+		local tool = findGlassTool(player)
+		local ctx = {
+			Player = player,
+			Tool = tool,
+			Remaining = 0,
+			SipAmount = 1,
+			Services = {
+				DrinkEffectsService = DrinkEffectsService,
+				Packets = Packets,
+				Settings = Settings,
+				Recipes = Recipes,
+				IceCubeService = IceCubeService,
+				RelapseService = RelapseService,
+				BeeSwarmService = BeeSwarmService,
+			},
+		}
+		local ok, err = pcall(callback.OnSip, ctx)
+		if not ok then
+			warn("[DrinkSystem] Test effect error (", data.EffectName, "):", err)
+		end
+	end)
+
 	Packets.RequestTrashDrink.listen(function(data, player)
 		DrinkSystemController.onTrashDrink(player, data.Model)
 	end)
@@ -1708,6 +1796,9 @@ function DrinkSystemController.init()
 	StatsService.init()
 	CustomDrinkService.init()
 	IceCubeService.init()
+	BeeSwarmService.init()
+	RelapseService.init()
+	AvatarRefreshService.init()
 	StatsService.setLevelUpHandler(function(levelPlayer, newLevel)
 		Packets.LevelUp.sendTo({ Level = newLevel }, levelPlayer)
 		DrinkEffectsService.playCharacterSound(levelPlayer, Settings.OutcomeHighSoundId, 0.5)
@@ -1718,6 +1809,15 @@ function DrinkSystemController.init()
 	-- FULL respawn reset: after dying, every piece of drink-system state must
 	-- look exactly like a fresh join. Anything missed here is a lingering-state bug.
 	local function onPlayerRespawn(player: Player)
+		-- Cosmetic-only refresh (AvatarRefreshService) fires this same
+		-- CharacterAdded event via LoadCharacter() — it sets this attribute
+		-- right before doing so specifically to skip the "fresh join" wipe
+		-- below. A real death/respawn never sets it, so behaves unchanged.
+		if player:GetAttribute("DS_SkipNextRespawnReset") == true then
+			player:SetAttribute("DS_SkipNextRespawnReset", nil)
+			return
+		end
+
 		-- Wipe glass/drink tools and inventory count
 		PickupManager.clearPlayerGlasses(player)
 		-- Reset drunkness and stage to sober

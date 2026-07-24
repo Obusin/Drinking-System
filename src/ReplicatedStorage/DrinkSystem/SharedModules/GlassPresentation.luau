@@ -26,6 +26,7 @@ local GARNISH_NAMES = {
 	"Lime",
 	"Orange",
 	"Ice",
+	"Ice Cube",
 	"Shade Umbrella",
 	"ShadeUmbrella",
 }
@@ -104,12 +105,21 @@ local function normalizeGarnishName(name: string): string
 	return string.gsub(name, "%s+", "")
 end
 
-local function collectKnownGarnishes(container: Instance): { [string]: Instance }
-	local garnishes = {}
+-- Returns EVERY matching descendant per garnish name, not just the first —
+-- some garnishes (e.g. a trio of "Ice Cube" models for a fuller look) are
+-- deliberately built as multiple same-named siblings that must all toggle
+-- together.
+local function collectKnownGarnishInstances(container: Instance): { [string]: { Instance } }
+	local garnishes: { [string]: { Instance } } = {}
+	local wantedNames: { [string]: string } = {}
 	for _, garnishName in ipairs(GARNISH_NAMES) do
-		local match = container:FindFirstChild(garnishName, true)
-		if match then
-			garnishes[normalizeGarnishName(garnishName)] = match
+		wantedNames[garnishName] = normalizeGarnishName(garnishName)
+	end
+	for _, descendant in ipairs(container:GetDescendants()) do
+		local key = wantedNames[descendant.Name]
+		if key then
+			garnishes[key] = garnishes[key] or {}
+			table.insert(garnishes[key], descendant)
 		end
 	end
 	return garnishes
@@ -182,10 +192,12 @@ function GlassPresentation.setGarnishes(container: Instance, garnishList: { stri
 		active[normalizeGarnishName(garnishName)] = true
 	end
 
-	local garnishes = collectKnownGarnishes(container)
-	for garnishName, garnishInstance in pairs(garnishes) do
+	local garnishes = collectKnownGarnishInstances(container)
+	for garnishName, instances in pairs(garnishes) do
 		local transparency = if active[garnishName] then VISIBLE_TRANSPARENCY else HIDDEN_TRANSPARENCY
-		setVisualTransparency(garnishInstance, transparency)
+		for _, garnishInstance in ipairs(instances) do
+			setVisualTransparency(garnishInstance, transparency)
+		end
 	end
 end
 

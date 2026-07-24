@@ -160,9 +160,53 @@ Network.Packets = ByteNet.defineNamespace("DrinkSystem", function()
 			}),
 		}),
 
+		-- Server -> client (targeted at the trapped player only): tells their
+		-- OWN client to suppress locally-triggered animations/emotes, since
+		-- the default emote system plays instantly on the owning client for
+		-- responsiveness — our server-side Stop() alone can't preempt that.
+		IceCubeFrozen = ByteNet.definePacket({
+			value = ByteNet.struct({
+				Trapped = ByteNet.bool,
+			}),
+		}),
+
 		-- QA-only: trigger the Ice Cube secret instantly, no drink required
 		RequestTestIceCube = ByteNet.definePacket({
 			value = ByteNet.struct({}),
+		}),
+
+		-- QA-only: trigger the Bee Swarm secret instantly, no drink required
+		RequestTestBeeSwarm = ByteNet.definePacket({
+			value = ByteNet.struct({}),
+		}),
+
+		-- QA-only: fire ANY drink callback (Recipes.<name>.Callback) by its
+		-- module name, no brewing required
+		RequestTestSecretEffect = ByteNet.definePacket({
+			value = ByteNet.struct({
+				EffectName = ByteNet.string,
+			}),
+		}),
+
+		-- Live outfit refresh: apply whatever avatar is currently saved on
+		-- the account, without a full respawn
+		RequestRefreshOutfit = ByteNet.definePacket({
+			value = ByteNet.struct({}),
+		}),
+		RefreshOutfitResult = ByteNet.definePacket({
+			value = ByteNet.struct({
+				Ok = ByteNet.bool,
+				Message = ByteNet.string,
+			}),
+		}),
+
+		-- Server -> client (targeted at the drinker only): invert WASD for
+		-- Duration seconds. Client re-issues Humanoid:Move() with the negated
+		-- direction every frame, running after the default control script.
+		InvertControls = ByteNet.definePacket({
+			value = ByteNet.struct({
+				Duration = ByteNet.float32,
+			}),
 		}),
 
 		-- Client → server: throw the held glass/drink away entirely (DS_Trash)
