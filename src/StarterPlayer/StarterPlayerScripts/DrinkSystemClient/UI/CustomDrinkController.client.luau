@@ -162,12 +162,20 @@ panel.Name = "Panel"
 panel.AnchorPoint = Vector2.new(0.5, 0.5)
 panel.Position = UDim2.new(0.5, 0, 0.5, 0)
 panel.Size = UDim2.new(0, PW, 0, PH)
-panel.BackgroundColor3 = C.BG
+panel.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
 panel.BorderSizePixel = 0
 panel.Visible = false
 panel.Parent = gui
 addCorner(panel, 16)
 addStroke(panel, C.Divider, 1)
+local panelGrad = Instance.new("UIGradient")
+panelGrad.Rotation = 130
+panelGrad.Color = ColorSequence.new({
+	ColorSequenceKeypoint.new(0, Color3.fromRGB(18, 17, 25)),
+	ColorSequenceKeypoint.new(0.5, Color3.fromRGB(11, 11, 15)),
+	ColorSequenceKeypoint.new(1, Color3.fromRGB(7, 7, 10)),
+})
+panelGrad.Parent = panel
 
 -- Header bar
 local hdr = Instance.new("Frame")
@@ -418,11 +426,18 @@ local VP_H = 238  -- height of the 3-D drink preview viewport
 local liveCol = Instance.new("Frame")
 liveCol.Position = UDim2.new(0, RX, 0, HDR_H + PAD)
 liveCol.Size = UDim2.new(0, RW, 1, -(HDR_H + PAD * 2))
-liveCol.BackgroundColor3 = C.Surface
+liveCol.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
 liveCol.BorderSizePixel = 0
 liveCol.Parent = panel
 addCorner(liveCol, 12)
 addStroke(liveCol, C.Divider, 1)
+local liveColGrad = Instance.new("UIGradient")
+liveColGrad.Rotation = 130
+liveColGrad.Color = ColorSequence.new({
+	ColorSequenceKeypoint.new(0, Color3.fromRGB(22, 20, 30)),
+	ColorSequenceKeypoint.new(1, Color3.fromRGB(13, 12, 18)),
+})
+liveColGrad.Parent = liveCol
 
 -- Right column mini-header
 local liveHdr = Instance.new("Frame")
@@ -456,41 +471,84 @@ liveTitle.Size = UDim2.new(1, -16, 1, 0)
 liveTitle.TextXAlignment = Enum.TextXAlignment.Left
 liveTitle.ZIndex = 3
 
--- ── 3-D drink preview ─────────────────────────────────────────────────────
+-- ── 2-D drink preview ─────────────────────────────────────────────────────
 
-local viewport = Instance.new("ViewportFrame")
-viewport.Position = UDim2.new(0, 0, 0, 40)
-viewport.Size = UDim2.new(1, 0, 0, VP_H)
-viewport.BackgroundColor3 = Color3.fromRGB(7, 6, 11)
-viewport.BorderSizePixel = 0
-viewport.LightColor = Color3.fromRGB(245, 232, 210)
-viewport.LightDirection = Vector3.new(-1, -2, -0.8)
-viewport.Ambient = Color3.fromRGB(48, 44, 60)
-viewport.ZIndex = 1
-viewport.Parent = liveCol
+local previewBg = Instance.new("Frame")
+previewBg.Name = "DrinkPreview"
+previewBg.Position = UDim2.new(0, 0, 0, 40)
+previewBg.Size = UDim2.new(1, 0, 0, VP_H)
+previewBg.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+previewBg.BorderSizePixel = 0
+previewBg.ClipsDescendants = true
+previewBg.Parent = liveCol
 
-local vpWorldModel = Instance.new("WorldModel")
-vpWorldModel.Parent = viewport
+local previewGrad = Instance.new("UIGradient")
+previewGrad.Rotation = 90
+previewGrad.Color = ColorSequence.new({
+	ColorSequenceKeypoint.new(0, Color3.fromRGB(24, 22, 33)),
+	ColorSequenceKeypoint.new(0.45, Color3.fromRGB(11, 10, 16)),
+	ColorSequenceKeypoint.new(1, Color3.fromRGB(5, 4, 8)),
+})
+previewGrad.Parent = previewBg
 
-local vpCamera = Instance.new("Camera")
-vpCamera.FieldOfView = 42
-vpCamera.Parent = viewport
-viewport.CurrentCamera = vpCamera
+-- Drink fill: rises from bottom as ingredients are picked
+local fillFrame = Instance.new("Frame")
+fillFrame.Name = "_Fill"
+fillFrame.AnchorPoint = Vector2.new(0, 1)
+fillFrame.Position = UDim2.new(0, 0, 1, 0)
+fillFrame.Size = UDim2.new(1, 0, 0, 0)
+fillFrame.BackgroundColor3 = chosenColor
+fillFrame.BorderSizePixel = 0
+fillFrame.Parent = previewBg
 
--- Bottom-fade label overlay (drink name + count)
+-- Glassy surface shimmer: faint white overlay fading top→transparent
+local glassOverlay = Instance.new("Frame")
+glassOverlay.Size = UDim2.fromScale(1, 1)
+glassOverlay.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+glassOverlay.BackgroundTransparency = 0.87
+glassOverlay.BorderSizePixel = 0
+glassOverlay.ZIndex = 2
+glassOverlay.Parent = previewBg
+local glassGrad = Instance.new("UIGradient")
+glassGrad.Rotation = 90
+glassGrad.Transparency = NumberSequence.new({
+	NumberSequenceKeypoint.new(0, 0),
+	NumberSequenceKeypoint.new(0.24, 0.72),
+	NumberSequenceKeypoint.new(1, 1),
+})
+glassGrad.Parent = glassOverlay
+
+-- Left-edge shine strip (curved glass surface illusion)
+local shineStrip = Instance.new("Frame")
+shineStrip.Size = UDim2.new(0, 3, 1, 0)
+shineStrip.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+shineStrip.BorderSizePixel = 0
+shineStrip.ZIndex = 3
+shineStrip.Parent = previewBg
+local shineGrad = Instance.new("UIGradient")
+shineGrad.Rotation = 90
+shineGrad.Transparency = NumberSequence.new({
+	NumberSequenceKeypoint.new(0, 1),
+	NumberSequenceKeypoint.new(0.18, 0.52),
+	NumberSequenceKeypoint.new(0.82, 0.52),
+	NumberSequenceKeypoint.new(1, 1),
+})
+shineGrad.Parent = shineStrip
+
+-- Bottom fade + label (drink name, level)
 local vpOverlay = Instance.new("Frame")
 vpOverlay.AnchorPoint = Vector2.new(0, 1)
 vpOverlay.Position = UDim2.new(0, 0, 1, 0)
 vpOverlay.Size = UDim2.new(1, 0, 0, 52)
-vpOverlay.BackgroundColor3 = C.Surface
+vpOverlay.BackgroundColor3 = Color3.fromRGB(5, 4, 8)
 vpOverlay.BackgroundTransparency = 1
 vpOverlay.BorderSizePixel = 0
-vpOverlay.ZIndex = 2
-vpOverlay.Parent = viewport
+vpOverlay.ZIndex = 4
+vpOverlay.Parent = previewBg
 local vpGrad = Instance.new("UIGradient")
 vpGrad.Rotation = 90
 vpGrad.Transparency = NumberSequence.new({
-	NumberSequenceKeypoint.new(0, 0.05),
+	NumberSequenceKeypoint.new(0, 0.06),
 	NumberSequenceKeypoint.new(1, 1),
 })
 vpGrad.Parent = vpOverlay
@@ -500,7 +558,7 @@ vpLabel.AnchorPoint = Vector2.new(0, 1)
 vpLabel.Position = UDim2.new(0, 12, 1, -9)
 vpLabel.Size = UDim2.new(1, -16, 0, 14)
 vpLabel.TextXAlignment = Enum.TextXAlignment.Left
-vpLabel.ZIndex = 3
+vpLabel.ZIndex = 5
 
 -- Amber rule between viewport and live list
 local vpRule = Instance.new("Frame")
@@ -530,175 +588,25 @@ livePad.PaddingTop = UDim.new(0, 4)
 livePad.PaddingBottom = UDim.new(0, 4)
 livePad.Parent = liveScroll
 
--- ── Viewport glass setup ──────────────────────────────────────────────────
+-- ── 2-D fill state ────────────────────────────────────────────────────────
 
-local vpGlassLiquid: BasePart? = nil
-local vpCenter      = Vector3.zero
-local vpRadius      = 4.0
-local vpBias        = 0.2
-local vpAngle       = 0
-local vpIsProcedural  = false
-local vpTargetFillH   = 0.1   -- driven by refreshViewport
-local vpCurrentFillH  = 0.1   -- lerped toward target each Heartbeat
-
--- Procedural glass geometry constants (cylinder rotated 90° around Z)
-local VP_LIQ_ROT   = CFrame.Angles(0, 0, math.rad(90))
-local VP_LIQ_DIAM  = 0.88   -- exposed liquid diameter (no glass shell around it)
-local VP_LIQ_BOT   = -1.05  -- Y of liquid centre when height ≈ 0 (just above base)
-local VP_LIQ_MAX_H = 1.85   -- height at level 3 — liquid top reaches just below rim
-
-local function buildFallbackGlass(): (Model, BasePart)
-	local model = Instance.new("Model")
-	model.Name = "DS_VPGlass"
-	local function mk(): Part
-		local p = Instance.new("Part")
-		p.Anchored = true
-		p.CanCollide = false
-		p.CastShadow = false
-		return p
-	end
-	-- upright cylinder: Roblox cylinders extend along local X,
-	-- so rotate 90° around Z to make them stand upright
-	local rot = CFrame.Angles(0, 0, math.rad(90))
-	-- No glass-body cylinder: ViewportFrame does not render parts that sit
-	-- inside another transparent part, so a surrounding glass shell always
-	-- hides the liquid regardless of transparency. Instead, expose the liquid
-	-- directly and frame it with just a base disk and a thin top rim.
-	local base = mk()
-	base.Name = "Base"
-	base.Shape = Enum.PartType.Cylinder
-	base.Size = Vector3.new(0.14, 1.1, 1.1)
-	base.CFrame = CFrame.new(0, -1.17, 0) * rot
-	base.Material = Enum.Material.SmoothPlastic
-	base.Color = Color3.fromRGB(210, 228, 255)
-	base.Transparency = 0.4
-	base.Parent = model
-	local rim = mk()
-	rim.Name = "Rim"
-	rim.Shape = Enum.PartType.Cylinder
-	rim.Size = Vector3.new(0.07, 1.0, 1.0)
-	rim.CFrame = CFrame.new(0, 0.96, 0) * rot
-	rim.Material = Enum.Material.SmoothPlastic
-	rim.Color = Color3.fromRGB(210, 228, 255)
-	rim.Transparency = 0.3
-	rim.Parent = model
-	local liquid = mk()
-	liquid.Name = "Liquid"
-	liquid.Shape = Enum.PartType.Cylinder
-	liquid.Size = Vector3.new(vpCurrentFillH, VP_LIQ_DIAM, VP_LIQ_DIAM)
-	liquid.CFrame = CFrame.new(0, VP_LIQ_BOT + vpCurrentFillH / 2, 0) * rot
-	liquid.Material = Enum.Material.Neon
-	liquid.Color = chosenColor
-	liquid.Transparency = 0
-	liquid.Parent = model
-	model.PrimaryPart = body
-	return model, liquid
-end
-
-local function setupViewportGlass()
-	for _, c in ipairs(vpWorldModel:GetChildren()) do c:Destroy() end
-	vpGlassLiquid = nil
-
-	local model: Model
-	local liquid: BasePart?
-
-	local templates = DrinkSystem:FindFirstChild("GlassTemplates")
-	local template = templates and (
-		templates:FindFirstChildWhichIsA("Tool") or
-		templates:FindFirstChildWhichIsA("Model")
-	)
-
-	if template then
-		vpIsProcedural = false
-		if template:IsA("Tool") then
-			model = Instance.new("Model")
-			model.Name = "DS_VPGlass"
-			for _, child in ipairs(template:GetChildren()) do
-				if child:IsA("BasePart") or child:IsA("MeshPart") or child:IsA("UnionOperation") then
-					child:Clone().Parent = model
-				end
-			end
-		else
-			model = template:Clone()
-		end
-		for _, p in ipairs(model:GetDescendants()) do
-			if p:IsA("BasePart") then
-				local n = p.Name:lower()
-				if n == "liquid" or n == "fill" or n == "water" or n == "drink" or n == "content" then
-					liquid = p; break
-				end
-			end
-		end
-	else
-		vpIsProcedural = true
-		model, liquid = buildFallbackGlass()
-	end
-
-	for _, d in ipairs(model:GetDescendants()) do
-		if d:IsA("BasePart") then
-			d.Anchored = true
-			d.CanCollide = false
-		end
-	end
-	model.Parent = vpWorldModel
-
-	local ok, cf, sz = pcall(function() return model:GetBoundingBox() end)
-	vpCenter = ok and cf.Position or Vector3.zero
-	local tallest = ok and math.max(sz.X, sz.Y, sz.Z) or 2.5
-	vpRadius = math.max(tallest, 1.5) * 2.2
-	vpBias   = ok and (sz.Y * 0.1) or 0.2
-
-	vpGlassLiquid = liquid
-	if liquid then liquid.Color = chosenColor end
-end
-
-setupViewportGlass()
+local vpTargetFrac  = 0   -- 0..1, driven by refreshViewport
+local vpCurrentFrac = 0   -- lerped toward target each Heartbeat
 
 RunService.Heartbeat:Connect(function(dt)
 	if not panel.Visible then return end
-
-	-- orbit camera
-	vpAngle += dt * 0.5
-	local lookAt = vpCenter + Vector3.new(0, vpBias, 0)
-	vpCamera.CFrame = CFrame.new(
-		lookAt + Vector3.new(
-			math.sin(vpAngle) * vpRadius,
-			vpRadius * 0.38,
-			math.cos(vpAngle) * vpRadius
-		),
-		lookAt
-	)
-
-	-- lerp liquid fill height toward target (avoids TweenService quirks in WorldModel)
-	if vpIsProcedural and vpGlassLiquid then
-		local diff = vpTargetFillH - vpCurrentFillH
-		if math.abs(diff) > 0.001 then
-			vpCurrentFillH += diff * math.min(dt * 10, 1)
-			local cy = VP_LIQ_BOT + vpCurrentFillH / 2
-			vpGlassLiquid.Size   = Vector3.new(vpCurrentFillH, VP_LIQ_DIAM, VP_LIQ_DIAM)
-			vpGlassLiquid.CFrame = CFrame.new(0, cy, 0) * VP_LIQ_ROT
-		end
+	local diff = vpTargetFrac - vpCurrentFrac
+	if math.abs(diff) > 0.001 then
+		vpCurrentFrac = vpCurrentFrac + diff * math.min(dt * 8, 1)
+		fillFrame.Size = UDim2.new(1, 0, 0, math.round(VP_H * vpCurrentFrac))
 	end
 end)
 
--- assign the real body; forward declaration above lets rebuildChips / swatch
--- Activated handlers call this safely before we reach this point at runtime
 refreshViewport = function()
 	local n = #picks
-
-	-- Color: always sync to chosenColor
-	if vpGlassLiquid then
-		vpGlassLiquid.Color = chosenColor
-	end
-
-	-- Fill level: set target; Heartbeat lerps the liquid up/down smoothly
-	if vpIsProcedural then
-		local fraction = n / MAX_PICKS
-		vpTargetFillH = math.max(0.1, VP_LIQ_MAX_H * fraction)
-	end
-
-	-- Overlay label: name · Level N · color chip
-	local level = math.ceil(n / 2)  -- 0 picks=0, 1-2=1, 3-4=2, 5-6=3
+	fillFrame.BackgroundColor3 = chosenColor
+	vpTargetFrac = n / MAX_PICKS
+	local level = math.ceil(n / 2)
 	local name = nameBox.Text
 	if n == 0 then
 		vpLabel.Text = "Design your drink →"
