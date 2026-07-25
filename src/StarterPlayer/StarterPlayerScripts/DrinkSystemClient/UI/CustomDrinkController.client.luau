@@ -148,34 +148,28 @@ addCorner(toggleBtn, 12)
 addStroke(toggleBtn, C.Accent, 1.5)
 
 -- ── Panel ─────────────────────────────────────────────────────────────────
+-- Layout: LEFT=glass preview+chips+swatches, RIGHT=ingredient grid, BOTTOM=controls
 
-local PW, PH = 700, 580
-local HDR_H  = 48
-local PAD    = 12
-local LW     = 384   -- left column width
-local RW     = 276   -- right column width
--- LW + RW + 3×PAD = 384 + 276 + 3×12 = 696 ≈ 700 ✓
-local RX     = PAD + LW + PAD   -- right column x offset = 408
+local PW, PH   = 780, 560
+local HDR_H    = 48
+local PAD      = 12
+local LW       = 252   -- left column width (glass preview)
+local GX       = PAD + LW + PAD   -- grid x = 276
+local GW       = PW - GX - PAD    -- grid width = 492
+local VP_H     = 226   -- glass preview height
+local BTM_Y    = 424   -- bottom controls start y
 
 local panel = Instance.new("Frame")
 panel.Name = "Panel"
 panel.AnchorPoint = Vector2.new(0.5, 0.5)
 panel.Position = UDim2.new(0.5, 0, 0.5, 0)
 panel.Size = UDim2.new(0, PW, 0, PH)
-panel.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+panel.BackgroundColor3 = C.BG
 panel.BorderSizePixel = 0
 panel.Visible = false
 panel.Parent = gui
-addCorner(panel, 16)
+addCorner(panel, 14)
 addStroke(panel, C.Divider, 1)
-local panelGrad = Instance.new("UIGradient")
-panelGrad.Rotation = 130
-panelGrad.Color = ColorSequence.new({
-	ColorSequenceKeypoint.new(0, Color3.fromRGB(18, 17, 25)),
-	ColorSequenceKeypoint.new(0.5, Color3.fromRGB(11, 11, 15)),
-	ColorSequenceKeypoint.new(1, Color3.fromRGB(7, 7, 10)),
-})
-panelGrad.Parent = panel
 
 -- Header bar
 local hdr = Instance.new("Frame")
@@ -184,28 +178,25 @@ hdr.BackgroundColor3 = C.Header
 hdr.BorderSizePixel = 0
 hdr.ZIndex = 4
 hdr.Parent = panel
-addCorner(hdr, 16)
--- Mask bottom two corners of header so it merges into panel
+addCorner(hdr, 14)
 local hdrMask = Instance.new("Frame")
 hdrMask.AnchorPoint = Vector2.new(0, 1)
 hdrMask.Position = UDim2.new(0, 0, 1, 0)
-hdrMask.Size = UDim2.new(1, 0, 0, 16)
+hdrMask.Size = UDim2.new(1, 0, 0, 14)
 hdrMask.BackgroundColor3 = C.Header
 hdrMask.BorderSizePixel = 0
 hdrMask.ZIndex = 4
 hdrMask.Parent = hdr
--- Amber rule under header
 local hdrLine = Instance.new("Frame")
 hdrLine.AnchorPoint = Vector2.new(0, 1)
 hdrLine.Position = UDim2.new(0, 0, 1, 0)
 hdrLine.Size = UDim2.new(1, 0, 0, 1)
-hdrLine.BackgroundColor3 = C.Accent
-hdrLine.BackgroundTransparency = 0.45
+hdrLine.BackgroundColor3 = C.Divider
 hdrLine.BorderSizePixel = 0
 hdrLine.ZIndex = 5
 hdrLine.Parent = hdr
 
-local hdrTitle = mkLabel(hdr, "Drink Lab", 17, true, C.Accent)
+local hdrTitle = mkLabel(hdr, "Drink Lab", 16, true, C.Text)
 hdrTitle.AnchorPoint = Vector2.new(0, 0.5)
 hdrTitle.Position = UDim2.new(0, 18, 0.5, 0)
 hdrTitle.Size = UDim2.new(0, 200, 1, 0)
@@ -214,8 +205,8 @@ hdrTitle.ZIndex = 5
 
 local hdrSlotCount = mkLabel(hdr, "", 11, false, C.TextMute)
 hdrSlotCount.AnchorPoint = Vector2.new(1, 0.5)
-hdrSlotCount.Position = UDim2.new(1, -50, 0.5, 0)
-hdrSlotCount.Size = UDim2.new(0, 150, 1, 0)
+hdrSlotCount.Position = UDim2.new(1, -52, 0.5, 0)
+hdrSlotCount.Size = UDim2.new(0, 160, 1, 0)
 hdrSlotCount.TextXAlignment = Enum.TextXAlignment.Right
 hdrSlotCount.ZIndex = 5
 
@@ -223,53 +214,122 @@ local closeBtn = Instance.new("TextButton")
 closeBtn.AnchorPoint = Vector2.new(1, 0.5)
 closeBtn.Position = UDim2.new(1, -10, 0.5, 0)
 closeBtn.Size = UDim2.new(0, 30, 0, 30)
-closeBtn.BackgroundColor3 = Color3.fromRGB(32, 28, 34)
+closeBtn.BackgroundColor3 = C.Surface2
 closeBtn.BorderSizePixel = 0
 closeBtn.Font = Enum.Font.MontserratBold
-closeBtn.TextSize = 13
+closeBtn.TextSize = 14
 closeBtn.TextColor3 = C.TextSub
 closeBtn.Text = "✕"
 closeBtn.ZIndex = 6
 closeBtn.Parent = hdr
 addCorner(closeBtn, 7)
 
--- ── Composer — left column ────────────────────────────────────────────────
+-- ── Vertical divider between left and right sections ───────────────────────
 
-local composer = Instance.new("Frame")
-composer.Position = UDim2.new(0, PAD, 0, HDR_H + PAD)
-composer.Size = UDim2.new(0, LW, 1, -(HDR_H + PAD * 2))
-composer.BackgroundTransparency = 1
-composer.Parent = panel
+local colDiv = Instance.new("Frame")
+colDiv.Position = UDim2.new(0, GX - PAD, 0, HDR_H)
+colDiv.Size = UDim2.new(0, 1, 0, BTM_Y - HDR_H)
+colDiv.BackgroundColor3 = C.Divider
+colDiv.BorderSizePixel = 0
+colDiv.Parent = panel
 
--- Name input
-local nameBox = Instance.new("TextBox")
-nameBox.Size = UDim2.new(1, 0, 0, 36)
-nameBox.BackgroundColor3 = C.Surface2
-nameBox.BorderSizePixel = 0
-nameBox.Font = Enum.Font.Montserrat
-nameBox.PlaceholderText = "Name your drink…"
-nameBox.PlaceholderColor3 = C.TextMute
-nameBox.Text = ""
-nameBox.TextSize = 15
-nameBox.TextColor3 = C.Text
-nameBox.ClearTextOnFocus = false
-nameBox.Parent = composer
-addCorner(nameBox, 10)
-addStroke(nameBox, C.Divider, 1)
-local namePad = Instance.new("UIPadding")
-namePad.PaddingLeft = UDim.new(0, 12)
-namePad.PaddingRight = UDim.new(0, 12)
-namePad.Parent = nameBox
+-- ── LEFT — 2-D glass preview ───────────────────────────────────────────────
 
--- Picks chips row
+local previewBg = Instance.new("Frame")
+previewBg.Name = "DrinkPreview"
+previewBg.Position = UDim2.new(0, PAD, 0, HDR_H + PAD)
+previewBg.Size = UDim2.new(0, LW, 0, VP_H)
+previewBg.BackgroundColor3 = C.Surface
+previewBg.BorderSizePixel = 0
+previewBg.ClipsDescendants = true
+previewBg.Parent = panel
+addCorner(previewBg, 10)
+addStroke(previewBg, C.Divider, 1)
+
+local previewGrad = Instance.new("UIGradient")
+previewGrad.Rotation = 90
+previewGrad.Color = ColorSequence.new({
+	ColorSequenceKeypoint.new(0, Color3.fromRGB(22, 20, 30)),
+	ColorSequenceKeypoint.new(0.5, Color3.fromRGB(12, 11, 18)),
+	ColorSequenceKeypoint.new(1, Color3.fromRGB(6, 5, 10)),
+})
+previewGrad.Parent = previewBg
+
+local fillFrame = Instance.new("Frame")
+fillFrame.Name = "_Fill"
+fillFrame.AnchorPoint = Vector2.new(0, 1)
+fillFrame.Position = UDim2.new(0, 0, 1, 0)
+fillFrame.Size = UDim2.new(1, 0, 0, 0)
+fillFrame.BackgroundColor3 = chosenColor
+fillFrame.BorderSizePixel = 0
+fillFrame.Parent = previewBg
+
+local glassOverlay = Instance.new("Frame")
+glassOverlay.Size = UDim2.fromScale(1, 1)
+glassOverlay.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+glassOverlay.BackgroundTransparency = 0.87
+glassOverlay.BorderSizePixel = 0
+glassOverlay.ZIndex = 2
+glassOverlay.Parent = previewBg
+local glassGrad = Instance.new("UIGradient")
+glassGrad.Rotation = 90
+glassGrad.Transparency = NumberSequence.new({
+	NumberSequenceKeypoint.new(0, 0),
+	NumberSequenceKeypoint.new(0.24, 0.72),
+	NumberSequenceKeypoint.new(1, 1),
+})
+glassGrad.Parent = glassOverlay
+
+local shineStrip = Instance.new("Frame")
+shineStrip.Size = UDim2.new(0, 3, 1, 0)
+shineStrip.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+shineStrip.BorderSizePixel = 0
+shineStrip.ZIndex = 3
+shineStrip.Parent = previewBg
+local shineGrad = Instance.new("UIGradient")
+shineGrad.Rotation = 90
+shineGrad.Transparency = NumberSequence.new({
+	NumberSequenceKeypoint.new(0, 1),
+	NumberSequenceKeypoint.new(0.18, 0.52),
+	NumberSequenceKeypoint.new(0.82, 0.52),
+	NumberSequenceKeypoint.new(1, 1),
+})
+shineGrad.Parent = shineStrip
+
+local vpOverlay = Instance.new("Frame")
+vpOverlay.AnchorPoint = Vector2.new(0, 1)
+vpOverlay.Position = UDim2.new(0, 0, 1, 0)
+vpOverlay.Size = UDim2.new(1, 0, 0, 52)
+vpOverlay.BackgroundColor3 = Color3.fromRGB(6, 5, 10)
+vpOverlay.BackgroundTransparency = 1
+vpOverlay.BorderSizePixel = 0
+vpOverlay.ZIndex = 4
+vpOverlay.Parent = previewBg
+local vpGrad = Instance.new("UIGradient")
+vpGrad.Rotation = 90
+vpGrad.Transparency = NumberSequence.new({
+	NumberSequenceKeypoint.new(0, 0.06),
+	NumberSequenceKeypoint.new(1, 1),
+})
+vpGrad.Parent = vpOverlay
+
+local vpLabel = mkLabel(vpOverlay, "Design your drink →", 11, false, C.TextMute)
+vpLabel.AnchorPoint = Vector2.new(0, 1)
+vpLabel.Position = UDim2.new(0, 10, 1, -9)
+vpLabel.Size = UDim2.new(1, -14, 0, 14)
+vpLabel.TextXAlignment = Enum.TextXAlignment.Left
+vpLabel.ZIndex = 5
+
+-- ── LEFT — Picks chips ─────────────────────────────────────────────────────
+
 local chipsOuter = Instance.new("Frame")
-chipsOuter.Position = UDim2.new(0, 0, 0, 44)
-chipsOuter.Size = UDim2.new(1, 0, 0, 38)
+chipsOuter.Position = UDim2.new(0, PAD, 0, HDR_H + PAD + VP_H + 8)
+chipsOuter.Size = UDim2.new(0, LW, 0, 36)
 chipsOuter.BackgroundColor3 = C.Surface
 chipsOuter.BorderSizePixel = 0
 chipsOuter.ClipsDescendants = true
-chipsOuter.Parent = composer
-addCorner(chipsOuter, 9)
+chipsOuter.Parent = panel
+addCorner(chipsOuter, 8)
 addStroke(chipsOuter, C.Divider, 1)
 
 local chipsScroll = Instance.new("ScrollingFrame")
@@ -288,76 +348,115 @@ chipsLayout.SortOrder = Enum.SortOrder.LayoutOrder
 chipsLayout.VerticalAlignment = Enum.VerticalAlignment.Center
 chipsLayout.Parent = chipsScroll
 local chipsPad = Instance.new("UIPadding")
-chipsPad.PaddingLeft = UDim.new(0, 10)
-chipsPad.PaddingRight = UDim.new(0, 10)
+chipsPad.PaddingLeft = UDim.new(0, 8)
+chipsPad.PaddingRight = UDim.new(0, 8)
 chipsPad.Parent = chipsScroll
 
-local chipsEmpty = mkLabel(chipsScroll, "Pick 4–6 ingredients below", 12, false, C.TextMute)
+local chipsEmpty = mkLabel(chipsScroll, "Pick 4–6 ingredients →", 11, false, C.TextMute)
 chipsEmpty.Name = "_empty"
-chipsEmpty.Size = UDim2.new(0, 240, 1, 0)
+chipsEmpty.Size = UDim2.new(0, 220, 1, 0)
 chipsEmpty.LayoutOrder = 0
 
--- Ingredient grid
-mkSectionLabel(composer, "INGREDIENTS", 89)
+-- ── LEFT — Color swatches ──────────────────────────────────────────────────
+-- UIGridLayout wraps into 2 rows automatically (6 per row × 26px = 181px < LW)
+
+local SWATCH_Y = HDR_H + PAD + VP_H + 8 + 36 + 10
+
+local colorPreview = Instance.new("Frame")
+colorPreview.Position = UDim2.new(0, PAD, 0, SWATCH_Y)
+colorPreview.Size = UDim2.new(0, 26, 0, 26)
+colorPreview.BackgroundColor3 = chosenColor
+colorPreview.BorderSizePixel = 0
+colorPreview.Parent = panel
+addCorner(colorPreview, 13)
+addStroke(colorPreview, Color3.fromRGB(200, 200, 200), 1.5, 0.4)
+
+local swatchRow = Instance.new("Frame")
+swatchRow.Position = UDim2.new(0, PAD + 32, 0, SWATCH_Y)
+swatchRow.Size = UDim2.new(0, LW - 32, 0, 57)
+swatchRow.BackgroundTransparency = 1
+swatchRow.Parent = panel
+local swatchGrid = Instance.new("UIGridLayout")
+swatchGrid.CellSize = UDim2.new(0, 26, 0, 26)
+swatchGrid.CellPadding = UDim2.new(0, 5, 0, 5)
+swatchGrid.SortOrder = Enum.SortOrder.LayoutOrder
+swatchGrid.Parent = swatchRow
+
+-- ── RIGHT — Ingredient grid ────────────────────────────────────────────────
+
+local ingLabel = mkLabel(panel, "INGREDIENTS", 10, true, C.TextMute)
+ingLabel.Position = UDim2.new(0, GX + 2, 0, HDR_H + PAD + 2)
+ingLabel.Size = UDim2.new(0, GW, 0, 14)
+ingLabel.TextXAlignment = Enum.TextXAlignment.Left
 
 local grid = Instance.new("ScrollingFrame")
-grid.Position = UDim2.new(0, 0, 0, 105)
-grid.Size = UDim2.new(1, 0, 0, 172)
+grid.Position = UDim2.new(0, GX, 0, HDR_H + PAD + 18)
+grid.Size = UDim2.new(0, GW, 0, BTM_Y - (HDR_H + PAD + 18) - PAD)
 grid.BackgroundTransparency = 1
 grid.BorderSizePixel = 0
 grid.ScrollBarThickness = 3
 grid.ScrollBarImageColor3 = C.Divider
 grid.AutomaticCanvasSize = Enum.AutomaticSize.Y
 grid.CanvasSize = UDim2.new(0, 0, 0, 0)
-grid.Parent = composer
+grid.Parent = panel
 local gridLayout = Instance.new("UIGridLayout")
-gridLayout.CellSize = UDim2.new(0, 88, 0, 25)
+gridLayout.CellSize = UDim2.new(0, 92, 0, 34)
 gridLayout.CellPadding = UDim2.new(0, 5, 0, 5)
 gridLayout.SortOrder = Enum.SortOrder.Name
 gridLayout.Parent = grid
 
--- Color section
-local COLOR_Y = 283
-mkSectionLabel(composer, "DRINK COLOR", COLOR_Y)
+-- ── BOTTOM — thin divider + controls ──────────────────────────────────────
 
--- Preview circle (tracks chosenColor live)
-local colorPreview = Instance.new("Frame")
-colorPreview.AnchorPoint = Vector2.new(1, 0)
-colorPreview.Position = UDim2.new(1, 0, 0, COLOR_Y - 2)
-colorPreview.Size = UDim2.new(0, 22, 0, 22)
-colorPreview.BackgroundColor3 = chosenColor
-colorPreview.BorderSizePixel = 0
-colorPreview.Parent = composer
-addCorner(colorPreview, 11)
-addStroke(colorPreview, Color3.fromRGB(180, 180, 180), 1.5, 0.5)
+local btmDiv = Instance.new("Frame")
+btmDiv.Position = UDim2.new(0, 0, 0, BTM_Y)
+btmDiv.Size = UDim2.new(1, 0, 0, 1)
+btmDiv.BackgroundColor3 = C.Divider
+btmDiv.BorderSizePixel = 0
+btmDiv.Parent = panel
 
-local swatchRow = Instance.new("Frame")
-swatchRow.Position = UDim2.new(0, 0, 0, COLOR_Y + 17)
-swatchRow.Size = UDim2.new(1, 0, 0, 28)
-swatchRow.BackgroundTransparency = 1
-swatchRow.Parent = composer
-local swatchLayout = Instance.new("UIListLayout")
-swatchLayout.FillDirection = Enum.FillDirection.Horizontal
-swatchLayout.Padding = UDim.new(0, 5)
-swatchLayout.VerticalAlignment = Enum.VerticalAlignment.Center
-swatchLayout.Parent = swatchRow
+-- Name input (spans most of bottom width, color circle on right)
+local nameBox = Instance.new("TextBox")
+nameBox.Position = UDim2.new(0, PAD, 0, BTM_Y + 10)
+nameBox.Size = UDim2.new(0, PW - PAD * 2, 0, 34)
+nameBox.BackgroundColor3 = C.Surface2
+nameBox.BorderSizePixel = 0
+nameBox.Font = Enum.Font.Montserrat
+nameBox.PlaceholderText = "Name your drink…"
+nameBox.PlaceholderColor3 = C.TextMute
+nameBox.Text = ""
+nameBox.TextSize = 14
+nameBox.TextColor3 = C.Text
+nameBox.ClearTextOnFocus = false
+nameBox.Parent = panel
+addCorner(nameBox, 8)
+addStroke(nameBox, C.Divider, 1)
+local namePad = Instance.new("UIPadding")
+namePad.PaddingLeft = UDim.new(0, 10)
+namePad.PaddingRight = UDim.new(0, 10)
+namePad.Parent = nameBox
 
--- Drunkness / strength slider
-local SLIDER_Y = COLOR_Y + 52
-mkSectionLabel(composer, "DRUNKNESS", SLIDER_Y)
+-- Drunkness section (left half of bottom row 2)
+local BL_W = math.floor((PW - PAD * 3) / 2)  -- left half width ≈ 378
+local BR_X = PAD + BL_W + PAD                  -- right half x ≈ 402
+local BR_W = PW - BR_X - PAD                   -- right half width ≈ 366
 
-local sliderVal = mkLabel(composer, "", 11, false, C.TextSub)
+local lblDrunk = mkLabel(panel, "DRUNKNESS", 9, true, C.TextMute)
+lblDrunk.Position = UDim2.new(0, PAD, 0, BTM_Y + 52)
+lblDrunk.Size = UDim2.new(0, BL_W - 80, 0, 12)
+lblDrunk.TextXAlignment = Enum.TextXAlignment.Left
+
+local sliderVal = mkLabel(panel, "", 10, false, C.TextSub)
 sliderVal.AnchorPoint = Vector2.new(1, 0)
-sliderVal.Position = UDim2.new(1, 0, 0, SLIDER_Y - 1)
-sliderVal.Size = UDim2.new(0, 160, 0, 13)
+sliderVal.Position = UDim2.new(0, PAD + BL_W, 0, BTM_Y + 51)
+sliderVal.Size = UDim2.new(0, 76, 0, 13)
 sliderVal.TextXAlignment = Enum.TextXAlignment.Right
 
 local track = Instance.new("Frame")
-track.Position = UDim2.new(0, 0, 0, SLIDER_Y + 18)
-track.Size = UDim2.new(1, 0, 0, 8)
-track.BackgroundColor3 = Color3.fromRGB(30, 30, 42)
+track.Position = UDim2.new(0, PAD, 0, BTM_Y + 68)
+track.Size = UDim2.new(0, BL_W, 0, 8)
+track.BackgroundColor3 = C.Surface2
 track.BorderSizePixel = 0
-track.Parent = composer
+track.Parent = panel
 addCorner(track, 4)
 
 local fill = Instance.new("Frame")
@@ -371,214 +470,67 @@ local knob = Instance.new("TextButton")
 knob.AnchorPoint = Vector2.new(0.5, 0.5)
 knob.Position = UDim2.new(0, 0, 0.5, 0)
 knob.Size = UDim2.new(0, 18, 0, 18)
-knob.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+knob.BackgroundColor3 = Color3.fromRGB(220, 220, 220)
 knob.BorderSizePixel = 0
 knob.Text = ""
 knob.ZIndex = 3
 knob.Parent = track
 addCorner(knob, 9)
 
--- Duration
-local DUR_Y = SLIDER_Y + 38
-mkSectionLabel(composer, "DURATION", DUR_Y)
+-- Duration section (right half of bottom row 2)
+local lblDur = mkLabel(panel, "DURATION", 9, true, C.TextMute)
+lblDur.Position = UDim2.new(0, BR_X, 0, BTM_Y + 52)
+lblDur.Size = UDim2.new(0, BR_W, 0, 12)
+lblDur.TextXAlignment = Enum.TextXAlignment.Left
 
 local durationRow = Instance.new("Frame")
-durationRow.Position = UDim2.new(0, 0, 0, DUR_Y + 17)
-durationRow.Size = UDim2.new(1, 0, 0, 33)
+durationRow.Position = UDim2.new(0, BR_X, 0, BTM_Y + 66)
+durationRow.Size = UDim2.new(0, BR_W, 0, 30)
 durationRow.BackgroundTransparency = 1
-durationRow.Parent = composer
+durationRow.Parent = panel
 local durLayout = Instance.new("UIListLayout")
 durLayout.FillDirection = Enum.FillDirection.Horizontal
 durLayout.Padding = UDim.new(0, 6)
 durLayout.Parent = durationRow
 
 -- Result / status / submit
-local resultLabel = mkLabel(composer, "", 12, false, C.TextSub)
-resultLabel.AnchorPoint = Vector2.new(0, 1)
-resultLabel.Position = UDim2.new(0, 0, 1, -54)
-resultLabel.Size = UDim2.new(1, 0, 0, 24)
-resultLabel.TextWrapped = true
+local resultLabel = mkLabel(panel, "", 11, false, C.TextSub)
+resultLabel.Position = UDim2.new(0, PAD, 0, BTM_Y + 104)
+resultLabel.Size = UDim2.new(0, PW - PAD * 2 - 200, 0, 14)
 resultLabel.TextXAlignment = Enum.TextXAlignment.Left
 
-local statusLabel = mkLabel(composer, "", 11, false, C.TextMute)
-statusLabel.AnchorPoint = Vector2.new(0, 1)
-statusLabel.Position = UDim2.new(0, 0, 1, -32)
-statusLabel.Size = UDim2.new(1, 0, 0, 18)
+local statusLabel = mkLabel(panel, "", 10, false, C.TextMute)
+statusLabel.Position = UDim2.new(0, PAD, 0, BTM_Y + 120)
+statusLabel.Size = UDim2.new(0, PW - PAD * 2 - 200, 0, 14)
 statusLabel.TextXAlignment = Enum.TextXAlignment.Left
 
 local submitBtn = Instance.new("TextButton")
-submitBtn.AnchorPoint = Vector2.new(0, 1)
-submitBtn.Position = UDim2.new(0, 0, 1, -2)
-submitBtn.Size = UDim2.new(1, 0, 0, 40)
+submitBtn.AnchorPoint = Vector2.new(1, 1)
+submitBtn.Position = UDim2.new(1, -PAD, 1, -PAD)
+submitBtn.Size = UDim2.new(0, 190, 0, 38)
 submitBtn.BackgroundColor3 = C.Success
 submitBtn.BorderSizePixel = 0
 submitBtn.Font = Enum.Font.MontserratBold
 submitBtn.TextSize = 14
 submitBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 submitBtn.Text = "Create Drink"
-submitBtn.Parent = composer
-addCorner(submitBtn, 10)
+submitBtn.ZIndex = 2
+submitBtn.Parent = panel
+addCorner(submitBtn, 9)
 
--- ── On the Menu — right column ─────────────────────────────────────────────
-
-local VP_H = 238  -- height of the 3-D drink preview viewport
-
-local liveCol = Instance.new("Frame")
-liveCol.Position = UDim2.new(0, RX, 0, HDR_H + PAD)
-liveCol.Size = UDim2.new(0, RW, 1, -(HDR_H + PAD * 2))
-liveCol.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-liveCol.BorderSizePixel = 0
-liveCol.Parent = panel
-addCorner(liveCol, 12)
-addStroke(liveCol, C.Divider, 1)
-local liveColGrad = Instance.new("UIGradient")
-liveColGrad.Rotation = 130
-liveColGrad.Color = ColorSequence.new({
-	ColorSequenceKeypoint.new(0, Color3.fromRGB(22, 20, 30)),
-	ColorSequenceKeypoint.new(1, Color3.fromRGB(13, 12, 18)),
-})
-liveColGrad.Parent = liveCol
-
--- Right column mini-header
-local liveHdr = Instance.new("Frame")
-liveHdr.Size = UDim2.new(1, 0, 0, 40)
-liveHdr.BackgroundColor3 = C.Header
-liveHdr.BorderSizePixel = 0
-liveHdr.ZIndex = 2
-liveHdr.Parent = liveCol
-addCorner(liveHdr, 12)
-local liveHdrMask = Instance.new("Frame")
-liveHdrMask.AnchorPoint = Vector2.new(0, 1)
-liveHdrMask.Position = UDim2.new(0, 0, 1, 0)
-liveHdrMask.Size = UDim2.new(1, 0, 0, 12)
-liveHdrMask.BackgroundColor3 = C.Header
-liveHdrMask.BorderSizePixel = 0
-liveHdrMask.ZIndex = 2
-liveHdrMask.Parent = liveHdr
-local liveTitleLine = Instance.new("Frame")
-liveTitleLine.AnchorPoint = Vector2.new(0, 1)
-liveTitleLine.Position = UDim2.new(0, 0, 1, 0)
-liveTitleLine.Size = UDim2.new(1, 0, 0, 1)
-liveTitleLine.BackgroundColor3 = C.Accent
-liveTitleLine.BackgroundTransparency = 0.55
-liveTitleLine.BorderSizePixel = 0
-liveTitleLine.ZIndex = 3
-liveTitleLine.Parent = liveHdr
-local liveTitle = mkLabel(liveHdr, "On the Menu", 13, true, C.Accent)
-liveTitle.AnchorPoint = Vector2.new(0, 0.5)
-liveTitle.Position = UDim2.new(0, 14, 0.5, 0)
-liveTitle.Size = UDim2.new(1, -16, 1, 0)
-liveTitle.TextXAlignment = Enum.TextXAlignment.Left
-liveTitle.ZIndex = 3
-
--- ── 2-D drink preview ─────────────────────────────────────────────────────
-
-local previewBg = Instance.new("Frame")
-previewBg.Name = "DrinkPreview"
-previewBg.Position = UDim2.new(0, 0, 0, 40)
-previewBg.Size = UDim2.new(1, 0, 0, VP_H)
-previewBg.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-previewBg.BorderSizePixel = 0
-previewBg.ClipsDescendants = true
-previewBg.Parent = liveCol
-
-local previewGrad = Instance.new("UIGradient")
-previewGrad.Rotation = 90
-previewGrad.Color = ColorSequence.new({
-	ColorSequenceKeypoint.new(0, Color3.fromRGB(24, 22, 33)),
-	ColorSequenceKeypoint.new(0.45, Color3.fromRGB(11, 10, 16)),
-	ColorSequenceKeypoint.new(1, Color3.fromRGB(5, 4, 8)),
-})
-previewGrad.Parent = previewBg
-
--- Drink fill: rises from bottom as ingredients are picked
-local fillFrame = Instance.new("Frame")
-fillFrame.Name = "_Fill"
-fillFrame.AnchorPoint = Vector2.new(0, 1)
-fillFrame.Position = UDim2.new(0, 0, 1, 0)
-fillFrame.Size = UDim2.new(1, 0, 0, 0)
-fillFrame.BackgroundColor3 = chosenColor
-fillFrame.BorderSizePixel = 0
-fillFrame.Parent = previewBg
-
--- Glassy surface shimmer: faint white overlay fading top→transparent
-local glassOverlay = Instance.new("Frame")
-glassOverlay.Size = UDim2.fromScale(1, 1)
-glassOverlay.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-glassOverlay.BackgroundTransparency = 0.87
-glassOverlay.BorderSizePixel = 0
-glassOverlay.ZIndex = 2
-glassOverlay.Parent = previewBg
-local glassGrad = Instance.new("UIGradient")
-glassGrad.Rotation = 90
-glassGrad.Transparency = NumberSequence.new({
-	NumberSequenceKeypoint.new(0, 0),
-	NumberSequenceKeypoint.new(0.24, 0.72),
-	NumberSequenceKeypoint.new(1, 1),
-})
-glassGrad.Parent = glassOverlay
-
--- Left-edge shine strip (curved glass surface illusion)
-local shineStrip = Instance.new("Frame")
-shineStrip.Size = UDim2.new(0, 3, 1, 0)
-shineStrip.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-shineStrip.BorderSizePixel = 0
-shineStrip.ZIndex = 3
-shineStrip.Parent = previewBg
-local shineGrad = Instance.new("UIGradient")
-shineGrad.Rotation = 90
-shineGrad.Transparency = NumberSequence.new({
-	NumberSequenceKeypoint.new(0, 1),
-	NumberSequenceKeypoint.new(0.18, 0.52),
-	NumberSequenceKeypoint.new(0.82, 0.52),
-	NumberSequenceKeypoint.new(1, 1),
-})
-shineGrad.Parent = shineStrip
-
--- Bottom fade + label (drink name, level)
-local vpOverlay = Instance.new("Frame")
-vpOverlay.AnchorPoint = Vector2.new(0, 1)
-vpOverlay.Position = UDim2.new(0, 0, 1, 0)
-vpOverlay.Size = UDim2.new(1, 0, 0, 52)
-vpOverlay.BackgroundColor3 = Color3.fromRGB(5, 4, 8)
-vpOverlay.BackgroundTransparency = 1
-vpOverlay.BorderSizePixel = 0
-vpOverlay.ZIndex = 4
-vpOverlay.Parent = previewBg
-local vpGrad = Instance.new("UIGradient")
-vpGrad.Rotation = 90
-vpGrad.Transparency = NumberSequence.new({
-	NumberSequenceKeypoint.new(0, 0.06),
-	NumberSequenceKeypoint.new(1, 1),
-})
-vpGrad.Parent = vpOverlay
-
-local vpLabel = mkLabel(vpOverlay, "Design your drink →", 11, false, C.TextMute)
-vpLabel.AnchorPoint = Vector2.new(0, 1)
-vpLabel.Position = UDim2.new(0, 12, 1, -9)
-vpLabel.Size = UDim2.new(1, -16, 0, 14)
-vpLabel.TextXAlignment = Enum.TextXAlignment.Left
-vpLabel.ZIndex = 5
-
--- Amber rule between viewport and live list
-local vpRule = Instance.new("Frame")
-vpRule.Position = UDim2.new(0, 0, 0, 40 + VP_H)
-vpRule.Size = UDim2.new(1, 0, 0, 1)
-vpRule.BackgroundColor3 = C.Accent
-vpRule.BackgroundTransparency = 0.65
-vpRule.BorderSizePixel = 0
-vpRule.Parent = liveCol
+-- ── Hidden live scroll (keeps rebuildLiveList compatible) ──────────────────
 
 local liveScroll = Instance.new("ScrollingFrame")
-liveScroll.Position = UDim2.new(0, 7, 0, 40 + VP_H + 6)
-liveScroll.Size = UDim2.new(1, -14, 1, -(40 + VP_H + 12))
+liveScroll.Position = UDim2.new(0, 0, 0, 0)
+liveScroll.Size = UDim2.new(0, 0, 0, 0)
+liveScroll.Visible = false
 liveScroll.BackgroundTransparency = 1
 liveScroll.BorderSizePixel = 0
 liveScroll.ScrollBarThickness = 3
 liveScroll.ScrollBarImageColor3 = C.Divider
 liveScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
 liveScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
-liveScroll.Parent = liveCol
+liveScroll.Parent = panel
 local liveLayout = Instance.new("UIListLayout")
 liveLayout.Padding = UDim.new(0, 6)
 liveLayout.SortOrder = Enum.SortOrder.LayoutOrder
@@ -590,8 +542,8 @@ livePad.Parent = liveScroll
 
 -- ── 2-D fill state ────────────────────────────────────────────────────────
 
-local vpTargetFrac  = 0   -- 0..1, driven by refreshViewport
-local vpCurrentFrac = 0   -- lerped toward target each Heartbeat
+local vpTargetFrac  = 0
+local vpCurrentFrac = 0
 
 RunService.Heartbeat:Connect(function(dt)
 	if not panel.Visible then return end
@@ -606,6 +558,7 @@ refreshViewport = function()
 	local n = #picks
 	fillFrame.BackgroundColor3 = chosenColor
 	vpTargetFrac = n / MAX_PICKS
+	colorPreview.BackgroundColor3 = chosenColor
 	local level = math.ceil(n / 2)
 	local name = nameBox.Text
 	if n == 0 then
