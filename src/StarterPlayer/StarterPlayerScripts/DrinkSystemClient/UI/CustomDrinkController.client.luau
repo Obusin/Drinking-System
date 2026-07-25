@@ -932,20 +932,22 @@ local function rebuildLiveList()
 	local entries = dynFolder and dynFolder:GetChildren() or {}
 	if #entries == 0 then
 		local empty = Instance.new("Frame")
-		empty.Size = UDim2.new(1, 0, 0, 72)
+		empty.Size = UDim2.new(1, 0, 0, 120)
 		empty.BackgroundTransparency = 1
 		empty.Parent = liveScroll
-		local el = mkLabel(empty, "No custom drinks on the menu yet.", 12, false, C.TextMute)
+		local el = mkLabel(empty, "No drinks on the menu yet.\nBe the first to create one!", 13, false, C.TextMute)
 		el.AnchorPoint = Vector2.new(0.5, 0.5)
 		el.Position = UDim2.fromScale(0.5, 0.5)
-		el.Size = UDim2.new(1, -20, 0, 32)
+		el.Size = UDim2.new(1, -24, 0, 40)
 		el.TextWrapped = true
 		el.TextXAlignment = Enum.TextXAlignment.Center
 		return
 	end
 
-	local CARD_H  = 80
-	local THUMB_W = 58
+	-- Card dimensions
+	local CARD_H  = 130
+	local GLASS_W = 88    -- 2D glass column width
+	local CP      = 10    -- card inner padding
 
 	for i, entry in ipairs(entries) do
 		local rawCol      = entry:GetAttribute("Color")
@@ -956,183 +958,226 @@ local function rebuildLiveList()
 		local strongness  = tonumber(entry:GetAttribute("Strongness")) or 0
 		local csv         = entry:GetAttribute("IngredientsCsv") or ""
 		local bandName, bandColor = strengthBand(strongness)
+		local fillFrac = math.clamp(strongness / 100, 0.08, 0.92)
 
 		local ingredients: { string } = {}
 		for token in string.gmatch(csv, "([^,]+)") do
 			table.insert(ingredients, token)
 		end
 
-		-- Card
+		-- ── Card shell ────────────────────────────────────────────────
 		local card = Instance.new("Frame")
-		card.Size         = UDim2.new(1, 0, 0, CARD_H)
-		card.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-		card.BorderSizePixel = 0
-		card.LayoutOrder  = i
+		card.Size             = UDim2.new(1, 0, 0, CARD_H)
+		card.BackgroundColor3 = C.Surface
+		card.BorderSizePixel  = 0
+		card.LayoutOrder      = i
 		card.ClipsDescendants = true
-		card.Parent = liveScroll
-		addCorner(card, 10)
-		local cardGrad = Instance.new("UIGradient")
-		cardGrad.Rotation = 130
-		cardGrad.Color = ColorSequence.new({
-			ColorSequenceKeypoint.new(0, Color3.fromRGB(25, 23, 34)),
-			ColorSequenceKeypoint.new(1, Color3.fromRGB(15, 14, 21)),
+		card.Parent           = liveScroll
+		addCorner(card, 12)
+		addStroke(card, C.Divider, 1)
+
+		-- ── 2D glass preview (same technique as creator panel) ────────
+		local glassH = CARD_H - CP * 2
+		local glass = Instance.new("Frame")
+		glass.Position        = UDim2.new(0, CP, 0, CP)
+		glass.Size            = UDim2.new(0, GLASS_W, 0, glassH)
+		glass.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+		glass.BorderSizePixel = 0
+		glass.ClipsDescendants = true
+		glass.ZIndex          = 2
+		glass.Parent          = card
+		addCorner(glass, 8)
+
+		local glassBg = Instance.new("UIGradient")
+		glassBg.Rotation = 90
+		glassBg.Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0,    Color3.fromRGB(22, 20, 30)),
+			ColorSequenceKeypoint.new(0.45, Color3.fromRGB(12, 11, 18)),
+			ColorSequenceKeypoint.new(1,    Color3.fromRGB(6,  5,  10)),
 		})
-		cardGrad.Parent = card
+		glassBg.Parent = glass
 
-		-- Drink-color left stripe
-		local stripe = Instance.new("Frame")
-		stripe.Size = UDim2.new(0, 2, 1, 0)
-		stripe.BackgroundColor3 = accentCol
-		stripe.BorderSizePixel = 0
-		stripe.ZIndex = 2
-		stripe.Parent = card
+		-- drink fill (rises from bottom based on strongness)
+		local glassFill = Instance.new("Frame")
+		glassFill.Name            = "_Fill"
+		glassFill.AnchorPoint     = Vector2.new(0, 1)
+		glassFill.Position        = UDim2.new(0, 0, 1, 0)
+		glassFill.Size            = UDim2.new(1, 0, fillFrac, 0)
+		glassFill.BackgroundColor3 = accentCol
+		glassFill.BorderSizePixel = 0
+		glassFill.ZIndex          = 2
+		glassFill.Parent          = glass
 
-		-- ── Mini 2D glass thumbnail ────────────────────────────────────
-		local thumb = Instance.new("Frame")
-		thumb.Position  = UDim2.new(0, 7, 0, 8)
-		thumb.Size      = UDim2.new(0, THUMB_W, 0, CARD_H - 16)
-		thumb.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-		thumb.BorderSizePixel = 0
-		thumb.ClipsDescendants = true
-		thumb.ZIndex = 2
-		thumb.Parent = card
-		addCorner(thumb, 7)
-		local thumbGrad = Instance.new("UIGradient")
-		thumbGrad.Rotation = 90
-		thumbGrad.Color = ColorSequence.new({
-			ColorSequenceKeypoint.new(0, Color3.fromRGB(22, 20, 29)),
-			ColorSequenceKeypoint.new(1, Color3.fromRGB(5, 4, 8)),
+		-- glassy shimmer overlay
+		local glassShimmer = Instance.new("Frame")
+		glassShimmer.Size                  = UDim2.fromScale(1, 1)
+		glassShimmer.BackgroundColor3      = Color3.fromRGB(255, 255, 255)
+		glassShimmer.BackgroundTransparency = 0.86
+		glassShimmer.BorderSizePixel       = 0
+		glassShimmer.ZIndex                = 3
+		glassShimmer.Parent                = glass
+		local shimmerGrad = Instance.new("UIGradient")
+		shimmerGrad.Rotation = 90
+		shimmerGrad.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0,    0),
+			NumberSequenceKeypoint.new(0.22, 0.74),
+			NumberSequenceKeypoint.new(1,    1),
 		})
-		thumbGrad.Parent = thumb
+		shimmerGrad.Parent = glassShimmer
 
-		local thumbFill = Instance.new("Frame")
-		thumbFill.AnchorPoint    = Vector2.new(0, 1)
-		thumbFill.Position       = UDim2.new(0, 0, 1, 0)
-		thumbFill.Size           = UDim2.new(1, 0, 0.68, 0)
-		thumbFill.BackgroundColor3 = accentCol
-		thumbFill.BorderSizePixel  = 0
-		thumbFill.ZIndex = 2
-		thumbFill.Parent = thumb
+		-- left-edge shine strip
+		local shine = Instance.new("Frame")
+		shine.Size            = UDim2.new(0, 3, 1, 0)
+		shine.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+		shine.BorderSizePixel = 0
+		shine.ZIndex          = 4
+		shine.Parent          = glass
+		local shineG = Instance.new("UIGradient")
+		shineG.Rotation = 90
+		shineG.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0,    1),
+			NumberSequenceKeypoint.new(0.18, 0.48),
+			NumberSequenceKeypoint.new(0.82, 0.48),
+			NumberSequenceKeypoint.new(1,    1),
+		})
+		shineG.Parent = shine
 
-		local thumbGloss = Instance.new("Frame")
-		thumbGloss.Size = UDim2.fromScale(1, 1)
-		thumbGloss.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-		thumbGloss.BackgroundTransparency = 0.87
-		thumbGloss.BorderSizePixel = 0
-		thumbGloss.ZIndex = 3
-		thumbGloss.Parent = thumb
-		local glossGrad = Instance.new("UIGradient")
-		glossGrad.Rotation = 90
-		glossGrad.Transparency = NumberSequence.new({
-			NumberSequenceKeypoint.new(0, 0),
-			NumberSequenceKeypoint.new(0.26, 0.72),
+		-- bottom fade + timer
+		local glassFade = Instance.new("Frame")
+		glassFade.AnchorPoint     = Vector2.new(0, 1)
+		glassFade.Position        = UDim2.new(0, 0, 1, 0)
+		glassFade.Size            = UDim2.new(1, 0, 0, 40)
+		glassFade.BackgroundColor3 = Color3.fromRGB(6, 5, 10)
+		glassFade.BackgroundTransparency = 1
+		glassFade.BorderSizePixel = 0
+		glassFade.ZIndex          = 5
+		glassFade.Parent          = glass
+		local fadeG = Instance.new("UIGradient")
+		fadeG.Rotation = 90
+		fadeG.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0.05),
 			NumberSequenceKeypoint.new(1, 1),
 		})
-		glossGrad.Parent = thumbGloss
+		fadeG.Parent = glassFade
 
-		local timeLabel = Instance.new("TextLabel")
-		timeLabel.AnchorPoint = Vector2.new(0.5, 1)
-		timeLabel.Position    = UDim2.new(0.5, 0, 1, -4)
-		timeLabel.Size        = UDim2.new(1, -4, 0, 11)
-		timeLabel.BackgroundTransparency = 1
-		timeLabel.Font        = Enum.Font.Montserrat
-		timeLabel.TextSize    = 8
-		timeLabel.TextColor3  = Color3.fromRGB(190, 186, 204)
-		timeLabel.Text        = fmtTime(expiresAt)
-		timeLabel.TextXAlignment = Enum.TextXAlignment.Center
-		timeLabel.ZIndex      = 4
-		timeLabel.Parent      = thumb
+		local timerLbl = Instance.new("TextLabel")
+		timerLbl.AnchorPoint          = Vector2.new(0.5, 1)
+		timerLbl.Position             = UDim2.new(0.5, 0, 1, -5)
+		timerLbl.Size                 = UDim2.new(1, -4, 0, 12)
+		timerLbl.BackgroundTransparency = 1
+		timerLbl.Font                 = Enum.Font.Montserrat
+		timerLbl.TextSize             = 9
+		timerLbl.TextColor3           = Color3.fromRGB(180, 176, 196)
+		timerLbl.Text                 = fmtTime(expiresAt)
+		timerLbl.TextXAlignment       = Enum.TextXAlignment.Center
+		timerLbl.ZIndex               = 6
+		timerLbl.Parent               = glassFade
 
-		-- ── Right content ──────────────────────────────────────────────
-		local content = Instance.new("Frame")
-		content.Position = UDim2.new(0, THUMB_W + 16, 0, 8)
-		content.Size     = UDim2.new(1, -(THUMB_W + 22), 0, CARD_H - 16)
-		content.BackgroundTransparency = 1
-		content.ZIndex = 2
-		content.Parent = card
-		local cLayout = Instance.new("UIListLayout")
-		cLayout.Padding = UDim.new(0, 3)
-		cLayout.SortOrder = Enum.SortOrder.LayoutOrder
-		cLayout.FillDirection = Enum.FillDirection.Vertical
-		cLayout.Parent = content
+		-- ── Right: text content ───────────────────────────────────────
+		local CX = CP + GLASS_W + 12   -- content x
+		local CW = -(CP + GLASS_W + 18) -- content width (relative)
 
-		local nameLabel = mkLabel(content, displayName, 13, true, accentCol)
-		nameLabel.Size = UDim2.new(1, 0, 0, 16)
-		nameLabel.TextXAlignment = Enum.TextXAlignment.Left
-		nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
-		nameLabel.LayoutOrder = 1
-		nameLabel.ZIndex = 2
+		-- drink name
+		local nameLbl = Instance.new("TextLabel")
+		nameLbl.Position             = UDim2.new(0, CX, 0, CP + 2)
+		nameLbl.Size                 = UDim2.new(1, CW, 0, 20)
+		nameLbl.BackgroundTransparency = 1
+		nameLbl.Font                 = Enum.Font.MontserratBold
+		nameLbl.TextSize             = 15
+		nameLbl.TextColor3           = accentCol
+		nameLbl.Text                 = displayName
+		nameLbl.TextTruncate         = Enum.TextTruncate.AtEnd
+		nameLbl.TextXAlignment       = Enum.TextXAlignment.Left
+		nameLbl.ZIndex               = 2
+		nameLbl.Parent               = card
 
-		local creatorLabel = mkLabel(content, "by @" .. creatorName, 10, false, C.TextMute)
-		creatorLabel.Size = UDim2.new(1, 0, 0, 12)
-		creatorLabel.TextXAlignment = Enum.TextXAlignment.Left
-		creatorLabel.LayoutOrder = 2
-		creatorLabel.ZIndex = 2
+		-- creator + strength badge (same row)
+		local metaRow = Instance.new("Frame")
+		metaRow.Position             = UDim2.new(0, CX, 0, CP + 26)
+		metaRow.Size                 = UDim2.new(1, CW, 0, 16)
+		metaRow.BackgroundTransparency = 1
+		metaRow.ZIndex               = 2
+		metaRow.Parent               = card
+		local metaLayout = Instance.new("UIListLayout")
+		metaLayout.FillDirection     = Enum.FillDirection.Horizontal
+		metaLayout.Padding           = UDim.new(0, 6)
+		metaLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+		metaLayout.Parent            = metaRow
 
-		-- Strength badge
-		local tagRow = Instance.new("Frame")
-		tagRow.Size = UDim2.new(1, 0, 0, 16)
-		tagRow.BackgroundTransparency = 1
-		tagRow.LayoutOrder = 3
-		tagRow.ZIndex = 2
-		tagRow.Parent = content
-		local tagLayout = Instance.new("UIListLayout")
-		tagLayout.FillDirection = Enum.FillDirection.Horizontal
-		tagLayout.Padding = UDim.new(0, 5)
-		tagLayout.VerticalAlignment = Enum.VerticalAlignment.Center
-		tagLayout.Parent = tagRow
+		local creatorLbl = Instance.new("TextLabel")
+		creatorLbl.Size              = UDim2.new(0, 0, 1, 0)
+		creatorLbl.AutomaticSize     = Enum.AutomaticSize.X
+		creatorLbl.BackgroundTransparency = 1
+		creatorLbl.Font              = Enum.Font.Montserrat
+		creatorLbl.TextSize          = 10
+		creatorLbl.TextColor3        = C.TextMute
+		creatorLbl.Text              = "@" .. creatorName
+		creatorLbl.ZIndex            = 2
+		creatorLbl.Parent            = metaRow
 
 		local badge = Instance.new("TextLabel")
-		badge.Size = UDim2.new(0, 0, 0, 14)
-		badge.AutomaticSize = Enum.AutomaticSize.X
-		badge.BackgroundColor3 = bandColor
-		badge.BackgroundTransparency = 0.72
-		badge.BorderSizePixel = 0
-		badge.Font = Enum.Font.MontserratBold
-		badge.TextSize = 9
-		badge.TextColor3 = bandColor
-		badge.Text = "  " .. bandName .. "  "
-		badge.ZIndex = 2
-		badge.Parent = tagRow
+		badge.Size                   = UDim2.new(0, 0, 0, 14)
+		badge.AutomaticSize          = Enum.AutomaticSize.X
+		badge.BackgroundColor3       = bandColor
+		badge.BackgroundTransparency = 0.76
+		badge.BorderSizePixel        = 0
+		badge.Font                   = Enum.Font.MontserratBold
+		badge.TextSize               = 8
+		badge.TextColor3             = bandColor
+		badge.Text                   = "  " .. bandName .. "  "
+		badge.ZIndex                 = 2
+		badge.Parent                 = metaRow
 		addCorner(badge, 3)
 
-		-- Ingredient chips (first 3 + "+N more")
-		local ingRow = Instance.new("Frame")
-		ingRow.Size = UDim2.new(1, 0, 0, 14)
-		ingRow.BackgroundTransparency = 1
-		ingRow.LayoutOrder = 4
-		ingRow.ClipsDescendants = true
-		ingRow.ZIndex = 2
-		ingRow.Parent = content
-		local ingLayout = Instance.new("UIListLayout")
-		ingLayout.FillDirection = Enum.FillDirection.Horizontal
-		ingLayout.Padding = UDim.new(0, 3)
-		ingLayout.VerticalAlignment = Enum.VerticalAlignment.Center
-		ingLayout.SortOrder = Enum.SortOrder.LayoutOrder
-		ingLayout.Parent = ingRow
+		-- thin separator
+		local sep = Instance.new("Frame")
+		sep.Position             = UDim2.new(0, CX, 0, CP + 48)
+		sep.Size                 = UDim2.new(1, CW, 0, 1)
+		sep.BackgroundColor3     = C.Divider
+		sep.BorderSizePixel      = 0
+		sep.ZIndex               = 2
+		sep.Parent               = card
 
-		local MAX_CHIPS = 3
+		-- ingredient chips (all, horizontal, clipped)
+		local ingOuter = Instance.new("Frame")
+		ingOuter.Position        = UDim2.new(0, CX, 0, CP + 55)
+		ingOuter.Size            = UDim2.new(1, CW, 0, CARD_H - (CP + 55) - CP)
+		ingOuter.BackgroundTransparency = 1
+		ingOuter.ClipsDescendants = true
+		ingOuter.ZIndex          = 2
+		ingOuter.Parent          = card
+
+		local ingScroll = Instance.new("ScrollingFrame")
+		ingScroll.Size               = UDim2.fromScale(1, 1)
+		ingScroll.BackgroundTransparency = 1
+		ingScroll.BorderSizePixel    = 0
+		ingScroll.ScrollBarThickness = 0
+		ingScroll.AutomaticCanvasSize = Enum.AutomaticSize.X
+		ingScroll.CanvasSize         = UDim2.new(0, 0, 0, 0)
+		ingScroll.ScrollingDirection = Enum.ScrollingDirection.X
+		ingScroll.ZIndex             = 2
+		ingScroll.Parent             = ingOuter
+		local ingLayout = Instance.new("UIListLayout")
+		ingLayout.FillDirection      = Enum.FillDirection.Horizontal
+		ingLayout.Padding            = UDim.new(0, 4)
+		ingLayout.VerticalAlignment  = Enum.VerticalAlignment.Center
+		ingLayout.SortOrder          = Enum.SortOrder.LayoutOrder
+		ingLayout.Parent             = ingScroll
+
 		for j, ing in ipairs(ingredients) do
-			if j > MAX_CHIPS then
-				local more = mkLabel(ingRow, "+" .. (#ingredients - MAX_CHIPS), 9, false, C.TextMute)
-				more.Size = UDim2.new(0, 20, 0, 12)
-				more.LayoutOrder = j
-				more.ZIndex = 2
-				break
-			end
 			local chip = Instance.new("TextLabel")
-			chip.Size = UDim2.new(0, 0, 0, 12)
-			chip.AutomaticSize = Enum.AutomaticSize.X
-			chip.BackgroundColor3 = Color3.fromRGB(35, 33, 46)
-			chip.BorderSizePixel = 0
-			chip.Font = Enum.Font.Montserrat
-			chip.TextSize = 8
-			chip.TextColor3 = C.TextSub
-			chip.Text = "  " .. ing .. "  "
-			chip.LayoutOrder = j
-			chip.ZIndex = 2
-			chip.Parent = ingRow
-			addCorner(chip, 3)
+			chip.Size                   = UDim2.new(0, 0, 0, 18)
+			chip.AutomaticSize          = Enum.AutomaticSize.X
+			chip.BackgroundColor3       = C.Surface2
+			chip.BorderSizePixel        = 0
+			chip.Font                   = Enum.Font.Montserrat
+			chip.TextSize               = 10
+			chip.TextColor3             = C.TextSub
+			chip.Text                   = "  " .. ing .. "  "
+			chip.LayoutOrder            = j
+			chip.ZIndex                 = 2
+			chip.Parent                 = ingScroll
+			addCorner(chip, 5)
 		end
 	end
 end
