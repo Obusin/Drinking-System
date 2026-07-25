@@ -518,26 +518,102 @@ submitBtn.ZIndex = 2
 submitBtn.Parent = panel
 addCorner(submitBtn, 9)
 
--- ── Hidden live scroll (keeps rebuildLiveList compatible) ──────────────────
+-- ── Menu panel — default view: live drink list ────────────────────────────
+
+local MW, MH   = 540, 480
+local MHDR_H   = 52
+
+local menuPanel = Instance.new("Frame")
+menuPanel.Name = "MenuPanel"
+menuPanel.AnchorPoint = Vector2.new(0.5, 0.5)
+menuPanel.Position = UDim2.new(0.5, 0, 0.5, 0)
+menuPanel.Size = UDim2.new(0, MW, 0, MH)
+menuPanel.BackgroundColor3 = C.BG
+menuPanel.BorderSizePixel = 0
+menuPanel.Visible = false
+menuPanel.Parent = gui
+addCorner(menuPanel, 14)
+addStroke(menuPanel, C.Divider, 1)
+
+local mHdr = Instance.new("Frame")
+mHdr.Size = UDim2.new(1, 0, 0, MHDR_H)
+mHdr.BackgroundColor3 = C.Header
+mHdr.BorderSizePixel = 0
+mHdr.ZIndex = 4
+mHdr.Parent = menuPanel
+addCorner(mHdr, 14)
+local mHdrMask = Instance.new("Frame")
+mHdrMask.AnchorPoint = Vector2.new(0, 1)
+mHdrMask.Position = UDim2.new(0, 0, 1, 0)
+mHdrMask.Size = UDim2.new(1, 0, 0, 14)
+mHdrMask.BackgroundColor3 = C.Header
+mHdrMask.BorderSizePixel = 0
+mHdrMask.ZIndex = 4
+mHdrMask.Parent = mHdr
+local mHdrLine = Instance.new("Frame")
+mHdrLine.AnchorPoint = Vector2.new(0, 1)
+mHdrLine.Position = UDim2.new(0, 0, 1, 0)
+mHdrLine.Size = UDim2.new(1, 0, 0, 1)
+mHdrLine.BackgroundColor3 = C.Divider
+mHdrLine.BorderSizePixel = 0
+mHdrLine.ZIndex = 5
+mHdrLine.Parent = mHdr
+
+local mTitle = mkLabel(mHdr, "On the Menu", 16, true, C.Text)
+mTitle.AnchorPoint = Vector2.new(0, 0.5)
+mTitle.Position = UDim2.new(0, 18, 0.5, 0)
+mTitle.Size = UDim2.new(0, 200, 1, 0)
+mTitle.TextXAlignment = Enum.TextXAlignment.Left
+mTitle.ZIndex = 5
+
+local mCloseBtn = Instance.new("TextButton")
+mCloseBtn.AnchorPoint = Vector2.new(1, 0.5)
+mCloseBtn.Position = UDim2.new(1, -10, 0.5, 0)
+mCloseBtn.Size = UDim2.new(0, 30, 0, 30)
+mCloseBtn.BackgroundColor3 = C.Surface2
+mCloseBtn.BorderSizePixel = 0
+mCloseBtn.Font = Enum.Font.MontserratBold
+mCloseBtn.TextSize = 14
+mCloseBtn.TextColor3 = C.TextSub
+mCloseBtn.Text = "✕"
+mCloseBtn.ZIndex = 6
+mCloseBtn.Parent = mHdr
+addCorner(mCloseBtn, 7)
+
+local createDrinkBtn = Instance.new("TextButton")
+createDrinkBtn.AnchorPoint = Vector2.new(1, 0.5)
+createDrinkBtn.Position = UDim2.new(1, -50, 0.5, 0)
+createDrinkBtn.Size = UDim2.new(0, 118, 0, 30)
+createDrinkBtn.BackgroundColor3 = C.AccentDim
+createDrinkBtn.BorderSizePixel = 0
+createDrinkBtn.Font = Enum.Font.MontserratBold
+createDrinkBtn.TextSize = 12
+createDrinkBtn.TextColor3 = C.Accent
+createDrinkBtn.Text = "+ Create Drink"
+createDrinkBtn.ZIndex = 6
+createDrinkBtn.Parent = mHdr
+addCorner(createDrinkBtn, 8)
+addStroke(createDrinkBtn, C.AccentBdr, 1.5)
 
 local liveScroll = Instance.new("ScrollingFrame")
-liveScroll.Position = UDim2.new(0, 0, 0, 0)
-liveScroll.Size = UDim2.new(0, 0, 0, 0)
-liveScroll.Visible = false
+liveScroll.Position = UDim2.new(0, 8, 0, MHDR_H + 6)
+liveScroll.Size = UDim2.new(1, -16, 1, -(MHDR_H + 12))
 liveScroll.BackgroundTransparency = 1
 liveScroll.BorderSizePixel = 0
 liveScroll.ScrollBarThickness = 3
 liveScroll.ScrollBarImageColor3 = C.Divider
 liveScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
 liveScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
-liveScroll.Parent = panel
+liveScroll.Parent = menuPanel
 local liveLayout = Instance.new("UIListLayout")
 liveLayout.Padding = UDim.new(0, 6)
 liveLayout.SortOrder = Enum.SortOrder.LayoutOrder
 liveLayout.Parent = liveScroll
 local livePad = Instance.new("UIPadding")
-livePad.PaddingTop = UDim.new(0, 4)
-livePad.PaddingBottom = UDim.new(0, 4)
+livePad.PaddingTop = UDim.new(0, 6)
+livePad.PaddingBottom = UDim.new(0, 6)
+livePad.PaddingLeft = UDim.new(0, 2)
+livePad.PaddingRight = UDim.new(0, 2)
 livePad.Parent = liveScroll
 
 -- ── 2-D fill state ────────────────────────────────────────────────────────
@@ -1169,46 +1245,110 @@ task.spawn(function()
 		dynFolder.ChildRemoved:Connect(function() task.defer(rebuildLiveList) end)
 	end
 	while true do
-		if panel.Visible then rebuildLiveList() end
+		if menuPanel.Visible then rebuildLiveList() end
 		task.wait(30)
 	end
 end)
 
--- ── Toggle: pop-in animation ──────────────────────────────────────────────
+-- ── Panel animations ──────────────────────────────────────────────────────
 
-local openTween: Tween? = nil
+local menuTween: Tween?    = nil
+local creatorTween: Tween? = nil
 
-local function setOpen(open: boolean)
-	if openTween then openTween:Cancel(); openTween = nil end
-	if open then
-		-- pop-in: start slightly smaller, spring to full size
-		panel.Size = UDim2.new(0, math.floor(PW * 0.93), 0, math.floor(PH * 0.93))
-		panel.Visible = true
-		openTween = TweenService:Create(panel,
-			TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out, 1, false, 0),
-			{ Size = UDim2.new(0, PW, 0, PH) }
-		)
-		openTween:Play()
-		resultLabel.Text = ""
-		Packets.RequestCustomDrinkState.send({})
-		rebuildLiveList()
-	else
-		openTween = TweenService:Create(panel,
-			TweenInfo.new(0.14, Enum.EasingStyle.Quint, Enum.EasingDirection.In),
-			{ Size = UDim2.new(0, math.floor(PW * 0.93), 0, math.floor(PH * 0.93)) }
-		)
-		openTween.Completed:Connect(function()
-			panel.Visible = false
-			panel.Size = UDim2.new(0, PW, 0, PH) -- reset for next open
-		end)
-		openTween:Play()
-	end
+local function openMenu()
+	if menuTween then menuTween:Cancel(); menuTween = nil end
+	menuPanel.Size = UDim2.new(0, math.floor(MW * 0.93), 0, math.floor(MH * 0.93))
+	menuPanel.Visible = true
+	menuTween = TweenService:Create(menuPanel,
+		TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+		{ Size = UDim2.new(0, MW, 0, MH) }
+	)
+	menuTween:Play()
+	rebuildLiveList()
+	Packets.RequestCustomDrinkState.send({})
 end
 
-toggleBtn.Activated:Connect(function() setOpen(not panel.Visible) end)
-closeBtn.Activated:Connect(function() setOpen(false) end)
+local function closeMenu()
+	if menuTween then menuTween:Cancel(); menuTween = nil end
+	menuTween = TweenService:Create(menuPanel,
+		TweenInfo.new(0.14, Enum.EasingStyle.Quint, Enum.EasingDirection.In),
+		{ Size = UDim2.new(0, math.floor(MW * 0.93), 0, math.floor(MH * 0.93)) }
+	)
+	menuTween.Completed:Connect(function()
+		menuPanel.Visible = false
+		menuPanel.Size = UDim2.new(0, MW, 0, MH)
+	end)
+	menuTween:Play()
+end
+
+local function openCreator()
+	if creatorTween then creatorTween:Cancel(); creatorTween = nil end
+	panel.Size = UDim2.new(0, math.floor(PW * 0.93), 0, math.floor(PH * 0.93))
+	panel.Visible = true
+	creatorTween = TweenService:Create(panel,
+		TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+		{ Size = UDim2.new(0, PW, 0, PH) }
+	)
+	creatorTween:Play()
+	resultLabel.Text = ""
+	Packets.RequestCustomDrinkState.send({})
+end
+
+local function closeCreator()
+	if creatorTween then creatorTween:Cancel(); creatorTween = nil end
+	creatorTween = TweenService:Create(panel,
+		TweenInfo.new(0.14, Enum.EasingStyle.Quint, Enum.EasingDirection.In),
+		{ Size = UDim2.new(0, math.floor(PW * 0.93), 0, math.floor(PH * 0.93)) }
+	)
+	creatorTween.Completed:Connect(function()
+		panel.Visible = false
+		panel.Size = UDim2.new(0, PW, 0, PH)
+	end)
+	creatorTween:Play()
+end
+
+-- ── Wiring ────────────────────────────────────────────────────────────────
+
+toggleBtn.Activated:Connect(function()
+	if panel.Visible then
+		closeCreator(); openMenu()
+	elseif menuPanel.Visible then
+		closeMenu()
+	else
+		openMenu()
+	end
+end)
+
+-- Back from creator → menu: instant-hide creator, spring-open menu
+closeBtn.Activated:Connect(function()
+	if creatorTween then creatorTween:Cancel(); creatorTween = nil end
+	panel.Visible = false
+	panel.Size = UDim2.new(0, PW, 0, PH)
+	openMenu()
+end)
+
+-- Open creator from menu: instant-hide menu, spring-open creator
+createDrinkBtn.Activated:Connect(function()
+	if menuTween then menuTween:Cancel(); menuTween = nil end
+	menuPanel.Visible = false
+	menuPanel.Size = UDim2.new(0, MW, 0, MH)
+	openCreator()
+end)
+
+mCloseBtn.Activated:Connect(closeMenu)
 
 UserInputService.InputBegan:Connect(function(inp, processed)
 	if processed then return end
-	if inp.KeyCode == Enum.KeyCode.N then setOpen(not panel.Visible) end
+	if inp.KeyCode == Enum.KeyCode.N then
+		if panel.Visible then
+			if creatorTween then creatorTween:Cancel(); creatorTween = nil end
+			panel.Visible = false
+			panel.Size = UDim2.new(0, PW, 0, PH)
+			openMenu()
+		elseif menuPanel.Visible then
+			closeMenu()
+		else
+			openMenu()
+		end
+	end
 end)
