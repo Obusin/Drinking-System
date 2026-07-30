@@ -68,6 +68,10 @@ Names.DRIFT = "KartDrift"
 Names.ROLL_AXIS = "RollAxis"
 Names.STEER_AXIS = "SteerAxis"
 
+-- On a dropped item lying on the track. Which item it is, so picking it
+-- up grants THAT one rather than a fresh roll.
+Names.DROP_ITEM = "DroppedItem"
+
 --== REMOTES ==========================================================
 
 -- Server -> everyone: "X hit Y with Z". Broadcast rather than sent to

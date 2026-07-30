@@ -77,6 +77,7 @@ function Items.new(kart: Model)
 		hit = BloxKart:WaitForChild("KartItemHit"),
 		incoming = nil, -- a hit waiting to be applied next frame
 		hazards = TagZones.new(IT.HazardTag, { cooldown = 0.5, forceQueryable = true }),
+		drops = TagZones.new(IT.DropTag, { cooldown = 0.5, forceQueryable = true }),
 		-- Boxes we've asked the server about and haven't heard back on.
 		pending = {},
 		hazardRemote = BloxKart:WaitForChild("KartHazard"),
@@ -121,11 +122,29 @@ end
 --
 -- Slots mid-roulette go too. Keeping a reveal alive through a spinout
 -- would mean an item arriving seconds after the hit that took it.
-function Items:_dropAll(events)
+function Items:_dropAll(events, sim)
 	if not IT.DropOnHit or #self.held == 0 then
 		return
 	end
 	events.dropped = #self.held
+
+	-- Scattered onto the track rather than deleted. Somebody paid for
+	-- these by being spun, so somebody should be able to pick them up —
+	-- including the person who landed the hit, and including you if you
+	-- recover fast enough.
+	--
+	-- Only resolved slots: one still spinning has no item yet, and the
+	-- roulette is about to be thrown away with it.
+	local ids = {}
+	for _, slot in self.held do
+		if slot.item then
+			table.insert(ids, slot.item.Id)
+		end
+	end
+	if #ids > 0 and sim then
+		self.hazardRemote:FireServer("spill", CFrame.lookAt(sim.pos, sim.pos + sim.forward, sim.up), ids)
+	end
+
 	table.clear(self.held)
 end
 
@@ -178,7 +197,10 @@ function Items:Update(sim, input): { [string]: any }
 	-- Pickup. The server has the final say on whether the box was still
 	-- there, so this is only a request.
 	if #self.held < IT.MaxHeld then
-		local box = self.boxes:Touch(sim.hitbox.CFrame, sim.hitbox.Size)
+		-- Dropped items first: someone already paid for those, and a box
+		-- will still be there next lap.
+		local box = self.drops:Touch(sim.hitbox.CFrame, sim.hitbox.Size)
+			or self.boxes:Touch(sim.hitbox.CFrame, sim.hitbox.Size)
 		-- `Taken` is set by the SERVER, so there's a round-trip window where
 		-- we'd happily ask again for a box we already claimed — and get
 		-- granted twice. Two boxes filling three slots was this.
@@ -238,7 +260,7 @@ function Items:Update(sim, input): { [string]: any }
 				return out
 			end,
 			dropHazard = function(cf, itemId)
-				self.hazardRemote:FireServer("drop", cf, itemId)
+				self.hazardRemote:FireServer("drop", cf, itemId, back)
 			end,
 			fireProjectile = function(itemId, target)
 				self.projectileRemote:FireServer(itemId, target, back)
@@ -270,7 +292,14 @@ function Items:Update(sim, input): { [string]: any }
 		local mine = hz:GetAttribute(Names.OWNER) == Players.LocalPlayer.UserId
 		-- Your own mine can't hit you until it's armed, so dropping one at
 		-- speed doesn't spin the person who dropped it.
-		local live = not (mine and typeof(armAt) == "number" and os.clock() < armAt)
+		-- Your own hazard, if the rule says so, never hits you at all.
+		--
+		-- A timer alone can't fix a forward throw: the trap is ahead of
+		-- you and you are driving at it, so any grace period just delays
+		-- the moment you hit your own item. Others still trigger it the
+		-- instant it exists, which is the asymmetry that matters.
+		local live = not mine
+			or (not IT.HazardOwnerImmune and not (typeof(armAt) == "number" and os.clock() < armAt))
 		if live then
 			-- Which hazard this is comes off the part, so one code path
 			-- serves mines, oil and anything added later.
@@ -282,7 +311,7 @@ function Items:Update(sim, input): { [string]: any }
 					note = item.HitNote or 1,
 				}
 				if landed then
-					self:_dropAll(events)
+					self:_dropAll(events, sim)
 				end
 				self.hazardRemote:FireServer("hit", hz)
 			end
@@ -313,7 +342,7 @@ function Items:Update(sim, input): { [string]: any }
 		-- relayed path, which is every missile and every Lightning, and it
 		-- was quietly not doing it at all.
 		if landed and (payload.spin or 0) > 0 then
-			self:_dropAll(events)
+			self:_dropAll(events, sim)
 		end
 	end
 
@@ -345,6 +374,7 @@ function Items:Destroy()
 	end
 	self.boxes:Destroy()
 	self.hazards:Destroy()
+	self.drops:Destroy()
 end
 
 return Items

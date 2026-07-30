@@ -37,9 +37,9 @@ return {
 	-- you're aiming at what you can actually see.
 	LookBackAims = true,
 
-	-- How far ahead a hazard is lobbed when thrown forward. Backwards it
-	-- uses the item's own DropBack.
-	ThrowAhead = 22,
+	-- Where a forward throw STARTS, just clear of the kart's own nose.
+	-- It travels from here; see ThrowSpeed below.
+	ThrowAhead = 6,
 
 	-- Getting hit costs you everything you were holding.
 	--
@@ -74,6 +74,22 @@ return {
 	-- just the coloured part its Hazard spec describes.
 	HazardModelFolder = "Powerups",
 
+	--== DROPPED ITEMS =================================================
+	-- Getting spun scatters your stack onto the track instead of deleting
+	-- it. Someone else can pick it up — including the person who hit you,
+	-- which is a nice reward, and including you if you recover fast
+	-- enough, which turns a spinout into something you can partly undo.
+	--
+	-- A dropped item grants exactly what it is, unlike a box, which rolls.
+	DropTag = "KartDroppedItem",
+	DropLifetime = 15, -- long enough for the pack to reach it, short
+	-- enough that a busy lap doesn't carpet the track
+	DropSpread = 5, -- studs between them when a full stack scatters
+	DropSize = 3,
+	DropBillboard = 4.5, -- studs across, the icon shown above it
+	DropBob = 0.6,
+	DropBobRate = 2.4,
+
 	--== PROJECTILE REPLICATION ========================================
 	-- Missiles are simulated on the server for hits and drawn by each
 	-- client for looks (see ProjectileService / KartClient.Projectiles).
@@ -105,7 +121,26 @@ return {
 	-- Past this much error, easing would look like the missile sliding
 	-- sideways through the air, so it snaps and accepts one visible jump.
 	ProjectileSnapDistance = 25,
+	-- Seconds before your OWN hazard can hit you. Others can trigger it
+	-- the instant it exists — that asymmetry is the whole point.
 	HazardOwnerGrace = 1.5,
+
+	-- Or never. Throwing something forward and then driving into it is
+	-- the most annoying way to lose a race, and no amount of grace fixes
+	-- it — the trap is ahead of you and you are driving at it.
+	--
+	-- Off makes the timer above the only protection.
+	HazardOwnerImmune = true,
+
+	--== THROWING ======================================================
+	-- A forward throw travels instead of appearing 22 studs ahead. Same
+	-- reason a thrown shell arcs in any kart game: an item that teleports
+	-- into position doesn't read as having been thrown.
+	--
+	-- Server-animated, so everyone sees the same throw.
+	ThrowSpeed = 165, -- studs/s at release, comfortably faster than a kart
+	ThrowDrag = 190, -- studs/s^2. Ends up roughly 70 studs out
+	ThrowTime = 0.9, -- hard stop, so it can't drift off down a straight
 
 	-- Box appearance, built for any tagged part that has no art of its
 	-- own. Purely cosmetic and entirely client-side.

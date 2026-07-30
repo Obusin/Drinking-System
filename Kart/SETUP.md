@@ -125,6 +125,21 @@ and come back after `RespawnTime`.
 You can hold **3 power-ups** at once. They're used first-in-first-out, so
 the order you drive over boxes is the order you spend them.
 
+**Dropped items land on the track as pickups** with the item's icon on a
+billboard, for `DropLifetime` (15s). They grant exactly what they are
+rather than rolling — someone already paid for that one by being spun.
+Anyone can take them, including whoever landed the hit, and including you
+if you recover fast enough.
+
+**Your own hazards never hit you** (`Config/Items.HazardOwnerImmune`).
+A timer alone can't fix a forward throw: the trap is ahead of you and
+you're driving at it, so grace only delays the moment you hit your own
+item. Everyone else triggers it the instant it exists.
+
+**A forward throw travels** rather than appearing where it lands — it
+leaves the kart at `ThrowSpeed` and decelerates, following the road under
+it. Backwards it's still dropped where you are.
+
 **Being hit by anything that spins you drops your whole stack.** Scramble
 is the exception — it inverts your steering and takes nothing, so the
 cheapest item in the pool isn't also the most punishing. A shield blocks

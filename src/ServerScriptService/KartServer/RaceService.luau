@@ -15,6 +15,7 @@ local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerStorage = game:GetService("ServerStorage")
+local RunService = game:GetService("RunService")
 
 local BloxKart = ReplicatedStorage:WaitForChild("BloxKart")
 local Standings = require(BloxKart:WaitForChild("Standings"))
@@ -22,6 +23,7 @@ local Names = require(BloxKart:WaitForChild("Names"))
 local Config = require(BloxKart:WaitForChild("Config"))
 local Match = require(BloxKart:WaitForChild("Match"))
 local Items = require(BloxKart:WaitForChild("Items"))
+local Triggers = require(BloxKart:WaitForChild("Triggers"))
 local MatchService = require(script.Parent.MatchService)
 local KartService = require(script.Parent.KartService)
 
@@ -51,6 +53,64 @@ end
 local remote: RemoteEvent
 local itemRemote: RemoteEvent
 local hitRemote: RemoteEvent
+
+--=====================================================================
+--  THROWN HAZARDS
+--
+--  A forward throw travels rather than appearing where it lands. Same
+--  reason a thrown shell arcs in any kart game: something that teleports
+--  into position doesn't read as having been thrown.
+--
+--  Server-side so everyone sees the same throw, and so the thrower can't
+--  decide where it ends up.
+--=====================================================================
+local flying = {}
+
+local throwParams = RaycastParams.new()
+throwParams.FilterType = Enum.RaycastFilterType.Exclude
+
+local function stepThrows(dt: number)
+	if #flying == 0 then
+		return
+	end
+
+	-- Karts and triggers excluded, or a throw lands on the roof of the
+	-- kart that threw it, or on top of a checkpoint volume.
+	local skip = {}
+	for _, kart in CollectionService:GetTagged(Names.KART_TAG) do
+		table.insert(skip, kart)
+	end
+	for _, plr in Players:GetPlayers() do
+		if plr.Character then
+			table.insert(skip, plr.Character)
+		end
+	end
+	Triggers.collect(skip)
+	for _, f in flying do
+		table.insert(skip, f.part)
+	end
+	throwParams.FilterDescendantsInstances = skip
+
+	local now = os.clock()
+	for i = #flying, 1, -1 do
+		local f = flying[i]
+		f.speed -= Config.Items.ThrowDrag * dt
+		if not f.part.Parent or now >= f.stop or f.speed <= 0 then
+			table.remove(flying, i)
+			continue
+		end
+
+		local at = f.part.Position + f.dir * f.speed * dt
+
+		-- Follow the road under it, so a throw down a slope settles onto
+		-- the tarmac rather than sailing off it.
+		local probe = workspace:Raycast(at + f.up * 8, -f.up * 40, throwParams)
+		if probe then
+			at = probe.Position + f.up * f.lift
+		end
+		f.part.Position = at
+	end
+end
 
 function RaceService.start()
 	remote = Instance.new("RemoteEvent")
@@ -95,7 +155,24 @@ function RaceService.start()
 		if typeof(box) ~= "Instance" or not box:IsA("BasePart") then
 			return
 		end
-		if not CollectionService:HasTag(box, IT.BoxTag) or not box.Parent then
+		if not box.Parent then
+			return
+		end
+
+		-- A dropped item, not a box: grant exactly what it is rather than
+		-- rolling. Somebody already paid for this one by being spun.
+		if CollectionService:HasTag(box, IT.DropTag) then
+			local dropped = box:GetAttribute(Names.DROP_ITEM)
+			local item = typeof(dropped) == "string" and Items.byId(dropped)
+			if item then
+				box:Destroy() -- one taker; destroyed before the reply so a
+				-- second request in the same frame finds nothing
+				itemRemote:FireClient(player, item.Id)
+			end
+			return
+		end
+
+		if not CollectionService:HasTag(box, IT.BoxTag) then
 			return
 		end
 		-- Already taken and waiting to respawn.
@@ -189,7 +266,7 @@ function RaceService.start()
 	hazardRemote.Name = "KartHazard"
 	hazardRemote.Parent = BloxKart
 
-	hazardRemote.OnServerEvent:Connect(function(player, action, arg, itemId)
+	hazardRemote.OnServerEvent:Connect(function(player, action, arg, itemId, back)
 		if action == "drop" then
 			-- Racing only, same reason as the boxes. "hit" is deliberately
 			-- NOT gated: a hazard left on the track when the round ended
@@ -270,11 +347,88 @@ function RaceService.start()
 			hz.Parent = workspace
 			CollectionService:AddTag(hz, IT.HazardTag)
 
+			-- Thrown forward: it leaves the kart and travels. Dropped
+			-- backwards it just sits where it was put.
+			if not back then
+				table.insert(flying, {
+					part = hz,
+					dir = arg.LookVector,
+					up = arg.UpVector,
+					speed = IT.ThrowSpeed,
+					lift = spec.Size.Y * 0.5,
+					stop = os.clock() + IT.ThrowTime,
+				})
+			end
+
 			task.delay(item.Lifetime, function()
 				if hz.Parent then
 					hz:Destroy()
 				end
 			end)
+		elseif action == "spill" then
+			-- Someone was spun and scattered their stack. Server-spawned for
+			-- the same reason hazards are: a client can't be trusted to
+			-- create a world object other players can collect, and the
+			-- victim disconnecting mid-spin shouldn't leave phantoms.
+			if typeof(arg) ~= "CFrame" or typeof(itemId) ~= "table" then
+				return
+			end
+			for i, id in itemId do
+				if typeof(id) ~= "string" or i > IT.MaxHeld then
+					continue
+				end
+				local item = Items.byId(id)
+				if not item then
+					continue
+				end
+
+				local drop = Instance.new("Part")
+				drop.Name = "Dropped" .. item.Id
+				drop.Size = Vector3.one * IT.DropSize
+				-- Spread sideways from where they span, so a full stack
+				-- doesn't land as one unpickable pile.
+				drop.CFrame = arg * CFrame.new((i - (#itemId + 1) * 0.5) * IT.DropSpread, 0, 0)
+				drop.Anchored = true
+				drop.CanCollide = false
+				drop.CanQuery = true -- clients find it with a spatial query
+				drop.Transparency = 1 -- the billboard IS the visual
+				drop:SetAttribute(Names.DROP_ITEM, item.Id)
+				drop.Parent = workspace
+
+				local bb = Instance.new("BillboardGui")
+				bb.Size = UDim2.fromScale(IT.DropBillboard, IT.DropBillboard)
+				bb.AlwaysOnTop = false
+				bb.LightInfluence = 0
+				bb.Parent = drop
+
+				-- Tinted tile behind the icon, so an item whose art hasn't
+				-- been uploaded yet still reads as a coloured token rather
+				-- than as nothing at all.
+				local tile = Instance.new("Frame")
+				tile.Size = UDim2.fromScale(1, 1)
+				tile.BackgroundColor3 = item.Tint or Color3.fromRGB(200, 200, 200)
+				tile.BackgroundTransparency = 0.25
+				tile.BorderSizePixel = 0
+				tile.Parent = bb
+				local round = Instance.new("UICorner")
+				round.CornerRadius = UDim.new(0.2, 0)
+				round.Parent = tile
+
+				local icon = Instance.new("ImageLabel")
+				icon.Size = UDim2.fromScale(0.8, 0.8)
+				icon.Position = UDim2.fromScale(0.5, 0.5)
+				icon.AnchorPoint = Vector2.new(0.5, 0.5)
+				icon.BackgroundTransparency = 1
+				icon.Image = item.Icon or ""
+				icon.Parent = bb
+
+				CollectionService:AddTag(drop, IT.DropTag)
+				task.delay(IT.DropLifetime, function()
+					if drop.Parent then
+						drop:Destroy()
+					end
+				end)
+			end
 		elseif action == "hit" then
 			-- The victim reports driving into it; the server removes it so
 			-- it can't be triggered twice.
@@ -287,6 +441,8 @@ function RaceService.start()
 			end
 		end
 	end)
+
+	RunService.Heartbeat:Connect(stepThrows)
 
 	Players.PlayerRemoving:Connect(function(player)
 		local kart = KartService.kartFor(player)
