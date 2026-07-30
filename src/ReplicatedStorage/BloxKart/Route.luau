@@ -210,7 +210,16 @@ function Route.pointAt(u: number): Vector3?
 	local b1 = a1 * ((t2 - t) / (t2 - t0)) + a2 * ((t - t0) / (t2 - t0))
 	local b2 = a2 * ((t3 - t) / (t3 - t1)) + a3 * ((t - t1) / (t3 - t1))
 
-	return b1 * ((t2 - t) / (t2 - t1)) + b2 * ((t - t1) / (t2 - t1))
+	local curved = b1 * ((t2 - t) / (t2 - t1)) + b2 * ((t - t1) / (t2 - t1))
+
+	-- Pulled back toward the straight line between the two checkpoints.
+	-- Bounds how far the route can bow away from them, which is the thing
+	-- that actually decides whether a missile clips a corner — see
+	-- Race.RouteTension.
+	if R.RouteTension >= 1 then
+		return curved
+	end
+	return p1:Lerp(p2, s):Lerp(curved, math.clamp(R.RouteTension, 0, 1))
 end
 
 -- Which way the road runs at `u`. Sampled rather than differentiated —

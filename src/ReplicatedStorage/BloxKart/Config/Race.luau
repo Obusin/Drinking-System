@@ -89,6 +89,23 @@ return {
 	-- is always the safe one.
 	SurfaceTag = "TrackSurface",
 
+	--== RACING LINE ===================================================
+	-- How curved the missile's route is between checkpoints.
+	--
+	--   1  full spline — smoothest, but it bows out from the straight
+	--      line between checkpoints, and on a tight corner that bow is
+	--      what puts it through the scenery
+	--   0  straight segments — never strays from checkpoint to
+	--      checkpoint, but corners like a tram
+	--
+	-- This is the real lever on clipping. Deviation is bounded by this
+	-- times the spline's own bow, so dropping it is a guaranteed fix
+	-- where changing the spline maths is not.
+	--
+	-- The other lever is MORE CHECKPOINTS: shorter segments bow less, and
+	-- they cost nothing but placement.
+	RouteTension = 0.75,
+
 	--== WRONG WAY =====================================================
 	-- Needs no extra setup: "which way does traffic flow here" is already
 	-- stated by CheckpointFacing, so the warning reads the facing of the
