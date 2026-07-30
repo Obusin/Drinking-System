@@ -21,11 +21,27 @@
 	To add a system: write a module here, require it below, start it.
 --]]
 
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local WorldFilter = require(ReplicatedStorage.BloxKart.WorldFilter)
 local KartService = require(script.KartService)
 local MatchService = require(script.MatchService)
 local RaceService = require(script.RaceService)
 local ProjectileService = require(script.ProjectileService)
 local BotService = require(script.BotService)
+
+-- FIRST, before anything queries the world.
+--
+-- This is what makes a kart pass through other karts and through trigger
+-- volumes: movement here is query-based, so the exclusion list IS the
+-- collision rule. The client has always started it. The server hadn't,
+-- which meant bots ran their movement against an EMPTY filter — every
+-- other kart and every checkpoint registered as solid geometry.
+--
+-- That was one root cause wearing two hats: bots bumping each other, and
+-- bots wedging on checkpoints. They share Simulation with players, so
+-- they were only ever going to behave differently where the world they
+-- were shown differed.
+WorldFilter.start()
 
 KartService.start()
 -- After KartService: MatchService counts the karts it owns to decide

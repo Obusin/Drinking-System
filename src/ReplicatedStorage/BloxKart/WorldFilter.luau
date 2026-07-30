@@ -80,6 +80,15 @@ end
 
 local started = false
 
+-- Whether the filter is live. Exposed so Simulation can shout if it's
+-- asked to move a kart through a world nothing has been excluded from —
+-- an empty filter isn't an error, it's just a kart that collides with
+-- everything, including other karts and every trigger volume. That fails
+-- silently and looks like a physics bug.
+function WorldFilter.isStarted(): boolean
+	return started
+end
+
 function WorldFilter.start()
 	if started then
 		return

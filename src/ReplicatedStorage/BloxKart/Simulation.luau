@@ -87,7 +87,21 @@ local function tierFor(t: number): number
 	return 0
 end
 
+local warnedNoFilter = false
+
 function Simulation.new(model: Model, hitbox: BasePart, seat: VehicleSeat, _character: Model?)
+	-- The exclusion list IS the collision rule here — movement is
+	-- query-based, so an unstarted filter means this kart treats every
+	-- other kart and every trigger volume as solid wall.
+	--
+	-- Worth a warning because it fails SILENTLY: the kart drives, it just
+	-- bumps into things nothing should bump into, which reads as a physics
+	-- problem rather than a missing call. It cost a full debugging round
+	-- on the server, where nothing had started it.
+	if not WorldFilter.isStarted() and not warnedNoFilter then
+		warnedNoFilter = true
+		warn("[Simulation] WorldFilter.start() has not been called here — karts will collide with each other and with trigger volumes.")
+	end
 	-- Shared, and maintained centrally: it excludes EVERY kart and
 	-- character, not just ours, so other racers are never mistaken for
 	-- walls or ground.
