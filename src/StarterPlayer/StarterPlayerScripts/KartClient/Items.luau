@@ -303,6 +303,18 @@ function Items:Update(sim, input): { [string]: any }
 			landed = true
 		end
 		events[if landed then "hit" else "blocked"] = payload
+
+		-- Landing a hit costs the victim their stack — but only if it
+		-- actually SPUN them. Scramble carries no spin: it inverts your
+		-- steering, and taking three items as well for that would make the
+		-- cheapest item in the pool the most punishing.
+		--
+		-- Hazards already do this in their own branch below; this is the
+		-- relayed path, which is every missile and every Lightning, and it
+		-- was quietly not doing it at all.
+		if landed and (payload.spin or 0) > 0 then
+			self:_dropAll(events)
+		end
 	end
 
 	return events

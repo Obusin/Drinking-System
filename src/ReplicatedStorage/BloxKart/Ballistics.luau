@@ -62,6 +62,7 @@ export type State = {
 	u: number, -- position along the racing line, node units, wraps past a lap
 	lateral: number, -- studs right of the centreline
 	way: number?, -- +1 down the track, -1 back up it. Nil means forwards
+	locked: boolean?, -- committed to the target; never returns to the rails
 }
 
 export type Target = {
@@ -126,16 +127,36 @@ function Ballistics.step(p: State, dt: number, target: Target?, rayParams: Rayca
 	end
 
 	----------------------------------------------------------------
-	-- Final approach. Close enough that the straight line and the road
-	-- agree, so leave the rails and take the shot — otherwise it would
-	-- sail past a target sitting beside the centreline.
+	-- Final approach, and it LATCHES.
+	--
+	-- Testing the range every frame made the missile dither: it would
+	-- enter strike range, the target would pull away, and it would drop
+	-- back onto the rails — then re-enter, and back again. From outside
+	-- that reads as the missile not knowing whether it wants the player
+	-- or the checkpoint. Committing once and never going back is both
+	-- less code and what it should have been doing.
+	--
+	-- Locked only when the target is actually VISIBLE, so it can't commit
+	-- through the inside of a hairpin and bury itself in the wall. That
+	-- check is the entire reason a wall raycast still exists here.
 	----------------------------------------------------------------
-	if targetPos and (targetPos - p.pos).Magnitude <= item.StrikeRange then
+	if not p.locked and targetPos and (targetPos - p.pos).Magnitude <= item.StrikeRange then
+		if not workspace:Raycast(p.pos, targetPos - p.pos, rayParams) then
+			p.locked = true
+		end
+	end
+
+	if p.locked then
 		p.dbgMode = "strike"
 		p.dbgAim = targetPos
-		local toward = targetPos - p.pos
-		if toward.Magnitude > 1e-3 then
-			p.dir = p.dir:Lerp(toward.Unit, math.min(item.HomingRate * dt, 1)).Unit
+		-- Target gone — respawned, or left. Committed either way; it flies
+		-- on and expires rather than rejoining the route somewhere it no
+		-- longer belongs.
+		if targetPos then
+			local toward = targetPos - p.pos
+			if toward.Magnitude > 1e-3 then
+				p.dir = p.dir:Lerp(toward.Unit, math.min(item.HomingRate * dt, 1)).Unit
+			end
 		end
 		p.pos += p.dir * step
 		return nil

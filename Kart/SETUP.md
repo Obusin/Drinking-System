@@ -125,6 +125,11 @@ and come back after `RespawnTime`.
 You can hold **3 power-ups** at once. They're used first-in-first-out, so
 the order you drive over boxes is the order you spend them.
 
+**Being hit by anything that spins you drops your whole stack.** Scramble
+is the exception — it inverts your steering and takes nothing, so the
+cheapest item in the pool isn't also the most punishing. A shield blocks
+the hit and saves the stack with it.
+
 **`Q` fires forward, `E` fires backward.** A missile hunts the racer
 ahead or behind accordingly; mines, oil and fake boxes drop behind you on
 `E` and are lobbed ahead on `Q`. Firing while **look-back is held** also
