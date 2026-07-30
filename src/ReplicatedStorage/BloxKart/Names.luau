@@ -59,4 +59,13 @@ Names.STEER = "KartSteer"
 -- stay pointed down the road; see Rider.
 Names.DRIFT = "KartDrift"
 
+-- On a road wheel's Motor6D, both in the JOINT's frame.
+--
+-- Worked out per wheel at build time rather than assumed, because an
+-- imported mesh keeps whatever orientation it was modelled in — so "roll
+-- about X, steer about Y" is true of a Roblox Cylinder and of nothing
+-- else. Getting it wrong spins the wheel flat like a helicopter rotor.
+Names.ROLL_AXIS = "RollAxis"
+Names.STEER_AXIS = "SteerAxis"
+
 return Names

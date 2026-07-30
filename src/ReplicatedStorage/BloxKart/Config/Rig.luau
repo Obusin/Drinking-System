@@ -87,12 +87,17 @@ return {
 	-- they're rolling — wrong and they visibly skid or spin up
 	RoadWheelSteerRate = 12, -- how fast the fronts follow the input
 
-	-- Which way a wheel rolls, in ITS OWN space. A Roblox Cylinder spins
-	-- about X, and so does the built-in placeholder — but an imported
-	-- mesh spins about whatever axis it was modelled down, and getting
-	-- this wrong makes the wheels rotate like plates instead of tyres.
-	-- If yours look wrong, this is the setting: try Vector3.zAxis.
-	RoadWheelAxis = Vector3.xAxis,
+	-- Which way a wheel rolls. "auto" measures it per wheel: a wheel is a
+	-- disc, so its axle is its THINNEST dimension, which is true of any
+	-- mesh however it was modelled.
+	--
+	-- Assuming an axis is what made imported wheels spin flat like a
+	-- helicopter rotor — X is the axle of a Roblox Cylinder and of
+	-- nothing else in particular.
+	--
+	-- Set a Vector3 to force it, for a mesh whose bounding box lies about
+	-- its shape (a wheel with a long axle stub modelled in, say).
+	RoadWheelAxis = "auto",
 
 	-- Counter-steer during a drift, as a fraction of the body's slide
 	-- angle. The body is yawed sideways while the kart still travels
@@ -101,7 +106,8 @@ return {
 	-- and the single detail that sells it.
 	--
 	-- 1 = perfectly aligned with travel, 0 = wheels follow the body and a
-	-- drift looks like the kart is just facing the wrong way.
+	-- drift looks like the kart is just facing the wrong way. NEGATIVE
+	-- flips which way they crank, if it ends up mirrored on your model.
 	RoadWheelCounterSteer = 0.85,
 
 	--== COLLISION =====================================================

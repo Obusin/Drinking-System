@@ -159,8 +159,11 @@ non-colliding, massless, no say in the handling.
   - Wheels rotate about **their own pivot**, so set the origin at the
     centre of the wheel in Blender. Anchored anywhere else it orbits that
     point instead of spinning, which looks like the wheel came off.
-  - If they spin like plates instead of tyres, your mesh rolls about a
-    different axis — set `Config/Rig.RoadWheelAxis` to `Vector3.zAxis`.
+  - Both rotation axes are **measured per wheel** — the axle is the
+    wheel's thinnest dimension, and steering is about the kart's up. So
+    any mesh orientation works without configuring anything. Force it
+    with `Config/Rig.RoadWheelAxis = Vector3.zAxis` only if a mesh's
+    bounding box lies about its shape (a modelled-in axle stub, say).
   - The fronts **counter-steer through a drift**, staying pointed down
     the road while the body slides. `Config/Rig.RoadWheelCounterSteer`
     (0.85); set 0 to have them just follow the body.

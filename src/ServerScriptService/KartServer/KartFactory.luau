@@ -134,6 +134,22 @@ function KartFactory.build(color: Color3?, visualName: string?): Model
 	local supplied = visual:FindFirstChild("SteeringWheel", true)
 	local suppliedWheel = if supplied and supplied:IsA("BasePart") then supplied else nil
 
+	-- Which way a wheel rolls: down its axle, which for a disc is its
+	-- thinnest dimension. Config can force it if a mesh's bounding box
+	-- lies about its shape.
+	local function axleOf(part: BasePart): Vector3
+		if typeof(RIG.RoadWheelAxis) == "Vector3" then
+			return RIG.RoadWheelAxis
+		end
+		local s = part.Size
+		if s.X <= s.Y and s.X <= s.Z then
+			return Vector3.xAxis
+		elseif s.Y <= s.X and s.Y <= s.Z then
+			return Vector3.yAxis
+		end
+		return Vector3.zAxis
+	end
+
 	-- Road wheels: tagged, or named from the config lists. A wheel gets a
 	-- Motor6D rather than a weld so Rider can turn it; a welded wheel is
 	-- frozen to the body forever.
@@ -179,6 +195,22 @@ function KartFactory.build(color: Color3?, visualName: string?): Model
 				-- spinning on its axle.
 				motor.C0, motor.C1 = Util.pivotJoint(hitbox, desc)
 				motor:SetAttribute(Names.WHEEL_FRONT, isFront)
+
+				-- Both axes are worked out per wheel, in the joint's frame.
+				--
+				-- ROLL is the axle: a wheel is a disc, so its axle is its
+				-- THINNEST dimension. That holds for any mesh however it was
+				-- modelled, whereas assuming X is only true of a Cylinder.
+				--
+				-- STEER is the KART's up, converted into the joint's frame.
+				-- Yawing about the wheel's own local up instead only works if
+				-- the mesh happens to be axis-aligned; on anything else the
+				-- wheel tips over rather than turning.
+				-- Converted from the PART's frame into the JOINT's. Identical
+				-- unless the mesh's PivotOffset carries a rotation, in which
+				-- case the two differ and the wheel would roll askew.
+				motor:SetAttribute(Names.ROLL_AXIS, motor.C1.Rotation:VectorToObjectSpace(axleOf(desc)))
+				motor:SetAttribute(Names.STEER_AXIS, motor.C0.Rotation:VectorToObjectSpace(Vector3.yAxis))
 				motor.Parent = desc
 				log("%s -> %s road wheel", desc.Name, if isFront then "front" else "rear")
 			elseif desc ~= suppliedWheel then

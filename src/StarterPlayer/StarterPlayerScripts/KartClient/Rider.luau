@@ -235,8 +235,19 @@ local function updateRoadWheels(kart: Model, s, dt: number)
 			-- Yaw THEN pitch: steering turns the whole wheel, and the wheel
 			-- rolls about its own axle afterwards. The other order would
 			-- swing the axle around instead.
-			local turn = if motor:GetAttribute(Names.WHEEL_FRONT) then CFrame.Angles(0, -lock, 0) else CFrame.new()
-			motor.Transform = turn * CFrame.fromAxisAngle(RIG.RoadWheelAxis, s.roll)
+			-- Axes are per wheel and were measured at build time; see
+			-- KartFactory. Falling back to the old assumption keeps a kart
+			-- built before this change from breaking outright.
+			local rollAxis = motor:GetAttribute(Names.ROLL_AXIS) or Vector3.xAxis
+			local steerAxis = motor:GetAttribute(Names.STEER_AXIS) or Vector3.yAxis
+
+			-- Steer THEN roll: steering swings the whole wheel about the
+			-- kart's up, and the wheel spins on its axle within that. The
+			-- other order would carry the axle around with the spin.
+			local turn = if motor:GetAttribute(Names.WHEEL_FRONT)
+				then CFrame.fromAxisAngle(steerAxis, -lock)
+				else CFrame.new()
+			motor.Transform = turn * CFrame.fromAxisAngle(rollAxis, s.roll)
 		end
 	end
 end
