@@ -225,7 +225,6 @@ local function onLaunch(msg)
 		u = msg.u,
 		lateral = msg.lateral or 0,
 		way = msg.way,
-		target = msg.target,
 		shooter = msg.shooter,
 		part = makePart(item),
 	}
@@ -245,6 +244,10 @@ local function onSync(msg)
 	-- wrong heading compounds, whereas position error does not.
 	p.dir = msg.dir
 	p.up = msg.up
+	-- Who the server locked. Not a local decision: every client has to
+	-- draw the same chase.
+	p.target = msg.target
+	p.locked = msg.locked
 
 	local err = (msg.pos - p.pos).Magnitude
 	if err > IT.ProjectileSnapDistance then

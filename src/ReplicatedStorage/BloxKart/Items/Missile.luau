@@ -6,18 +6,24 @@
 	HomingRate caps how hard it can turn, which is the difference between
 	a weapon and a guaranteed hit.
 
-	FIRES EVEN WITH NO TARGET
-	-------------------------
-	With nobody ahead — first place, or an empty server — it launches
-	straight and can still hit anyone it runs into. An item that refuses
-	to fire reads as broken, and "useless in first place" is a worse
-	problem than "occasionally misses".
+	IT HUNTS WHOEVER IS IN THE WAY
+	------------------------------
+	Not whoever the standings say is next. It rides the checkpoint route
+	and locks the first kart that gets in front of it, wherever they are
+	in the race — which is both simpler and better to play against. The
+	old version would fly straight through somebody because they weren't
+	the racer one place ahead.
 
-	WHY ONLY FORWARD
-	----------------
-	It targets the racer ahead and never behind, so items stay a catch-up
-	tool rather than a way to extend a lead. That single restriction is
-	most of what stops a kart item system feeling unfair.
+	FIRES EVEN WITH NOBODY THERE
+	----------------------------
+	It always launches. An item that refuses to fire reads as broken, and
+	"useless in first place" is a worse problem than "occasionally
+	misses". With nobody about it rides the route and expires.
+
+	FORWARD OR BACKWARD
+	-------------------
+	Q throws it down the track, E sends it back up. It rides the same
+	rails either way and locks whoever it meets.
 --]]
 
 return {
@@ -70,10 +76,16 @@ return {
 	LateralRate = 2.2, -- how fast it drifts across. Snapping sideways
 	-- reads as a bug; drifting across is what a real one does
 
-	-- Final approach: inside this it leaves the rails and flies straight
-	-- at the target, because by then the road and the straight line agree.
-	-- Too small and it sails past someone parked beside the centreline.
-	StrikeRange = 45,
+	--== ACQUISITION ===================================================
+	-- It hunts WHOEVER gets in the way, not whoever the standings say is
+	-- next. Simpler, and much better to play against: a missile that only
+	-- ever wanted the person one place ahead ignored the racer it was
+	-- flying straight through.
+	--
+	-- Once it locks, it never lets go.
+	AcquireRange = 60, -- how close a kart has to be to get locked
+	AcquireArc = 0.3, -- must be roughly in FRONT of the missile's travel
+	-- (dot product). 0 would let it lock something it has already passed
 
 	-- Seconds to settle from the launch point onto the racing line. Long
 	-- enough that it visibly leaves the kart, short enough that it's on
@@ -94,9 +106,10 @@ return {
 	HitNote = 2,
 
 	Use = function(ctx)
-		-- Target is a hint. Nil is fine — it flies the route and hits
-		-- whoever it runs into.
-		ctx.fireProjectile("Missile", ctx.victimOf(ctx.kart))
+		-- No target named. It rides the route and locks whoever gets in
+		-- the way — see ProjectileService. Direction is the only choice
+		-- the player makes, and it always fires.
+		ctx.fireProjectile("Missile")
 		return true
 	end,
 }

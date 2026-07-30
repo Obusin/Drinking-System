@@ -262,8 +262,8 @@ function Items:Update(sim, input): { [string]: any }
 			dropHazard = function(cf, itemId)
 				self.hazardRemote:FireServer("drop", cf, itemId, back)
 			end,
-			fireProjectile = function(itemId, target)
-				self.projectileRemote:FireServer(itemId, target, back)
+			fireProjectile = function(itemId)
+				self.projectileRemote:FireServer(itemId, nil, back)
 			end,
 			fire = function(target, payload)
 				-- Stamped here, so no item module has to remember to include

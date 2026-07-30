@@ -127,25 +127,16 @@ function Ballistics.step(p: State, dt: number, target: Target?, rayParams: Rayca
 	end
 
 	----------------------------------------------------------------
-	-- Final approach, and it LATCHES.
+	-- Locked on. WHO gets locked is decided by the server — see
+	-- ProjectileService — because it's the one thing here that has to be
+	-- the same for everybody. This just flies at whoever that is.
 	--
-	-- Testing the range every frame made the missile dither: it would
-	-- enter strike range, the target would pull away, and it would drop
-	-- back onto the rails — then re-enter, and back again. From outside
-	-- that reads as the missile not knowing whether it wants the player
-	-- or the checkpoint. Committing once and never going back is both
-	-- less code and what it should have been doing.
-	--
-	-- Locked only when the target is actually VISIBLE, so it can't commit
-	-- through the inside of a hairpin and bury itself in the wall. That
-	-- check is the entire reason a wall raycast still exists here.
+	-- The lock never releases. Re-testing it each frame made the missile
+	-- dither: it entered range, the target pulled away, it dropped back
+	-- onto the rails, re-entered, and so on. From outside that reads as
+	-- the missile not knowing whether it wants the player or the
+	-- checkpoint.
 	----------------------------------------------------------------
-	if not p.locked and targetPos and (targetPos - p.pos).Magnitude <= item.StrikeRange then
-		if not workspace:Raycast(p.pos, targetPos - p.pos, rayParams) then
-			p.locked = true
-		end
-	end
-
 	if p.locked then
 		p.dbgMode = "strike"
 		p.dbgAim = targetPos

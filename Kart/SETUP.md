@@ -111,10 +111,14 @@ all it falls back to a minimum lap time.
 you're currently in, so it's already correct if you aimed the arrows.
 Tune in `Config/Race`: `WrongWayDot`, `WrongWayTime`, `WrongWaySpeed`.
 
-**Missiles follow the track.** They fly the checkpoint route round
-corners until the target is within `HomingRange`, then chase directly.
+**Missiles ride the track.** They follow a spline through the checkpoints
+rather than flying at them, so they can't cut a corner into scenery. They
+lock onto **whoever gets in the way** — not whoever the standings say is
+next — and never let go once they do.
+
 Without checkpoints they fly straight, which on a bendy track means they
-hit the first wall. More checkpoints = smoother missile path.
+hit the first wall. More checkpoints = smoother line; see
+`Config/Race.RouteTension` if the line bows too wide.
 
 ### Power-up boxes
 

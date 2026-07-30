@@ -122,6 +122,54 @@ local function targetOf(kart: Model?): Ballistics.Target?
 end
 
 --=====================================================================
+--  ACQUISITION
+--
+--  A missile hunts whoever gets in the way, not whoever the standings
+--  say is next. That's simpler and much better to play against: aiming
+--  at the racer one place ahead meant ignoring the one it was flying
+--  straight through.
+--
+--  Server-side because a lock decides who gets hit, and every client
+--  drawing a different target would be two different missiles.
+--=====================================================================
+local function acquire(p)
+	if p.locked then
+		return
+	end
+	local item = p.item
+	if not (item.AcquireRange and item.AcquireArc) then
+		return
+	end
+
+	local best, bestDist = nil, item.AcquireRange
+	for _, kart in CollectionService:GetTagged(Names.KART_TAG) do
+		local hb = kart.PrimaryPart
+		-- Never the shooter, and never a mis-tagged model with no hitbox.
+		if hb and kart ~= p.from then
+			local toward = hb.Position - p.pos
+			local dist = toward.Magnitude
+			-- In FRONT of where it's travelling. Without this it locks
+			-- something it has already flown past and turns round.
+			if dist < bestDist and dist > 1e-3 and toward.Unit:Dot(p.dir) >= item.AcquireArc then
+				-- And actually visible: locking through the inside of a
+				-- hairpin just buries it in the wall.
+				if not workspace:Raycast(p.pos, toward, rayParams) then
+					best, bestDist = kart, dist
+				end
+			end
+		end
+	end
+
+	if best then
+		p.target = best
+		p.locked = true
+		if IT.ProjectileDebug then
+			print(("[Missile] #%d locked onto %s at %.0f studs"):format(p.uid, best.Name, bestDist))
+		end
+	end
+end
+
+--=====================================================================
 --  END OF LIFE
 --=====================================================================
 local function detonate(p, victim: Model?, why: string?)
@@ -185,9 +233,10 @@ local function step(dt: number)
 			continue
 		end
 
-		-- Authoritative target position AND route position. A client uses
-		-- its own replicated view of the same kart, which is why the two
-		-- drift and why sync exists.
+		-- Look for somebody to hit before moving, so a kart that pulls
+		-- across in front is caught on the frame it does it.
+		acquire(p)
+
 		local wall = Ballistics.step(p, dt, targetOf(p.target), rayParams)
 		if wall then
 			detonate(p, nil, "WALL at " .. tostring(wall))
@@ -220,6 +269,10 @@ local function step(dt: number)
 				pos = p.pos,
 				dir = p.dir,
 				up = p.up,
+				-- Who it locked, so every client draws the same chase
+				-- rather than each picking its own idea of a target.
+				target = p.target,
+				locked = p.locked,
 			})
 		end
 	end
@@ -239,7 +292,7 @@ function ProjectileService.start()
 	viewRemote.Name = "KartProjectileView"
 	viewRemote.Parent = BloxKart
 
-	remote.OnServerEvent:Connect(function(player, itemId, target, back)
+	remote.OnServerEvent:Connect(function(player, itemId, _unusedTarget, back)
 		-- Racing only. Between rounds players are free to drive but not to
 		-- shoot: a missile fired during the countdown would arrive while
 		-- the field is still pinned on the grid and unable to dodge.
@@ -253,19 +306,9 @@ function ProjectileService.start()
 		if not (item and item.Projectile) then
 			return
 		end
-		-- Target is a hint from the client; if it isn't a real kart the
-		-- missile just flies the route rather than the call failing.
-		-- PrimaryPart required as well as the tag: a target with no hitbox
-		-- can never be homed on or hit, so the missile would fly the whole
-		-- route with nothing to chase and expire. Which is exactly what
-		-- happened when art carrying the Kart tag got handed over as a
-		-- target.
-		if
-			typeof(target) ~= "Instance"
-			or not (target:IsA("Model") and target.PrimaryPart and CollectionService:HasTag(target, Names.KART_TAG))
-		then
-			target = nil
-		end
+		-- The client no longer nominates anybody. It says "I fired this,
+		-- forwards or backwards" and the server locks whoever gets in the
+		-- way — which removes the last thing a client could lie about here.
 
 		-- Spawn position comes from the REPLICATED kart, never from the
 		-- client, so nobody can fire from across the map.
@@ -313,7 +356,7 @@ function ProjectileService.start()
 			item = item,
 			owner = player,
 			from = from,
-			target = target,
+			target = nil, -- acquired in flight, never handed over
 			pos = pos,
 			dir = dir,
 			up = up,
@@ -332,14 +375,13 @@ function ProjectileService.start()
 
 		if IT.ProjectileDebug then
 			print(
-				("[Missile] #%d launched by %s — %d route nodes, entering at u %.2f (lat %.1f)%s, target %s"):format(
+				("[Missile] #%d launched by %s — %d route nodes, entering at u %.2f (lat %.1f)%s"):format(
 					nextUid,
 					player.Name,
 					#nodes,
 					p.u,
 					p.lateral,
-					if way < 0 then " BACKWARDS" else "",
-					if target then target.Name else "none"
+					if way < 0 then " BACKWARDS" else ""
 				)
 			)
 		end
@@ -354,7 +396,6 @@ function ProjectileService.start()
 			u = p.u,
 			lateral = p.lateral,
 			way = p.way,
-			target = target,
 			shooter = from,
 		})
 	end)
