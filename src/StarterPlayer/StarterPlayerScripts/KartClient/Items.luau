@@ -1,0 +1,326 @@
+--[[
+	Items — pickup, hold one, fire it at the racer ahead.
+
+	Boxes are server-owned (see RaceService): the client asks, the server
+	decides whether the box was still there and which item you got.
+	Rolling client-side would let a client pick its own item.
+
+	Hits are relayed too. A client naming its own victim and telling them
+	directly would be trivially forgeable — only the TARGET's client ever
+	applies an effect to itself.
+--]]
+
+local CollectionService = game:GetService("CollectionService")
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local BloxKart = ReplicatedStorage:WaitForChild("BloxKart")
+
+local Config = require(BloxKart:WaitForChild("Config"))
+local TagZones = require(BloxKart:WaitForChild("TagZones"))
+local Registry = require(BloxKart:WaitForChild("Items"))
+local Standings = require(BloxKart:WaitForChild("Standings"))
+
+local IT = Config.Items
+
+local Items = {}
+Items.__index = Items
+
+--=====================================================================
+--  BOX ANIMATION
+--
+--  Spin and bob are client-side. Every client animating its own copy
+--  costs nothing to replicate and looks identical for everyone, so
+--  there's no reason to do it on the server.
+--
+--  Runs for every tagged box in the world whether or not you're
+--  driving, so boxes are alive while you're walking around too.
+--=====================================================================
+function Items.startBoxes()
+	local RunService = game:GetService("RunService")
+	local home = {} -- original CFrame per box, so bob is relative
+
+	RunService.Heartbeat:Connect(function()
+		local t = os.clock()
+		for _, box in CollectionService:GetTagged(IT.BoxTag) do
+			if box:IsA("BasePart") and box.Parent then
+				if not home[box] then
+					home[box] = box.CFrame
+					box.Anchored = true
+					box.CanCollide = false
+					box.CanQuery = true -- or the pickup query can't see it
+					box.Massless = true
+					if box.Size.Magnitude < 0.5 then
+						box.Size = Vector3.one * IT.BoxSize
+					end
+				end
+				local base = home[box]
+				local bob = math.sin(t * IT.BoxBobRate) * IT.BoxBob
+				box.CFrame = base
+					* CFrame.new(0, bob, 0)
+					* CFrame.Angles(0, math.rad(IT.BoxSpin) * t, 0)
+			end
+		end
+	end)
+end
+
+function Items.new(kart: Model)
+	local self = setmetatable({
+		kart = kart,
+		boxes = TagZones.new(IT.BoxTag, { cooldown = IT.PickupCooldown, forceQueryable = true }),
+		-- Up to IT.MaxHeld slots, used first-in-first-out. Each is either
+		-- resolved ({ item = module }) or still spinning
+		-- ({ result = module, ... }). A spinning slot occupies space but
+		-- can't be fired.
+		held = {},
+		pickup = BloxKart:WaitForChild("KartItemPickup"),
+		hit = BloxKart:WaitForChild("KartItemHit"),
+		incoming = nil, -- a hit waiting to be applied next frame
+		hazards = TagZones.new(IT.HazardTag, { cooldown = 0.5, forceQueryable = true }),
+		-- Boxes we've asked the server about and haven't heard back on.
+		pending = {},
+		hazardRemote = BloxKart:WaitForChild("KartHazard"),
+		projectileRemote = BloxKart:WaitForChild("KartProjectile"),
+		conns = {},
+	}, Items)
+
+	table.insert(
+		self.conns,
+		self.pickup.OnClientEvent:Connect(function(id)
+			table.clear(self.pending)
+			local item = Registry.byId(id)
+			-- Re-checked here as well as before requesting: the server may
+			-- have granted while a slot was filling.
+			if item and #self.held < IT.MaxHeld then
+				-- The server already decided WHAT you got. The roulette is
+				-- purely presentation over a settled result — it never picks
+				-- anything, so it can't disagree with the server.
+				local now = os.clock()
+				table.insert(self.held, {
+					result = item,
+					startedAt = now,
+					endsAt = now + IT.RouletteTime,
+					nextTick = now,
+					showIndex = 1,
+				})
+			end
+		end)
+	)
+	table.insert(
+		self.conns,
+		self.hit.OnClientEvent:Connect(function(payload)
+			self.incoming = payload
+		end)
+	)
+	return self
+end
+
+-- Every kart in the world, for standings.
+local function allKarts(): { Model }
+	local out = {}
+	for _, k in CollectionService:GetTagged("Kart") do
+		if k:IsA("Model") and k.Parent then
+			table.insert(out, k)
+		end
+	end
+	return out
+end
+
+-- Everything you were holding, gone. Called only on a LANDED hit, so a
+-- shield protects your stack as well as your speed — which is most of
+-- what makes holding one worth the slot.
+--
+-- Slots mid-roulette go too. Keeping a reveal alive through a spinout
+-- would mean an item arriving seconds after the hit that took it.
+function Items:_dropAll(events)
+	if not IT.DropOnHit or #self.held == 0 then
+		return
+	end
+	events.dropped = #self.held
+	table.clear(self.held)
+end
+
+-- Wipe the stack with no event and no punishment. Used between rounds:
+-- carrying items over would mean whoever finished last round holding a
+-- missile starts the next one already armed.
+--
+-- Distinct from _dropAll, which is the penalty for being hit and has to
+-- announce itself.
+function Items:Clear()
+	table.clear(self.held)
+	table.clear(self.pending)
+end
+
+-- Interval between names, growing as the spin progresses so it decays
+-- instead of stopping dead.
+local function tickInterval(t: number): number
+	local eased = math.clamp(t, 0, 1) ^ (1 / IT.RouletteEase)
+	return IT.RouletteTickFast + (IT.RouletteTickSlow - IT.RouletteTickFast) * eased
+end
+
+-- Advances any spinning slots. Emits `ticks` (how many names went past
+-- this frame) and `landed` so the caller owns the sound, keeping this
+-- module free of any Audio dependency.
+function Items:_spin(events)
+	local now = os.clock()
+	for _, slot in self.held do
+		if slot.result then
+			if now >= slot.endsAt then
+				-- Land on what the server actually rolled.
+				slot.item = slot.result
+				slot.result = nil
+				events.landed = slot.item.Id
+			elseif now >= slot.nextTick then
+				local t = (now - slot.startedAt) / IT.RouletteTime
+				slot.nextTick = now + tickInterval(t)
+				slot.showIndex += 1
+				events.ticks = (events.ticks or 0) + 1
+			end
+		end
+	end
+end
+
+-- Returns events: { used = id, failed = reason, hit = payload,
+-- ticks = n, landed = id }
+function Items:Update(sim, input): { [string]: any }
+	local events = {}
+	self:_spin(events)
+
+	-- Pickup. The server has the final say on whether the box was still
+	-- there, so this is only a request.
+	if #self.held < IT.MaxHeld then
+		local box = self.boxes:Touch(sim.hitbox.CFrame, sim.hitbox.Size)
+		-- `Taken` is set by the SERVER, so there's a round-trip window where
+		-- we'd happily ask again for a box we already claimed — and get
+		-- granted twice. Two boxes filling three slots was this.
+		if box and not box:GetAttribute("Taken") and not self.pending[box] then
+			self.pending[box] = true
+			self.pickup:FireServer(box)
+		end
+	end
+
+	-- Use.
+	-- First slot that has finished spinning. A slot mid-roulette holds
+	-- space but can't be fired, so you can't jump the reveal.
+	local readyIndex = nil
+	for i, slot in self.held do
+		if slot.item then
+			readyIndex = i
+			break
+		end
+	end
+
+	if input.consumeItemUse() and readyIndex then
+		local order = Standings.order(allKarts())
+		local ctx = {
+			sim = sim,
+			kart = self.kart,
+			aheadOf = function(k)
+				return Standings.ahead(order, k)
+			end,
+			-- Everyone in front, best first. Lightning needs the whole list;
+			-- nothing may ever return the racers BEHIND, which is the one
+			-- rule keeping items a catch-up tool.
+			aheadAll = function(k)
+				local place = Standings.placeOf(order, k)
+				local out = {}
+				for i = 1, place - 1 do
+					table.insert(out, order[i].kart)
+				end
+				return out
+			end,
+			dropHazard = function(cf, itemId)
+				self.hazardRemote:FireServer("drop", cf, itemId)
+			end,
+			fireProjectile = function(itemId, target)
+				self.projectileRemote:FireServer(itemId, target)
+			end,
+			fire = function(target, payload)
+				self.hit:FireServer(target, payload)
+			end,
+		}
+		-- Only removed if it actually fired, so an item that couldn't do
+		-- anything stays in your hand rather than being silently binned.
+		local item = self.held[readyIndex].item
+		local ok, reason = item.Use(ctx)
+		if ok ~= false then
+			table.remove(self.held, readyIndex)
+			events.used = item.Id
+		else
+			events.failed = reason
+		end
+	end
+
+	-- Hazards. Detected locally and applied to OURSELVES only, same rule
+	-- as everything else: no client ever tells another client it was hit.
+	local hz = self.hazards:Touch(sim.hitbox.CFrame, sim.hitbox.Size)
+	if hz then
+		local armAt = hz:GetAttribute("ArmAt")
+		local mine = hz:GetAttribute("OwnerUserId") == Players.LocalPlayer.UserId
+		-- Your own mine can't hit you until it's armed, so dropping one at
+		-- speed doesn't spin the person who dropped it.
+		local live = not (mine and typeof(armAt) == "number" and os.clock() < armAt)
+		if live then
+			-- Which hazard this is comes off the part, so one code path
+			-- serves mines, oil and anything added later.
+			local item = Registry.byId(hz:GetAttribute("HazardItem") or "Mine")
+			if item then
+				local landed = sim:Spinout(item.SpinTime, item.SpeedKeep, item.StunTime)
+				events[if landed then "hit" else "blocked"] = {
+					hazard = true,
+					note = item.HitNote or 1,
+				}
+				if landed then
+					self:_dropAll(events)
+				end
+				self.hazardRemote:FireServer("hit", hz)
+			end
+		end
+	end
+
+	-- Being hit is applied here rather than in the remote handler, so it
+	-- lands inside the frame loop with everything else.
+	if self.incoming then
+		local payload = self.incoming
+		self.incoming = nil
+		local landed = sim:Spinout(payload.spin, payload.keep, payload.stun)
+		-- Scramble carries no spin, so Spinout reports nothing landed and
+		-- the shield check has to be asked separately — otherwise a
+		-- zero-spin hit would bypass a shield entirely.
+		if payload.reverse and payload.reverse > 0 and not sim:HasShield() then
+			sim:Scramble(payload.reverse)
+			landed = true
+		end
+		events[if landed then "hit" else "blocked"] = payload
+	end
+
+	return events
+end
+
+-- What each slot should display, front first. Spinning slots cycle
+-- through the whole pool so the reveal reads as a roulette.
+function Items:HeldSlots(): { { name: string, icon: string, rolling: boolean } }
+	local out = {}
+	local pool = Registry.All
+	for _, slot in self.held do
+		-- A spinning slot shows whichever item it's cycling past, icon and
+		-- all, so the reveal is something you watch rather than read.
+		local shown = slot.item or pool[(slot.showIndex - 1) % #pool + 1]
+		table.insert(out, {
+			name = shown.Name,
+			icon = shown.Icon or "",
+			tint = shown.Tint,
+			rolling = slot.item == nil,
+		})
+	end
+	return out
+end
+
+function Items:Destroy()
+	for _, c in self.conns do
+		c:Disconnect()
+	end
+	self.boxes:Destroy()
+	self.hazards:Destroy()
+end
+
+return Items
