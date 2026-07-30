@@ -16,6 +16,19 @@ return {
 	HitboxSize = Vector3.new(4, 2.4, 7),
 
 	VisualName = "KartVisual", -- optional Model in ServerStorage
+
+	-- Per-player art, for trying a new model on one account without
+	-- giving it to everybody. Roblox username -> Model name in
+	-- ServerStorage. Anyone not listed gets VisualName as normal.
+	--
+	-- Purely cosmetic and it has to stay that way: the hitbox is forced
+	-- to HitboxSize whatever the art is, so a bespoke kart can never be
+	-- a faster kart. That is the whole reason this is safe to ship.
+	--
+	-- Empty this table when the new model goes live for everyone.
+	VisualByPlayer = {
+		Obus1n = "Kart",
+	},
 	VisualOffset = Vector3.new(0, 0, 0),
 
 	--== PAINT =========================================================

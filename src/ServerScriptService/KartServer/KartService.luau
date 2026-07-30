@@ -119,7 +119,12 @@ end
 --=====================================================================
 --  SPAWNING
 --=====================================================================
-local function createKart(name: string, slot: number): Model
+-- Which art this player gets. Cosmetic only — see Rig.VisualByPlayer.
+local function visualFor(player: Player?): string?
+	return player and RIG.VisualByPlayer[player.Name] or nil
+end
+
+local function createKart(name: string, slot: number, player: Player?): Model
 	local pad = Placement.findSpawn()
 	if pad then
 		log("spawn pad: %s at %s", pad:GetFullName(), tostring(pad.Position))
@@ -128,7 +133,7 @@ local function createKart(name: string, slot: number): Model
 			:format(tostring(RIG.FallbackCF.Position)))
 	end
 
-	local kart = KartFactory.build(KartFactory.colorFor(slot))
+	local kart = KartFactory.build(KartFactory.colorFor(slot), visualFor(player))
 	kart.Name = name
 	kart:PivotTo(Placement.cframeFor(pad, slot))
 	kart.Parent = workspace
@@ -179,14 +184,20 @@ local function spawnKartFor(player: Player)
 	local slot = takeSlot(player)
 
 	local kart
-	if unclaimed and unclaimed.Parent and slot == 0 then
+	-- The start-line kart was built before anyone joined, so it carries
+	-- the DEFAULT art. A player with their own visual can't inherit it or
+	-- they'd silently get the placeholder — and since the first player to
+	-- join is always slot 0, that would be almost every test.
+	local ownArt = visualFor(player) ~= nil
+
+	if unclaimed and unclaimed.Parent and slot == 0 and not ownArt then
 		-- Only slot 0 can inherit the start-line kart; it was built in
 		-- slot 0's colour and position.
 		kart = unclaimed
 		unclaimed = nil
 		kart.Name = player.Name .. "_Kart"
 	else
-		kart = createKart(player.Name .. "_Kart", slot)
+		kart = createKart(player.Name .. "_Kart", slot, player)
 	end
 	log("%s -> slot %d", player.Name, slot)
 

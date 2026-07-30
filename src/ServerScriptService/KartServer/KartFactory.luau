@@ -42,7 +42,9 @@ function KartFactory.colorFor(slot: number): Color3
 	return palette[(slot % #palette) + 1]
 end
 
-function KartFactory.build(color: Color3?): Model
+-- `visualName` overrides which ServerStorage model is used as the art.
+-- Nil means RIG.VisualName, which is what everyone gets.
+function KartFactory.build(color: Color3?, visualName: string?): Model
 	local kart = Instance.new("Model")
 	kart.Name = "Kart"
 
@@ -84,14 +86,34 @@ function KartFactory.build(color: Color3?): Model
 	seatWeld.Parent = hitbox
 
 	-- Visual: yours if you supplied one, otherwise the placeholder.
-	local template = ServerStorage:FindFirstChild(RIG.VisualName)
+	local wanted = visualName or RIG.VisualName
+	local template = ServerStorage:FindFirstChild(wanted)
 	local visual: Model
 	if template and template:IsA("Model") then
 		visual = template:Clone()
 		visual.Name = "Visual"
-		log("using ServerStorage.%s as the kart visual", RIG.VisualName)
+		log("using ServerStorage.%s as the kart visual", wanted)
 	else
+		if visualName then
+			warn(("[KartFactory] no Model named %q in ServerStorage — using the placeholder."):format(wanted))
+		end
 		visual = PlaceholderVisual.build()
+	end
+
+	-- A supplied visual is DECORATION. Artists naturally model a whole
+	-- kart, seat and all, and welding that on would leave a second
+	-- VehicleSeat a player could sit in — outside the lock-in logic
+	-- entirely — plus a second part called Hitbox for everything that
+	-- looks one up by name to trip over.
+	--
+	-- Stripped here rather than asked for in the docs, because "delete
+	-- these two before exporting" is a rule someone forgets exactly once
+	-- and then spends an afternoon on.
+	for _, desc in visual:GetDescendants() do
+		if desc:IsA("VehicleSeat") or desc:IsA("Seat") or desc.Name == "Hitbox" then
+			log("stripping %s from the supplied visual — the factory owns that", desc.Name)
+			desc:Destroy()
+		end
 	end
 
 	visual.Parent = kart
