@@ -149,6 +149,66 @@ end
 --  Debug parts are CanQuery and CanCollide off, or the debugging tool
 --  becomes the bug.
 --=====================================================================
+-- THE RACING LINE ITSELF, drawn once.
+--
+-- Everything navigates by this — bots steer along it, missiles ride it,
+-- wrong-way reads it. Until now it was invisible, so "it's taking
+-- shortcuts" could mean the bot is cutting the line OR the line itself
+-- cuts the corner. Those need completely different fixes and look
+-- identical from the driving seat.
+--
+-- Blue balls are the checkpoints. The thin trail between them is the
+-- spline the checkpoints produce, which is what anything actually
+-- follows — if THAT goes through a wall, the fix is RouteTension or more
+-- checkpoints, not bot tuning.
+local lineParts: { BasePart } = {}
+local lineNodeCount = -1
+
+local function drawRacingLine()
+	local nodes = Route.nodes()
+	if #nodes == lineNodeCount then
+		return
+	end
+	for _, p in lineParts do
+		p:Destroy()
+	end
+	table.clear(lineParts)
+	lineNodeCount = #nodes
+	if #nodes == 0 then
+		return
+	end
+
+	local function marker(at: Vector3, size: number, colour: Color3, ball: boolean)
+		local p = Instance.new("Part")
+		p.Anchored = true
+		p.CanCollide = false
+		p.CanQuery = false
+		p.CanTouch = false
+		p.CastShadow = false
+		p.Material = Enum.Material.Neon
+		p.Color = colour
+		p.Transparency = 0.35
+		p.Shape = if ball then Enum.PartType.Ball else Enum.PartType.Block
+		p.Size = Vector3.one * size
+		p.Position = at
+		p.Parent = workspace
+		table.insert(lineParts, p)
+	end
+
+	for i, node in nodes do
+		marker(node.position + Vector3.yAxis * 2, 4, Color3.fromRGB(90, 170, 255), true)
+		-- Sampled between nodes, so the CURVE is visible rather than
+		-- guessed at from the checkpoints.
+		for k = 1, 7 do
+			local at = Route.pointAt(i - 1 + k / 8)
+			if at then
+				marker(at + Vector3.yAxis * 1.5, 1.1, Color3.fromRGB(255, 230, 120), false)
+			end
+		end
+	end
+	print(("[BotService] racing line drawn: %d checkpoints"):format(#nodes))
+end
+
 local function debugPart(bot, key: string, colour: Color3): BasePart
 	local part = bot.dbg[key]
 	if not part then
@@ -171,6 +231,7 @@ local function drawDebug(bot, aim: Vector3?, bend: number)
 	if not B.Debug then
 		return
 	end
+	drawRacingLine()
 	local from = bot.sim.pos
 
 	local line = debugPart(bot, "aim", Color3.fromRGB(255, 255, 255))
@@ -233,7 +294,11 @@ local function drive(bot, dt: number)
 	-- grows with speed: at 120 studs/s a fixed 18 studs is a seventh of
 	-- a second of warning, which is not enough to turn on.
 	----------------------------------------------------------------
-	local lookahead = B.LookaheadBase + speed * B.LookaheadPerSpeed
+	-- Shortened for a corner. A fixed lookahead aims at a point 50 studs
+	-- up the road, and on a bend that point is across the apex — so the
+	-- bot steers at it and cuts the corner. Every shortcut it takes is
+	-- this number being too big for the bend it's in.
+	local lookahead = (B.LookaheadBase + speed * B.LookaheadPerSpeed) * (1 - bend * B.LookaheadTighten)
 	local aheadU = bot.u + lookahead / Route.segmentLength(bot.u)
 	local aim = Route.pointAt(aheadU)
 	if not aim then
@@ -533,20 +598,6 @@ local function step(dt: number)
 		end)
 		if not ok then
 			warn("[BotService] " .. bot.name .. " step failed: " .. tostring(err))
-		end
-
-		-- The kart is UNANCHORED so its motion replicates smoothly, which
-		-- means Roblox physics is also acting on it — and it runs at 60Hz
-		-- while bots step at 30. Left alone, gravity accumulates between
-		-- our writes and walks the kart into the floor and off the map.
-		--
-		-- Writing the velocity we actually have does two jobs: it
-		-- overwrites whatever physics accumulated, and it gives clients
-		-- something to interpolate along between updates.
-		local hitbox = bot.kart.PrimaryPart
-		if hitbox then
-			hitbox.AssemblyLinearVelocity = bot.sim.travel * bot.sim.speed + bot.sim.up * bot.sim.vertVel
-			hitbox.AssemblyAngularVelocity = Vector3.zero
 		end
 
 		-- One line a second per bot when debugging. A bot that has stopped

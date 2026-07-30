@@ -79,6 +79,12 @@ return {
 	LookaheadBase = 18,
 	LookaheadPerSpeed = 0.28, -- extra studs per stud/s of speed
 
+	-- How much a corner SHORTENS the lookahead, 0..1. This is the
+	-- shortcut dial: a bot aiming 50 studs ahead on a bend is aiming
+	-- across the apex, and it will drive there. At 0.7 a hairpin cuts the
+	-- lookahead to a third and the bot follows the road round instead.
+	LookaheadTighten = 0.7,
+
 	SteerGain = 2.4, -- how hard it corrects toward the line. Higher is
 	-- twitchier, not faster
 	SteerSlew = 9, -- how fast its steering input can move. This is what
@@ -122,5 +128,12 @@ return {
 	-- one that always lobs everything up the road.
 	ForwardChance = 0.65,
 
-	Debug = false,
+	-- Draws the racing line (blue checkpoints, yellow spline between
+	-- them), a white line to where each bot is steering, and a throttle
+	-- bar above it that turns red when it thinks it's cornering.
+	--
+	-- The racing line is the one that settles arguments: if THAT cuts a
+	-- corner, no amount of bot tuning helps — it's RouteTension or more
+	-- checkpoints.
+	Debug = true,
 }

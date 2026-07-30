@@ -277,13 +277,20 @@ function KartService.addBot(name: string): (any, Model)
 	local kart = createKart(name .. "_Kart", slot, racer)
 	karts[racer] = kart
 
-	-- Unanchored and server-owned. An anchored part moved from a server
-	-- loop replicates as bare position updates with no interpolation —
-	-- the same thing that made missiles stutter. Physics-replicated
-	-- motion is interpolated for free.
+	-- ANCHORED, unlike a player's.
+	--
+	-- A player's kart is unanchored because their client OWNS it —
+	-- Roblox replicates an owned physics part smoothly. A bot has no
+	-- owner, so leaving it unanchored means the server writes its CFrame
+	-- while Roblox physics integrates the same part underneath, sixty
+	-- times a second. Those two fight, and the fight is visible as a
+	-- flicker.
+	--
+	-- Anchored there is no physics to fight: the CFrame we write is the
+	-- only thing that moves it.
 	local hitbox = kart.PrimaryPart
 	if hitbox then
-		hitbox.Anchored = false
+		hitbox.Anchored = true
 	end
 	return racer, kart
 end
