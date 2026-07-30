@@ -22,6 +22,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local BloxKart = ReplicatedStorage:WaitForChild("BloxKart")
 
 local Route = require(BloxKart:WaitForChild("Route"))
+local Util = require(BloxKart:WaitForChild("Util"))
 
 local Ballistics = {}
 
@@ -161,6 +162,60 @@ local function followTerrain(p: State, dt: number, rayParams: RaycastParams)
 end
 
 --=====================================================================
+--  OBSTACLE AVOIDANCE
+--
+--  Waypoints say WHERE to go, not HOW to get there. Aiming straight at
+--  the next checkpoint cuts the corner, which is usually what you want
+--  from a missile — right up until the corner it's cutting has a cliff
+--  in it, and the missile buries itself in the scenery having taken the
+--  "short cut".
+--
+--  Three probes: straight ahead, and one to each side. If the nose is
+--  blocked, steer toward whichever side has more room. That's the
+--  standard trick for a projectile and it's the right size of tool
+--  here — a navmesh path would be far heavier, recomputed per missile,
+--  and still wouldn't understand a banked corner or a loop, both of
+--  which this handles for free because the probes rotate about the
+--  projectile's OWN up.
+--
+--  Deliberately reactive rather than planned: it doesn't know the way
+--  round, it just refuses to fly into things. Combined with the route
+--  that's enough — the waypoints supply the plan.
+--=====================================================================
+local function avoid(p: State, dt: number, rayParams: RaycastParams)
+	local item = p.item
+	if not (item.AvoidDistance and item.AvoidStrength) then
+		return
+	end
+
+	local floorDot = item.FloorDot or 1
+	local blocked = workspace:Raycast(p.pos, p.dir * item.AvoidDistance, rayParams)
+	-- Floors aren't obstacles; followTerrain already handles rising ground,
+	-- and swerving away from the road would be exactly wrong.
+	if not blocked or blocked.Normal:Dot(p.up) >= floorDot then
+		return
+	end
+
+	-- Which way round? Whichever whisker sees further.
+	local ang = math.rad(item.AvoidAngle or 40)
+	local left = Util.rotateAbout(p.dir, p.up, ang)
+	local right = Util.rotateAbout(p.dir, p.up, -ang)
+	local lh = workspace:Raycast(p.pos, left * item.AvoidDistance, rayParams)
+	local rh = workspace:Raycast(p.pos, right * item.AvoidDistance, rayParams)
+	local ld = if lh then (lh.Position - p.pos).Magnitude else math.huge
+	local rd = if rh then (rh.Position - p.pos).Magnitude else math.huge
+
+	local escape = if ld >= rd then left else right
+
+	-- Urgency scales with how close the wall is, so it drifts around a
+	-- distant obstruction and yanks hard at a near one. A flat rate either
+	-- swerves at everything or reacts too late to matter.
+	local gap = (blocked.Position - p.pos).Magnitude
+	local urgency = 1 - math.clamp(gap / item.AvoidDistance, 0, 1)
+	p.dir = p.dir:Lerp(escape, math.min(item.AvoidStrength * urgency * dt, 1)).Unit
+end
+
+--=====================================================================
 --  STEP
 --=====================================================================
 
@@ -180,6 +235,9 @@ function Ballistics.step(p: State, dt: number, target: Target?, rayParams: Rayca
 		end
 	end
 
+	-- AFTER the aim, so avoidance overrides it. The waypoint says where to
+	-- go; this says what not to fly into, and it has to win.
+	avoid(p, dt, rayParams)
 	followTerrain(p, dt, rayParams)
 
 	local delta = p.dir * p.item.Speed * dt
