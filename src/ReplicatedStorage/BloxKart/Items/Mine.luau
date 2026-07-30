@@ -48,7 +48,7 @@ return {
 		-- a loop.
 		local drop, lift = 12, 1.5
 		local at = ctx.sim.pos + ctx.sim.forward * (if ctx.back then -drop else IT.ThrowAhead) + ctx.sim.up * lift
-		ctx.dropHazard(CFrame.lookAt(at, at + ctx.sim.forward, ctx.sim.up), "Mine")
+		ctx.dropHazard(CFrame.lookAt(at, at + ctx.sim.forward, ctx.sim.up), "Mine", ctx.charge)
 		return true
 	end,
 }

@@ -23,7 +23,6 @@ local Names = require(BloxKart:WaitForChild("Names"))
 local Config = require(BloxKart:WaitForChild("Config"))
 local Match = require(BloxKart:WaitForChild("Match"))
 local Items = require(BloxKart:WaitForChild("Items"))
-local Triggers = require(BloxKart:WaitForChild("Triggers"))
 local MatchService = require(script.Parent.MatchService)
 local KartService = require(script.Parent.KartService)
 
@@ -57,85 +56,64 @@ local hitRemote: RemoteEvent
 --=====================================================================
 --  FLIGHT  (thrown hazards and scattered drops)
 --
---  Properly ballistic: a velocity, gravity, and a bounce on landing.
+--  Handed to Roblox's physics rather than integrated by hand, which is
+--  the opposite of what the kart and the missile do — and right for the
+--  same reason those are wrong.
 --
---  The first version slid the item along the floor at a decaying speed,
---  and it never read as a throw — an arc is the entire tell that
---  something was thrown rather than placed in front of you.
+--  A thrown item is plain ballistics with nobody steering it. It needs
+--  no determinism, no route and no feel, so the only thing that matters
+--  is that everyone SEES it thrown. Moving an anchored part from a
+--  server loop replicates as bare position updates with no interpolation
+--  — over a 0.6s arc that's a dozen steps and it reads as a stutter or a
+--  teleport. Exactly what was wrong with the missile before it was
+--  rendered client-side.
 --
---  Gravity pulls along the THROWER'S up rather than the world's, so a
---  throw on a loop arcs onto the ceiling exactly as it would on flat
---  ground. Same reasoning as the kart's own surface gravity.
+--  An unanchored part with a velocity on it is interpolated by Roblox's
+--  own replication, so it arcs smoothly for everybody at no cost in code
+--  or bandwidth.
 --
---  Server-side so everyone sees one throw, and so the thrower doesn't
---  get to decide where it ends up.
+--  TRADE: physics gravity is world-down, so an item thrown ON A LOOP
+--  falls off it rather than arcing onto the ceiling. Everything else in
+--  this game is surface-relative, and this deliberately isn't — a
+--  hand-integrated arc was surface-correct and looked broken, which is
+--  the worse of the two.
 --=====================================================================
-local flying = {}
+local settling = {}
 
-local throwParams = RaycastParams.new()
-throwParams.FilterType = Enum.RaycastFilterType.Exclude
+local function launch(part: BasePart, vel: Vector3, lifetime: number)
+	-- Collidable while airborne or it falls through the road; back off
+	-- on landing so it never blocks anyone. Karts ignore it either way —
+	-- hazards are in the trigger filter.
+	part.Anchored = false
+	part.CanCollide = true
+	part.AssemblyLinearVelocity = vel
+	-- A little spin, so it tumbles rather than sliding through the air
+	-- facing one way.
+	part.AssemblyAngularVelocity = Vector3.new(math.random() * 8 - 4, math.random() * 8 - 4, math.random() * 8 - 4)
 
-local function refreshThrowFilter()
-	-- Karts and triggers excluded, or a throw lands on the roof of the
-	-- kart that threw it, or on top of a checkpoint volume.
-	local skip = {}
-	for _, kart in CollectionService:GetTagged(Names.KART_TAG) do
-		table.insert(skip, kart)
-	end
-	for _, plr in Players:GetPlayers() do
-		if plr.Character then
-			table.insert(skip, plr.Character)
-		end
-	end
-	Triggers.collect(skip)
-	for _, f in flying do
-		table.insert(skip, f.part)
-	end
-	throwParams.FilterDescendantsInstances = skip
+	table.insert(settling, {
+		part = part,
+		-- Settled when it stops moving, or when this runs out — a throw
+		-- off the edge of the map would otherwise never settle.
+		stop = os.clock() + math.min(Config.Items.ThrowTime, lifetime),
+	})
 end
 
-local function stepThrows(dt: number)
-	if #flying == 0 then
-		return
-	end
-	refreshThrowFilter()
-
-	local IT = Config.Items
+-- Freeze anything that has come to rest, so a hazard doesn't get nudged
+-- around the track by whatever brushes it afterwards.
+local function stepSettling()
 	local now = os.clock()
-
-	for i = #flying, 1, -1 do
-		local f = flying[i]
-		if not f.part.Parent or now >= f.stop then
-			table.remove(flying, i)
+	for i = #settling, 1, -1 do
+		local f = settling[i]
+		local part = f.part
+		if not part.Parent then
+			table.remove(settling, i)
 			continue
 		end
-
-		f.vel -= f.up * IT.ThrowGravity * dt
-		local step = f.vel * dt
-
-		-- Cast a little past the step, by the item's own half-height, so
-		-- it lands ON the road rather than with its middle in it.
-		local reach = step.Magnitude + f.lift
-		local dir = if step.Magnitude > 1e-4 then step.Unit else -f.up
-		local hit = workspace:Raycast(f.part.Position, dir * reach, throwParams)
-
-		if not hit then
-			f.part.Position += step
-			continue
-		end
-
-		f.part.Position = hit.Position + hit.Normal * f.lift
-
-		-- Bounce, losing speed each time. A couple of hops sells the
-		-- weight; more and it wanders somewhere neither player expects.
-		if f.bounces > 0 and f.vel.Magnitude > 12 then
-			f.bounces -= 1
-			f.vel = (f.vel - 2 * f.vel:Dot(hit.Normal) * hit.Normal) * IT.ThrowBounce
-			-- Landing re-references gravity to the surface it hit, so an
-			-- item that lands on a banked corner settles into the bank.
-			f.up = hit.Normal
-		else
-			table.remove(flying, i)
+		if now >= f.stop or part.AssemblyLinearVelocity.Magnitude < 3 then
+			part.Anchored = true
+			part.CanCollide = false
+			table.remove(settling, i)
 		end
 	end
 end
@@ -294,7 +272,7 @@ function RaceService.start()
 	hazardRemote.Name = "KartHazard"
 	hazardRemote.Parent = BloxKart
 
-	hazardRemote.OnServerEvent:Connect(function(player, action, arg, itemId, back)
+	hazardRemote.OnServerEvent:Connect(function(player, action, arg, itemId, back, power)
 		if action == "drop" then
 			-- Racing only, same reason as the boxes. "hit" is deliberately
 			-- NOT gated: a hazard left on the track when the round ended
@@ -355,11 +333,18 @@ function RaceService.start()
 						end
 					end
 					for _, d in parts do
-						d.Anchored = true
+						-- WELDED, not anchored. The hazard part is unanchored
+						-- while it's in the air, and anchored art would stay
+						-- hanging where it was created while the thing it
+						-- decorates arcs away without it.
+						d.Anchored = false
 						d.CanCollide = false
 						d.CanQuery = false
 						d.CanTouch = false
 						d.Massless = true
+						local weld = Instance.new("WeldConstraint")
+						weld.Part0, weld.Part1 = hz, d
+						weld.Parent = hz
 					end
 				else
 					warn(
@@ -377,17 +362,18 @@ function RaceService.start()
 
 			-- Thrown forward: it leaves the kart and travels. Dropped
 			-- backwards it just sits where it was put.
+			-- Thrown forward: it arcs out of the kart. Dropped backwards it
+			-- just sits where it was put.
 			if not back then
-				table.insert(flying, {
-					part = hz,
-					-- Forward AND up: the lift is what makes it an arc
-					-- rather than a shove along the floor.
-					vel = arg.LookVector * IT.ThrowSpeed + arg.UpVector * IT.ThrowLift,
-					up = arg.UpVector,
-					lift = spec.Size.Y * 0.5,
-					bounces = IT.ThrowBounces,
-					stop = os.clock() + IT.ThrowTime,
-				})
+				-- Wind-up scales the FORWARD speed only. Lift stays put, so
+				-- a weak throw is a short lob at the same height rather than
+				-- a sad little hop — it's how far it goes that the player is
+				-- choosing, not how high.
+				--
+				-- Clamped here because it arrived from a client.
+				local charge = math.clamp(tonumber(power) or 1, 0, 1)
+				local reach = IT.ThrowSpeed * (IT.ThrowMinPower + (1 - IT.ThrowMinPower) * charge)
+				launch(hz, arg.LookVector * reach + arg.UpVector * IT.ThrowLift, item.Lifetime)
 			end
 
 			task.delay(item.Lifetime, function()
@@ -421,7 +407,7 @@ function RaceService.start()
 				-- placed in a tidy row: they were knocked out of a kart, so
 				-- they should look like it.
 				drop.CFrame = arg
-				drop.Anchored = true
+				drop.Anchored = true -- launch() unanchors it
 				drop.CanCollide = false
 				drop.CanQuery = true -- clients find it with a spatial query
 				drop.Transparency = 1 -- the billboard IS the visual
@@ -434,42 +420,46 @@ function RaceService.start()
 				bb.LightInfluence = 0
 				bb.Parent = drop
 
-				-- Tinted tile behind the icon, so an item whose art hasn't
-				-- been uploaded yet still reads as a coloured token rather
-				-- than as nothing at all.
-				local tile = Instance.new("Frame")
-				tile.Size = UDim2.fromScale(1, 1)
-				tile.BackgroundColor3 = item.Tint or Color3.fromRGB(200, 200, 200)
-				tile.BackgroundTransparency = 0.25
-				tile.BorderSizePixel = 0
-				tile.Parent = bb
-				local round = Instance.new("UICorner")
-				round.CornerRadius = UDim.new(0.2, 0)
-				round.Parent = tile
-
-				local icon = Instance.new("ImageLabel")
-				icon.Size = UDim2.fromScale(0.8, 0.8)
-				icon.Position = UDim2.fromScale(0.5, 0.5)
-				icon.AnchorPoint = Vector2.new(0.5, 0.5)
-				icon.BackgroundTransparency = 1
-				icon.Image = item.Icon or ""
-				icon.Parent = bb
+				-- Just the icon, floating. No panel behind it: on a track
+				-- these sit among scenery and a solid tile reads as a UI
+				-- element someone left lying about rather than as a thing
+				-- in the world.
+				local hasIcon = (item.Icon or "") ~= ""
+				if hasIcon then
+					local icon = Instance.new("ImageLabel")
+					icon.Size = UDim2.fromScale(1, 1)
+					icon.BackgroundTransparency = 1
+					icon.Image = item.Icon
+					icon.Parent = bb
+				else
+					-- Fallback ONLY when there's no art yet. Without it an
+					-- item with no icon would be an invisible pickup, which
+					-- is worse than an ugly one.
+					local tile = Instance.new("Frame")
+					tile.Size = UDim2.fromScale(0.7, 0.7)
+					tile.Position = UDim2.fromScale(0.5, 0.5)
+					tile.AnchorPoint = Vector2.new(0.5, 0.5)
+					tile.BackgroundColor3 = item.Tint or Color3.fromRGB(200, 200, 200)
+					tile.BackgroundTransparency = 0.2
+					tile.BorderSizePixel = 0
+					tile.Parent = bb
+					local round = Instance.new("UICorner")
+					round.CornerRadius = UDim.new(0.2, 0)
+					round.Parent = tile
+				end
 
 				-- Fanned across the road, evenly either side of the victim,
 				-- so a full stack doesn't land as one unpickable pile.
 				local fan = (i - (#itemId + 1) * 0.5) / math.max(#itemId, 1)
-				table.insert(flying, {
-					part = drop,
-					vel = arg.RightVector * (fan * 2 * IT.DropScatter)
+				launch(
+					drop,
+					arg.RightVector * (fan * 2 * IT.DropScatter)
 						+ arg.UpVector * IT.DropPop
 						-- A little backwards, so they land behind the spinout
 						-- rather than in the path of whoever caused it.
 						- arg.LookVector * IT.DropScatter * 0.4,
-					up = arg.UpVector,
-					lift = IT.DropSize * 0.5,
-					bounces = IT.ThrowBounces,
-					stop = os.clock() + IT.ThrowTime,
-				})
+					IT.DropLifetime
+				)
 
 				CollectionService:AddTag(drop, IT.DropTag)
 				task.delay(IT.DropLifetime, function()
@@ -491,7 +481,7 @@ function RaceService.start()
 		end
 	end)
 
-	RunService.Heartbeat:Connect(stepThrows)
+	RunService.Heartbeat:Connect(stepSettling)
 
 	Players.PlayerRemoving:Connect(function(player)
 		local kart = KartService.kartFor(player)

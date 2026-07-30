@@ -48,7 +48,7 @@ return {
 		local at = ctx.sim.pos
 			+ ctx.sim.forward * (if ctx.back then -10 else IT.ThrowAhead)
 			+ ctx.sim.up * 0.6
-		ctx.dropHazard(CFrame.lookAt(at, at + ctx.sim.forward, ctx.sim.up), "OilSpill")
+		ctx.dropHazard(CFrame.lookAt(at, at + ctx.sim.forward, ctx.sim.up), "OilSpill", ctx.charge)
 		return true
 	end,
 }

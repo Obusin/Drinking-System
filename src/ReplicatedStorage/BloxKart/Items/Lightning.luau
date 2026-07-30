@@ -5,17 +5,16 @@
 	the front, so in practice it's what last place occasionally gets to
 	turn a race around.
 
-	WHY IT ONLY HITS FORWARD
-	------------------------
-	Same rule as the missile: nothing ever hits backwards. Mario Kart's
-	lightning zaps the whole field including the people behind you, which
-	is only fair because it's near-impossible to roll while leading. Ours
-	keeps the simpler guarantee — an item can never be used to extend a
-	lead — because that one rule is most of what stops a kart item system
-	feeling unfair.
+	EVERYONE IN THE DIRECTION YOU THREW IT
+	--------------------------------------
+	Q hits everybody in front, E everybody behind. Worked out from a dot
+	product against where you're pointing, not from the standings — those
+	only contain racers whose progress has replicated, so anyone who
+	hasn't reported yet is invisible to them, and so is your own place.
+	That made this item silently do nothing.
 
-	Hits nobody when you're already first, so it refuses to fire and stays
-	in your hand rather than being wasted.
+	Hits nobody when there's nobody that way, in which case it refuses to
+	fire and stays in your hand rather than being wasted.
 --]]
 
 return {
@@ -38,9 +37,9 @@ return {
 	HitNote = 3,
 
 	Use = function(ctx)
-		local targets = ctx.aheadAll(ctx.kart)
+		local targets = ctx.everyone()
 		if #targets == 0 then
-			return false, "nobody ahead"
+			return false, if ctx.back then "nobody behind" else "nobody ahead"
 		end
 		for _, kart in targets do
 			ctx.fire(kart, {

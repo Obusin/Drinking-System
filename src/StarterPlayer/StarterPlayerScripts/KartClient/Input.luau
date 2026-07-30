@@ -37,6 +37,11 @@ local Input = {
 	resetRequested = false,
 	itemRequested = false,
 	itemBackRequested = false,
+	-- 0..1, how long the throw button was held. Read alongside
+	-- consumeItemUse; meaningless without it.
+	itemCharge = 0,
+	-- Live while the button is down, for the HUD to show the wind-up.
+	itemCharging = 0,
 	freeLooking = false,
 	lookingBack = false,
 	lookYaw = 0,
@@ -82,9 +87,23 @@ local function onReset(_, state: Enum.UserInputState)
 	return Enum.ContextActionResult.Sink
 end
 
+-- HELD, then thrown on release. A tap lobs it at your feet, a full hold
+-- throws it as far as it goes.
+--
+-- Only the forward throw charges. Dropping something behind you is a
+-- defensive reflex — making that one wait for a wind-up would mean
+-- being hit while holding the button that was meant to save you.
+local itemDownAt = 0
+
 local function onItem(_, state: Enum.UserInputState)
 	if state == Enum.UserInputState.Begin then
-		Input.itemRequested = true
+		itemDownAt = os.clock()
+	elseif state == Enum.UserInputState.End or state == Enum.UserInputState.Cancel then
+		if itemDownAt > 0 then
+			Input.itemCharge = math.clamp((os.clock() - itemDownAt) / Config.Items.ThrowChargeTime, 0, 1)
+			Input.itemRequested = true
+			itemDownAt = 0
+		end
 	end
 	return Enum.ContextActionResult.Sink
 end
@@ -141,7 +160,9 @@ function Input.tapNitro()
 	Input.nitroTaps += 1
 end
 
+-- Touch: the pad has no press-and-hold, so a tap is a full throw.
 function Input.tapItem()
+	Input.itemCharge = 1
 	Input.itemRequested = true
 end
 
@@ -256,6 +277,12 @@ end
 -- unless the player is actively looking, because a racing camera that
 -- stays where you left it is a hazard.
 function Input.update(dt: number)
+	-- Live wind-up, for the HUD. Separate from itemCharge, which is
+	-- latched at the moment of release and read once.
+	Input.itemCharging = if itemDownAt > 0
+		then math.clamp((os.clock() - itemDownAt) / Config.Items.ThrowChargeTime, 0, 1)
+		else 0
+
 	if Input.padLook.Magnitude > 0 then
 		Input.lookYaw -= Input.padLook.X * CAM.PadLookSens * dt
 		Input.lookPitch = math.clamp(
@@ -307,6 +334,9 @@ function Input.unbind()
 	Input.resetRequested = false
 	Input.itemRequested = false
 	Input.itemBackRequested = false
+	Input.itemCharge = 0
+	Input.itemCharging = 0
+	itemDownAt = 0
 	Input.freeLooking = false
 	Input.lookingBack = false
 	Input.lookYaw, Input.lookPitch = 0, 0

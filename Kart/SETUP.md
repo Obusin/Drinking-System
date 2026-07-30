@@ -140,9 +140,19 @@ A timer alone can't fix a forward throw: the trap is ahead of you and
 you're driving at it, so grace only delays the moment you hit your own
 item. Everyone else triggers it the instant it exists.
 
-**A forward throw travels** rather than appearing where it lands — it
-leaves the kart at `ThrowSpeed` and decelerates, following the road under
-it. Backwards it's still dropped where you are.
+**Hold `Q` to wind up, release to throw.** A tap lobs it just behind you;
+a full hold sends it ~18 studs clear ahead. `E` drops behind instantly —
+that's a defensive reflex and shouldn't wait for a wind-up.
+
+The throw is real physics: unanchored with a velocity on it, so Roblox
+interpolates it and everyone sees a smooth arc. Server-driven anchored
+parts replicate as bare position updates with no interpolation, which is
+what made the first version stutter.
+
+> Trade: physics gravity is world-down, so an item thrown **on a loop**
+> falls off it rather than arcing onto the ceiling. Everything else in
+> the game is surface-relative and this deliberately isn't — the
+> hand-integrated version was surface-correct and looked broken.
 
 **Being hit by anything that spins you drops your whole stack.** Scramble
 is the exception — it inverts your steering and takes nothing, so the

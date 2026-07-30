@@ -144,25 +144,34 @@ return {
 	--
 	-- Gravity is applied along the KART's up, not the world's, so a throw
 	-- on a loop arcs onto the ceiling exactly as it would on the ground.
-	-- Tuned against the arithmetic rather than by eye. At 180 gravity:
+	-- Tuned against the arithmetic rather than by eye. At Roblox's default
+	-- gravity (196):
 	--
-	--   lift 28 -> 0.30s airborne, 2 studs high. A flat shove.
-	--   lift 60 -> 0.65s airborne, 9.5 studs high. A throw.
+	--   lift 28 -> 0.29s airborne, 2 studs high. A flat shove.
+	--   lift 60 -> 0.61s airborne, 9.2 studs high. A throw.
 	--
 	-- Speed has to beat the kart or the item never gets away from the
-	-- thrower: 190 covers 124 studs in that 0.65s while the kart does 78,
-	-- so it lands a clear 46 studs ahead.
-	ThrowSpeed = 190, -- studs/s forward at release
+	-- thrower: 190 covers 116 studs in that 0.61s while the kart does 73,
+	-- so it lands a clear 43 studs ahead.
+	--
+	-- Gravity and bounce are Roblox's now — the arc is real physics, not
+	-- integrated here. Bounciness comes off the part's Material.
+	ThrowSpeed = 150, -- studs/s forward at a FULL wind-up
 	ThrowLift = 60, -- studs/s upward. This is the arc
-	ThrowGravity = 180, -- studs/s^2. High on purpose: a floaty item is
-	-- hard to aim and looks like it's underwater
+	ThrowTime = 4, -- give up waiting for it to settle after this, so an
+	-- item thrown off the edge of the map doesn't stay unanchored forever
 
-	-- Bounces on landing, losing this fraction of its speed each time.
-	-- A couple of hops sells the weight; more and it wanders somewhere
-	-- neither player expects.
-	ThrowBounce = 0.35,
-	ThrowBounces = 2,
-	ThrowTime = 4, -- hard stop, so nothing can drift forever off a ledge
+	--== WIND-UP =======================================================
+	-- Hold to charge, release to throw. A tap lobs it just ahead; a full
+	-- hold sends it as far as it goes. Turns "which item" into "which
+	-- item, and how far", which is a decision worth having on a straight.
+	--
+	-- Only the forward throw charges. Dropping something behind you is a
+	-- defensive reflex, and making that wait for a wind-up would mean
+	-- being hit while holding the button meant to save you.
+	ThrowChargeTime = 0.65, -- seconds to a full wind-up
+	ThrowMinPower = 0.28, -- a bare tap, as a fraction of ThrowSpeed. Not
+	-- 0, or a mistimed press drops the item on your own bonnet
 
 	--== SCATTER  (dropped items) ======================================
 	-- Items knocked out of you burst outward rather than appearing in a

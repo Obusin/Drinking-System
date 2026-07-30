@@ -240,6 +240,10 @@ function Items:Update(sim, input): { [string]: any }
 			-- means for it — a hazard flips where it lands, a missile flips
 			-- who it hunts.
 			back = back,
+			-- 0..1 wind-up. Backward drops are instant, so they're always
+			-- at full — there's nothing to charge when you're placing
+			-- something under your own back wheels.
+			charge = if fireBack then 1 else input.itemCharge,
 			aheadOf = function(k)
 				return Standings.ahead(order, k)
 			end,
@@ -248,19 +252,29 @@ function Items:Update(sim, input): { [string]: any }
 			victimOf = function(k)
 				return if back then Standings.behind(order, k) else Standings.ahead(order, k)
 			end,
-			-- Everyone in front, best first. Lightning needs the whole list;
-			-- nothing may ever return the racers BEHIND, which is the one
-			-- rule keeping items a catch-up tool.
-			aheadAll = function(k)
-				local place = Standings.placeOf(order, k)
+			-- Everyone in the direction this was thrown, GEOMETRICALLY.
+			--
+			-- Not from the standings. Those only contain karts whose
+			-- progress has replicated, so a racer who hasn't reported yet
+			-- simply isn't in them — and neither are you, in which case
+			-- your own place comes back 0 and "everyone ahead of me" is an
+			-- empty list. That's why Lightning appeared to do nothing.
+			--
+			-- A dot product needs nothing replicated and can't be empty for
+			-- a reason nobody can see.
+			everyone = function()
 				local out = {}
-				for i = 1, place - 1 do
-					table.insert(out, order[i].kart)
+				local sign = if back then -1 else 1
+				for _, k in Standings.allKarts() do
+					local hb = k.PrimaryPart
+					if k ~= self.kart and hb and (hb.Position - sim.pos):Dot(sim.forward) * sign > 0 then
+						table.insert(out, k)
+					end
 				end
 				return out
 			end,
-			dropHazard = function(cf, itemId)
-				self.hazardRemote:FireServer("drop", cf, itemId, back)
+			dropHazard = function(cf, itemId, power)
+				self.hazardRemote:FireServer("drop", cf, itemId, back, power)
 			end,
 			fireProjectile = function(itemId)
 				self.projectileRemote:FireServer(itemId, nil, back)
