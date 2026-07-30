@@ -164,6 +164,14 @@ return {
 	-- brisk or tight loops shed the kart.
 	AirAlignRate = 2.5, -- how fast up returns to world-up once genuinely
 	-- airborne, so you land upright
+	-- How far to look for track beneath a jumping kart before deciding
+	-- it's over open air and levelling out to world-up.
+	--
+	-- Generous on purpose: it only has to beat the height of a hop, and
+	-- being wrong the other way means falling off a loop. Anything under
+	-- the arc of a jump is fine.
+	AirSurfaceProbe = 40,
+
 	StickTime = 0.16, -- grace period after losing contact before world
 	-- gravity takes back over. Bridges seams and stair nosings.
 	StairSmoothing = true, -- average the probe normals instead of

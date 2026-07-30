@@ -156,7 +156,20 @@ local state: { [Model]: any } = {}
 local function stateFor(kart: Model)
 	local s = state[kart]
 	if not s then
-		s = { steer = 0, wheelSteer = 0, roll = 0, lastPos = nil, rig = nil, ikL = nil, ikR = nil, boundTo = nil }
+		s = {
+			steer = 0,
+			wheelSteer = 0,
+			roll = 0,
+			lastPos = nil,
+			counter = 0,
+			lastDrift = nil,
+			driftRate = 0,
+			saw = 0,
+			rig = nil,
+			ikL = nil,
+			ikR = nil,
+			boundTo = nil,
+		}
 		state[kart] = s
 	end
 	return s
@@ -174,6 +187,52 @@ local function report(reason: string?)
 		lastReason, lastReasonAt = reason, now
 		print("[Rider] " .. (reason or "hands on the wheel"))
 	end
+end
+
+--=====================================================================
+--  COUNTER-STEER
+--
+--  What a drift driver is actually DOING, expressed as an equivalent
+--  steering input (-1..1) so the steering wheel and the road wheels can
+--  both use it.
+--
+--  A fixed offset proportional to the slide angle is not what
+--  counter-steering looks like. A driver holding a drift is never still:
+--  they catch the slide as it develops, ease off as it settles, and saw
+--  at the wheel the whole way through. Three terms, and the middle one
+--  is the one that sells it:
+--
+--    HOLD   proportional to the slide — points the wheels down the road
+--    CATCH  proportional to how fast the slide is CHANGING — cranks hard
+--           while the rear is stepping out, unwinds as it hooks up. This
+--           is the correction itself rather than its result, and it's why
+--           the wheels move during a steady drift instead of sitting
+--           parked at an angle
+--    SAW    a small oscillation scaled by how sideways you are — the
+--           constant micro-corrections nobody makes deliberately
+--=====================================================================
+local function counterSteer(kart: Model, s, dt: number): number
+	local drift = kart:GetAttribute(Names.DRIFT)
+	drift = if typeof(drift) == "number" then drift else 0
+
+	-- Rate of change, smoothed — a raw frame-to-frame difference is pure
+	-- jitter and would make the wheels buzz rather than correct.
+	local raw = (drift - (s.lastDrift or drift)) / math.max(dt, 1e-3)
+	s.lastDrift = drift
+	s.driftRate = Util.approach(s.driftRate or 0, raw, RIG.RoadWheelCatchSmoothing, dt)
+
+	local maxLock = math.rad(RIG.RoadWheelSteer)
+	local hold = drift * RIG.RoadWheelCounterSteer
+	local catch = s.driftRate * RIG.RoadWheelCatch
+
+	-- Only while actually sideways, and faded in with the slide so it
+	-- doesn't twitch on a straight.
+	local sideways = math.clamp(math.abs(drift) / maxLock, 0, 1)
+	s.saw = (s.saw or 0) + dt * RIG.RoadWheelSawRate
+	local saw = math.sin(s.saw * math.pi * 2) * RIG.RoadWheelSaw * sideways
+
+	-- Negated: the wheels point AGAINST the way the body has swung.
+	return math.clamp(-(hold + catch + saw) / maxLock, -1, 1)
 end
 
 --=====================================================================
@@ -225,10 +284,9 @@ local function updateRoadWheels(kart: Model, s, dt: number)
 	-- Local kart only: driftAngle isn't replicated, so other people's
 	-- wheels just follow their steering. Worth it for the driver's own
 	-- view, which is the one that has to feel good.
-	local drift = kart:GetAttribute(Names.DRIFT)
-	if typeof(drift) == "number" then
-		lock -= drift * RIG.RoadWheelCounterSteer
-	end
+	-- Counter-steer, worked out once per frame and shared with the
+	-- steering wheel so the driver's hands and the front tyres agree.
+	lock += (s.counter or 0) * maxLock
 
 	-- Lock stop, which real steering has and which matters here for a
 	-- specific reason: a SPINOUT drives driftAngle through several whole
@@ -272,6 +330,11 @@ local function updateKart(kart: Model, dt: number)
 	local s = stateFor(kart)
 	local occupant = seat.Occupant
 
+	-- Before anything uses it: the steering wheel and the road wheels both
+	-- read this, and they have to agree or the driver's hands contradict
+	-- the tyres.
+	s.counter = counterSteer(kart, s, dt)
+
 	----------------------------------------------------------------
 	-- Wheel. SteerFloat is replicated from the driver, so this works
 	-- for other people's karts as well as our own. No Animator is
@@ -291,7 +354,13 @@ local function updateKart(kart: Model, dt: number)
 		targetSteer = if typeof(own) == "number" then own else seat.SteerFloat
 	end
 	s.steer = Util.approach(s.steer, targetSteer, R.WheelSmoothing, dt)
-	local spin = -s.steer * math.rad(R.MaxWheelAngle)
+
+	-- The hands saw at the wheel through a drift, and the IK follows them
+	-- for free. Scaled separately because a driver's arms don't move as
+	-- far as the tyres do — R.WheelCounterSteer = 0 keeps the wheel showing
+	-- pure input if you'd rather it matched the keys.
+	local shown = math.clamp(s.steer + s.counter * R.WheelCounterSteer, -1, 1)
+	local spin = -shown * math.rad(R.MaxWheelAngle)
 	motor.Transform = CFrame.Angles(0, 0, if R.InvertWheel then -spin else spin)
 
 	updateRoadWheels(kart, s, dt)

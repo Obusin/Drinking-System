@@ -119,6 +119,21 @@ return {
 	-- flips which way they crank, if it ends up mirrored on your model.
 	RoadWheelCounterSteer = 0.85,
 
+	-- CATCH: reacts to how fast the slide is CHANGING, not how big it is.
+	-- This is the term that makes the wheels move during a steady drift
+	-- instead of sitting parked at an angle — cranking as the rear steps
+	-- out and unwinding as it hooks up. Raise it for a twitchier, more
+	-- reactive driver; 0 leaves a static counter angle.
+	RoadWheelCatch = 0.14,
+	RoadWheelCatchSmoothing = 10, -- a raw frame-to-frame rate is jitter,
+	-- and unsmoothed it makes the wheels buzz rather than correct
+
+	-- SAW: the small constant corrections nobody makes deliberately.
+	-- Faded in with how sideways you are, so it never twitches on a
+	-- straight. Radians at full slide.
+	RoadWheelSaw = 0.07,
+	RoadWheelSawRate = 2.6, -- oscillations per second
+
 	--== COLLISION =====================================================
 	-- Karts pass through each other. Racers bumping is a whole physics
 	-- problem we don't need, and our movement is query-based anyway.

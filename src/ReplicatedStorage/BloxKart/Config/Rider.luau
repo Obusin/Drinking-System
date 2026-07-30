@@ -5,6 +5,16 @@
 
 return {
 	--== WHEEL =========================================================
+	-- How much of the drift counter-steer shows on the STEERING wheel, on
+	-- top of the player's own input. The hands follow via IK, so this is
+	-- what makes the driver look like they're working to hold a slide
+	-- rather than just holding a key.
+	--
+	-- Less than the tyres get, because a driver's arms don't travel as far
+	-- as the front wheels do. 0 shows pure input, which is the honest
+	-- reading of what the player is actually pressing.
+	WheelCounterSteer = 0.55,
+
 	MaxWheelAngle = 130, -- degrees of wheel rotation at full lock
 	WheelSmoothing = 9, -- how fast the wheel chases the input. Kept a
 	-- little AHEAD of Handling.SteerSmoothing on purpose: the driver

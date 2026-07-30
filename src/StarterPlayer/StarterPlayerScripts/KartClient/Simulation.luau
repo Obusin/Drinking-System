@@ -821,8 +821,23 @@ function Simulation:Step(dt: number, input): { [string]: any }
 	else
 		self.airTime += dt
 		if self.airTime >= H.StickTime then
-			-- Genuinely airborne. Settle back to world-up so you land level.
-			self.up = self.up:Lerp(Vector3.yAxis, math.min(H.AirAlignRate * dt, 1))
+			-- Genuinely airborne — but airborne over WHAT?
+			--
+			-- This used to settle straight back to world-up so you land
+			-- level off a ramp. On an inverted section that is exactly
+			-- wrong: your up points downward in world terms, so blending to
+			-- world-up rotates gravity 180 degrees and drops you off the
+			-- ceiling. Hopping repeatedly kept re-entering this branch and
+			-- accumulated the error until the kart let go.
+			--
+			-- So look before settling. Track still under us along our own
+			-- down means we're hopping ON a surface, however that surface
+			-- is oriented, and its normal stays our up. Only genuine open
+			-- air falls back to world-up, which is the case the original
+			-- rule was actually written for.
+			local probe = workspace:Raycast(self.pos, -self.up * H.AirSurfaceProbe, self.rayParams)
+			local settleTo = if probe then probe.Normal else Vector3.yAxis
+			self.up = self.up:Lerp(settleTo, math.min(H.AirAlignRate * dt, 1))
 		end
 		-- Below StickTime we keep the old up untouched: that grace
 		-- period carries the kart across seams, stair nosings and panel
