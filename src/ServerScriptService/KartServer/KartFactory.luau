@@ -128,6 +128,20 @@ function KartFactory.build(color: Color3?, visualName: string?): Model
 		end
 	end
 
+	-- And it must not be TAGGED as a kart. Clones carry tags, and art
+	-- copied out of a live kart brings the Kart tag with it — so every
+	-- Visual would answer GetTagged("Kart") and be counted as a racer.
+	--
+	-- That's worse than it sounds. Standings ranks it, so places are
+	-- wrong; and a missile handed one as a target finds no hitbox on it,
+	-- so it flies the whole route with nobody to home on and expires.
+	for _, inst in { visual, table.unpack(visual:GetDescendants()) } do
+		if CollectionService:HasTag(inst, KartFactory.TAG) then
+			log("un-tagging %s — art must never register as a kart", inst.Name)
+			CollectionService:RemoveTag(inst, KartFactory.TAG)
+		end
+	end
+
 	-- If the supplied art already has a steering wheel, that becomes the
 	-- hub and we skip building one. Its subtree must NOT be welded to
 	-- the hitbox or the Motor6D couldn't turn it.

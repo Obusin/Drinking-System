@@ -255,7 +255,15 @@ function ProjectileService.start()
 		end
 		-- Target is a hint from the client; if it isn't a real kart the
 		-- missile just flies the route rather than the call failing.
-		if typeof(target) ~= "Instance" or not (target:IsA("Model") and CollectionService:HasTag(target, Names.KART_TAG)) then
+		-- PrimaryPart required as well as the tag: a target with no hitbox
+		-- can never be homed on or hit, so the missile would fly the whole
+		-- route with nothing to chase and expire. Which is exactly what
+		-- happened when art carrying the Kart tag got handed over as a
+		-- target.
+		if
+			typeof(target) ~= "Instance"
+			or not (target:IsA("Model") and target.PrimaryPart and CollectionService:HasTag(target, Names.KART_TAG))
+		then
 			target = nil
 		end
 

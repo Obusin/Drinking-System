@@ -43,7 +43,11 @@ Standings.REMOTE = "KartProgressReport"
 function Standings.allKarts(): { Model }
 	local out = {}
 	for _, k in CollectionService:GetTagged(Names.KART_TAG) do
-		if k:IsA("Model") and k.Parent then
+		-- PrimaryPart required: everything downstream reads a position off
+		-- it, and anything tagged Kart without one is a mis-tag rather
+		-- than a racer. Belt and braces against art that arrives carrying
+		-- the tag — see KartFactory.
+		if k:IsA("Model") and k.Parent and k.PrimaryPart then
 			table.insert(out, k)
 		end
 	end

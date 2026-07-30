@@ -230,24 +230,35 @@ function RaceService.start()
 			if spec.Model then
 				local folder = ServerStorage:FindFirstChild(IT.HazardModelFolder)
 				local template = folder and folder:FindFirstChild(spec.Model)
-				if template and template:IsA("Model") then
+				-- A Model OR a single Part. Art is just as often one
+				-- MeshPart with decals on it as a whole model, and rejecting
+				-- that was a silent fallback to the grey box.
+				if template and (template:IsA("Model") or template:IsA("BasePart")) then
 					hz.Transparency = 1
 					local art = template:Clone()
 					art.Name = "Visual"
 					art.Parent = hz
-					art:PivotTo(hz.CFrame)
+					if art:IsA("Model") then
+						art:PivotTo(hz.CFrame)
+					else
+						art.CFrame = hz.CFrame
+					end
+					local parts = if art:IsA("BasePart") then { art } else {}
 					for _, d in art:GetDescendants() do
 						if d:IsA("BasePart") then
-							d.Anchored = true
-							d.CanCollide = false
-							d.CanQuery = false
-							d.CanTouch = false
-							d.Massless = true
+							table.insert(parts, d)
 						end
+					end
+					for _, d in parts do
+						d.Anchored = true
+						d.CanCollide = false
+						d.CanQuery = false
+						d.CanTouch = false
+						d.Massless = true
 					end
 				else
 					warn(
-						("[RaceService] %s wants model %q in ServerStorage.%s — not found, using the plain part."):format(
+						("[RaceService] %s wants %q in ServerStorage.%s — no Model or Part by that name, using the plain part."):format(
 							item.Id,
 							spec.Model,
 							IT.HazardModelFolder
