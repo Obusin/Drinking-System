@@ -101,24 +101,32 @@ function KartFactory.build(color: Color3?, visualName: string?): Model
 		visual = PlaceholderVisual.build()
 	end
 
+	visual.Parent = kart
+	visual:PivotTo(CFrame.new(RIG.VisualOffset))
+
+	-- STRIPPED AFTER PivotTo, and the order is load-bearing.
+	--
 	-- A supplied visual is DECORATION. Artists naturally model a whole
 	-- kart, seat and all, and welding that on would leave a second
 	-- VehicleSeat a player could sit in — outside the lock-in logic
-	-- entirely — plus a second part called Hitbox for everything that
-	-- looks one up by name to trip over.
+	-- entirely — plus a second part called Hitbox for anything that looks
+	-- one up by name to trip over.
 	--
-	-- Stripped here rather than asked for in the docs, because "delete
-	-- these two before exporting" is a rule someone forgets exactly once
-	-- and then spends an afternoon on.
+	-- But a Model's pivot comes from its PrimaryPart, and an authored kart
+	-- usually names that part Hitbox. Destroy it first and PrimaryPart
+	-- goes nil, so PivotTo falls back to the bounding-box centre — a
+	-- different origin, which lands the art somewhere else entirely. It
+	-- looks exactly like the custom kart failing to load.
+	--
+	-- Done in code rather than documented because "delete these two before
+	-- exporting" is a rule someone forgets exactly once and then spends an
+	-- afternoon on.
 	for _, desc in visual:GetDescendants() do
 		if desc:IsA("VehicleSeat") or desc:IsA("Seat") or desc.Name == "Hitbox" then
 			log("stripping %s from the supplied visual — the factory owns that", desc.Name)
 			desc:Destroy()
 		end
 	end
-
-	visual.Parent = kart
-	visual:PivotTo(CFrame.new(RIG.VisualOffset))
 
 	-- If the supplied art already has a steering wheel, that becomes the
 	-- hub and we skip building one. Its subtree must NOT be welded to
