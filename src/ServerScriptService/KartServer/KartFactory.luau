@@ -166,7 +166,10 @@ function KartFactory.build(color: Color3?, visualName: string?): Model
 				local motor = Instance.new("Motor6D")
 				motor.Name = "RoadWheelMotor"
 				motor.Part0, motor.Part1 = hitbox, desc
-				motor.C0 = hitbox.CFrame:ToObjectSpace(desc.CFrame)
+				-- About the wheel's own pivot. Anchored to its CFrame origin
+				-- instead, an imported wheel orbits that point rather than
+				-- spinning on its axle.
+				motor.C0, motor.C1 = Util.pivotJoint(hitbox, desc)
 				motor:SetAttribute(Names.WHEEL_FRONT, isFront)
 				motor.Parent = desc
 				log("%s -> %s road wheel", desc.Name, if isFront then "front" else "rear")

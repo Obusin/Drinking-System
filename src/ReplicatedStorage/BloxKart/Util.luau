@@ -85,6 +85,25 @@ function Util.font(name: string, weight: Enum.FontWeight): Font
 	return Font.fromEnum(Enum.Font.GothamBold)
 end
 
+-- C0/C1 for a Motor6D that rotates `part` about ITS OWN PIVOT rather
+-- than about its CFrame origin.
+--
+-- Identical for a plain Part, where the two coincide. Different for an
+-- imported mesh, whose pivot sits wherever the artist left the origin in
+-- Blender — often the world centre or the base of the model rather than
+-- the middle of the wheel.
+--
+-- Anchoring to the CFrame origin in that case makes a wheel ORBIT that
+-- point instead of spinning on its axle, which reads as the wheel having
+-- come off rather than turning.
+--
+-- Transform = identity still reproduces the part's original position, so
+-- this is always safe to use in place of a plain object-space C0.
+function Util.pivotJoint(root: BasePart, part: BasePart): (CFrame, CFrame)
+	local pivot = part:GetPivot()
+	return root.CFrame:ToObjectSpace(pivot), part.CFrame:ToObjectSpace(pivot)
+end
+
 function Util.logger(tag: string, enabled: boolean)
 	return function(fmt: string, ...)
 		if enabled then

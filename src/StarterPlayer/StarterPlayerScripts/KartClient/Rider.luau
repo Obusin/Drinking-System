@@ -206,8 +206,29 @@ local function updateRoadWheels(kart: Model, s, dt: number)
 	s.roll = (s.roll or 0) + moved / math.max(RIG.RoadWheelRadius, 0.1)
 
 	-- Fronts lag the input a touch, like the steering wheel does.
+	local maxLock = math.rad(RIG.RoadWheelSteer)
 	s.wheelSteer = Util.approach(s.wheelSteer or 0, s.steer, RIG.RoadWheelSteerRate, dt)
-	local lock = s.wheelSteer * math.rad(RIG.RoadWheelSteer)
+	local lock = s.wheelSteer * maxLock
+
+	-- Counter-steer. Mid-drift the body is yawed sideways while the kart
+	-- still travels roughly forwards, so cancelling that angle points the
+	-- fronts back down the ROAD instead of down the bodywork. It's the
+	-- detail that makes a drift look deliberate rather than like the kart
+	-- is simply facing the wrong way.
+	--
+	-- Local kart only: driftAngle isn't replicated, so other people's
+	-- wheels just follow their steering. Worth it for the driver's own
+	-- view, which is the one that has to feel good.
+	local drift = kart:GetAttribute(Names.DRIFT)
+	if typeof(drift) == "number" then
+		lock -= drift * RIG.RoadWheelCounterSteer
+	end
+
+	-- Lock stop, which real steering has and which matters here for a
+	-- specific reason: a SPINOUT drives driftAngle through several whole
+	-- revolutions, and without this the front wheels would whirl round
+	-- like a fan while the kart span.
+	lock = math.clamp(lock, -maxLock, maxLock)
 
 	for _, motor in kart:GetDescendants() do
 		if motor:IsA("Motor6D") and motor.Name == "RoadWheelMotor" then

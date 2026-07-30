@@ -64,8 +64,8 @@ return {
 	WheelRearTag = "KartWheelRear", -- rolls only
 
 	-- Fallback if nothing is tagged, so the built-in placeholder works.
-	FrontWheelNames = { "WheelFL", "WheelFR" },
-	RearWheelNames = { "WheelRL", "WheelRR" },
+	FrontWheelNames = { "WheelFL", "WheelFR", "FWheel", "WheelF" },
+	RearWheelNames = { "WheelRL", "WheelRR", "RWheel", "WheelR" },
 
 	RoadWheelSteer = 26, -- degrees of lock at full steer. Real karts turn
 	-- their fronts much further than a car; too little reads as broken
@@ -79,6 +79,16 @@ return {
 	-- this wrong makes the wheels rotate like plates instead of tyres.
 	-- If yours look wrong, this is the setting: try Vector3.zAxis.
 	RoadWheelAxis = Vector3.xAxis,
+
+	-- Counter-steer during a drift, as a fraction of the body's slide
+	-- angle. The body is yawed sideways while the kart still travels
+	-- roughly forwards, so cancelling that angle points the fronts back
+	-- down the ROAD — which is what a drifting car actually looks like
+	-- and the single detail that sells it.
+	--
+	-- 1 = perfectly aligned with travel, 0 = wheels follow the body and a
+	-- drift looks like the kart is just facing the wrong way.
+	RoadWheelCounterSteer = 0.85,
 
 	--== COLLISION =====================================================
 	-- Karts pass through each other. Racers bumping is a whole physics

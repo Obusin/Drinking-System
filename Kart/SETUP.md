@@ -156,8 +156,14 @@ non-colliding, massless, no say in the handling.
   `KartWheelRear` (roll only). Untagged parts named `WheelFL`/`WheelFR`/
   `WheelRL`/`WheelRR` work too. They get a Motor6D instead of a weld,
   because a weld can't be rotated at runtime.
+  - Wheels rotate about **their own pivot**, so set the origin at the
+    centre of the wheel in Blender. Anchored anywhere else it orbits that
+    point instead of spinning, which looks like the wheel came off.
   - If they spin like plates instead of tyres, your mesh rolls about a
     different axis — set `Config/Rig.RoadWheelAxis` to `Vector3.zAxis`.
+  - The fronts **counter-steer through a drift**, staying pointed down
+    the road while the body slides. `Config/Rig.RoadWheelCounterSteer`
+    (0.85); set 0 to have them just follow the body.
 
 **Don't include a `Seat` or a part named `Hitbox`** — the factory builds
 both and strips yours on clone, so a whole modelled kart is fine to drop

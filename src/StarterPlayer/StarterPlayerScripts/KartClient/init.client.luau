@@ -168,6 +168,9 @@ local function step(dt: number)
 	-- it stays local; other people's karts fall back to SteerFloat.
 	if sim.model then
 		sim.model:SetAttribute(Names.STEER, sim.steer)
+		-- ...and the slide angle, so the front wheels can cancel it and
+		-- stay pointed down the road through a drift.
+		sim.model:SetAttribute(Names.DRIFT, sim.driftAngle)
 	end
 
 	-- Dispatch. Simulation doesn't know these modules exist.

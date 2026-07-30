@@ -53,4 +53,10 @@ Names.WHEEL_FRONT = "IsFront"
 -- SteerFloat, which is correct for anyone on a keyboard.
 Names.STEER = "KartSteer"
 
+-- On a kart, written by its own driver's client alongside STEER. The
+-- visual drift angle in radians — how far the body is yawed away from
+-- where it's actually travelling. The front wheels cancel it so they
+-- stay pointed down the road; see Rider.
+Names.DRIFT = "KartDrift"
+
 return Names

@@ -11,6 +11,7 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.BloxKart.Config)
+local Util = require(ReplicatedStorage.BloxKart.Util)
 
 local RIG = Config.Rig
 
@@ -22,8 +23,9 @@ function SteeringWheel.motorise(hitbox: BasePart, hub: BasePart)
 	motor.Name = "WheelMotor"
 	motor.Part0 = hitbox
 	motor.Part1 = hub
-	motor.C0 = hitbox.CFrame:ToObjectSpace(hub.CFrame)
-	motor.C1 = CFrame.new()
+	-- About the hub's own pivot, so an imported wheel spins on its centre
+	-- instead of swinging around wherever Blender left its origin.
+	motor.C0, motor.C1 = Util.pivotJoint(hitbox, hub)
 	motor.Parent = hub
 	return motor
 end
