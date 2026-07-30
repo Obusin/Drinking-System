@@ -175,6 +175,18 @@ model name for trying a new kart on one account. Cosmetic only — the
 hitbox is forced to `HitboxSize` whatever the art is, so a bespoke kart
 can never be a faster kart.
 
+> ⚠️ **Studio's "Start Server + Players" names its players `Player1`,
+> `Player2`** — not your Roblox username — so `VisualByPlayer` can never
+> match there and you silently get the placeholder. Solo **Play** does
+> use your real name, which makes this look like the custom kart randomly
+> breaking when you switch test modes.
+>
+> `Config/Rig.StudioVisual` gives everyone that art **in Studio only**.
+> Set it while building a kart; it does nothing in a real server.
+
+The Output tells you which art each kart got:
+`[KartService] Obus1n -> visual Kart`
+
 Without any of this a placeholder kart is built in code.
 
 ---

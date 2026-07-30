@@ -29,6 +29,20 @@ return {
 	VisualByPlayer = {
 		Obus1n = "Kart",
 	},
+
+	-- IN STUDIO ONLY, everyone gets this regardless of name. Set "" to
+	-- turn it off.
+	--
+	-- Studio's "Start Server + Players" names its players Player1,
+	-- Player2… rather than your Roblox username, so VisualByPlayer never
+	-- matches there and you silently get the placeholder. Solo Play works
+	-- because that one DOES use your real name — which makes the failure
+	-- look like the custom kart randomly breaking when you switch test
+	-- modes.
+	--
+	-- Does nothing in a real server, so it's safe to leave set while
+	-- building a kart.
+	StudioVisual = "Kart",
 	VisualOffset = Vector3.new(0, 0, 0),
 
 	--== PAINT =========================================================

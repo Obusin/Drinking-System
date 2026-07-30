@@ -120,8 +120,24 @@ end
 --  SPAWNING
 --=====================================================================
 -- Which art this player gets. Cosmetic only — see Rig.VisualByPlayer.
+--
+-- Case-insensitive, because a username that differs only in case here is
+-- the sort of thing you stare straight past.
 local function visualFor(player: Player?): string?
-	return player and RIG.VisualByPlayer[player.Name] or nil
+	if not player then
+		return nil
+	end
+	for name, visual in RIG.VisualByPlayer do
+		if name:lower() == player.Name:lower() then
+			return visual
+		end
+	end
+	-- Studio names its test players Player1/Player2, so nothing above can
+	-- ever match in a local server test. See Rig.StudioVisual.
+	if RunService:IsStudio() and RIG.StudioVisual ~= "" then
+		return RIG.StudioVisual
+	end
+	return nil
 end
 
 local function createKart(name: string, slot: number, player: Player?): Model
@@ -133,7 +149,9 @@ local function createKart(name: string, slot: number, player: Player?): Model
 			:format(tostring(RIG.FallbackCF.Position)))
 	end
 
-	local kart = KartFactory.build(KartFactory.colorFor(slot), visualFor(player))
+	local wanted = visualFor(player)
+	log("%s -> visual %s", if player then player.Name else "start-line kart", wanted or RIG.VisualName)
+	local kart = KartFactory.build(KartFactory.colorFor(slot), wanted)
 	kart.Name = name
 	kart:PivotTo(Placement.cframeFor(pad, slot))
 	kart.Parent = workspace
