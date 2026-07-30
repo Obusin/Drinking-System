@@ -87,6 +87,7 @@ local function aimFor(p: State, target: Target?): (Vector3?, number)
 	if #nodes == 0 then
 		-- No checkpoints on this track, so there's no route to follow. A
 		-- bare test map still works, it just flies straight or homes.
+		p.dbgMode = "no-route"
 		return targetPos, item.HomingRate
 	end
 
@@ -106,17 +107,22 @@ local function aimFor(p: State, target: Target?): (Vector3?, number)
 		return targetPos, item.HomingRate
 	end
 
+	p.dbgNode = Route.nodeAt(nodes, p.abs)
+	p.dbgBehind = if target and target.abs then target.abs - p.abs else nil
+
 	if targetPos and target and target.abs then
 		-- How many segments behind the target we still are. 0 or less
 		-- means we've arrived in their part of the track.
 		local behind = target.abs - p.abs
 
 		if behind <= 0 then
+			p.dbgMode = "home:arrived"
 			return targetPos, item.HomingRate
 		end
 		-- One segment short and physically close: the road and the straight
 		-- line agree from here, so cut the corner and commit.
 		if behind <= 1 and item.HomingRange and (targetPos - p.pos).Magnitude <= item.HomingRange then
+			p.dbgMode = "home:close"
 			return targetPos, item.HomingRate
 		end
 	elseif targetPos and item.HomingRange and (targetPos - p.pos).Magnitude <= item.HomingRange then
@@ -126,6 +132,7 @@ local function aimFor(p: State, target: Target?): (Vector3?, number)
 		return targetPos, item.HomingRate
 	end
 
+	p.dbgMode = "route"
 	return node.position, turn
 end
 
@@ -190,6 +197,7 @@ local function avoid(p: State, dt: number, rayParams: RaycastParams)
 
 	local floorDot = item.FloorDot or 1
 	local blocked = workspace:Raycast(p.pos, p.dir * item.AvoidDistance, rayParams)
+	p.dbgAvoid = nil
 	-- Floors aren't obstacles; followTerrain already handles rising ground,
 	-- and swerving away from the road would be exactly wrong.
 	if not blocked or blocked.Normal:Dot(p.up) >= floorDot then
@@ -206,6 +214,7 @@ local function avoid(p: State, dt: number, rayParams: RaycastParams)
 	local rd = if rh then (rh.Position - p.pos).Magnitude else math.huge
 
 	local escape = if ld >= rd then left else right
+	p.dbgAvoid = blocked.Position
 
 	-- Urgency scales with how close the wall is, so it drifts around a
 	-- distant obstruction and yanks hard at a near one. A flat rate either
@@ -228,6 +237,7 @@ function Ballistics.step(p: State, dt: number, target: Target?, rayParams: Rayca
 	-- Steer, but only as hard as the turn rate allows. An uncapped chase
 	-- is unavoidable, and unavoidable isn't fun.
 	local aim, turnRate = aimFor(p, target)
+	p.dbgAim = aim
 	if aim then
 		local toward = aim - p.pos
 		if toward.Magnitude > 1e-3 then

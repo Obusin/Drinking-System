@@ -57,6 +57,21 @@ return {
 	-- entire network cost of a projectile in flight, so it wants to be as
 	-- slow as drift allows — both ends run identical guidance, so this is
 	-- a correction, not the thing driving the motion.
+	-- Draws what a missile is actually doing: a line to whatever it's
+	-- steering at, green while following the checkpoint route and red once
+	-- it commits to a chase, plus a marker at every route node and a
+	-- flash where obstacle avoidance fires. The server logs why each one
+	-- died.
+	--
+	-- On while there's still a missile bug to find; off for players.
+	ProjectileDebug = true,
+	ProjectileDebugWidth = 0.35,
+	ProjectileDebugRoute = Color3.fromRGB(80, 220, 120),
+	ProjectileDebugHome = Color3.fromRGB(255, 90, 90),
+	ProjectileDebugAvoid = Color3.fromRGB(255, 200, 60),
+	ProjectileDebugNode = Color3.fromRGB(90, 170, 255),
+	ProjectileDebugNodeSize = 3,
+
 	ProjectileSyncInterval = 0.2,
 	-- How fast a client eases onto a correction. Spread over a few frames
 	-- so a correction reads as the missile adjusting rather than jumping.

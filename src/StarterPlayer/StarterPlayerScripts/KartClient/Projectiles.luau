@@ -93,6 +93,108 @@ local function targetOf(kart: Model?): Ballistics.Target?
 	}
 end
 
+--=====================================================================
+--  PATH DEBUG
+--
+--  Draws what the guidance actually decided, because we've now guessed
+--  at this missile twice and been wrong both times.
+--
+--    green line   following the checkpoint route
+--    red line     committed to chasing the target
+--    yellow flash obstacle avoidance firing, at the thing it saw
+--    blue markers the route nodes themselves
+--
+--  Every part is CanQuery false — a debug marker that a kart could
+--  collide with would be a debugging tool that causes bugs.
+--=====================================================================
+local nodeMarkers: { BasePart } = {}
+
+local function debugPart(name: string): BasePart
+	local part = Instance.new("Part")
+	part.Name = name
+	part.Anchored = true
+	part.CanCollide = false
+	part.CanQuery = false
+	part.CanTouch = false
+	part.CastShadow = false
+	part.Material = Enum.Material.Neon
+	part.Parent = container()
+	return part
+end
+
+-- One marker per route node, rebuilt when the route changes size.
+local function showNodes()
+	local nodes = Route.nodes()
+	if #nodeMarkers == #nodes then
+		return
+	end
+	for _, m in nodeMarkers do
+		m:Destroy()
+	end
+	table.clear(nodeMarkers)
+	for i, node in nodes do
+		local m = debugPart("RouteNode" .. i)
+		m.Shape = Enum.PartType.Ball
+		m.Size = Vector3.one * IT.ProjectileDebugNodeSize
+		m.Color = IT.ProjectileDebugNode
+		m.Transparency = 0.4
+		m.Position = node.position
+		table.insert(nodeMarkers, m)
+	end
+	print(("[Missile] %d route nodes marked"):format(#nodes))
+end
+
+-- A thin bar between two points. Rebuilt in place each frame rather than
+-- recreated, so a missile in flight isn't churning instances.
+local function drawLine(part: BasePart, from: Vector3, to: Vector3, colour: Color3)
+	local span = to - from
+	local len = span.Magnitude
+	if len < 0.1 then
+		part.Transparency = 1
+		return
+	end
+	part.Transparency = 0.25
+	part.Color = colour
+	part.Size = Vector3.new(IT.ProjectileDebugWidth, IT.ProjectileDebugWidth, len)
+	part.CFrame = CFrame.lookAt(from + span * 0.5, to)
+end
+
+local function updateDebug(p)
+	if not p.dbgLine then
+		p.dbgLine = debugPart("AimLine")
+		p.dbgHit = debugPart("AvoidHit")
+		p.dbgHit.Shape = Enum.PartType.Ball
+		p.dbgHit.Size = Vector3.one * 2
+		p.dbgHit.Color = IT.ProjectileDebugAvoid
+	end
+
+	if p.dbgAim then
+		-- Avoidance overrides the aim, so it gets the line's colour: what
+		-- you're seeing is what's actually steering.
+		local colour = if p.dbgAvoid
+			then IT.ProjectileDebugAvoid
+			elseif p.dbgMode == "route" then IT.ProjectileDebugRoute
+			else IT.ProjectileDebugHome
+		drawLine(p.dbgLine, p.pos, p.dbgAim, colour)
+	else
+		p.dbgLine.Transparency = 1
+	end
+
+	p.dbgHit.Transparency = if p.dbgAvoid then 0.2 else 1
+	if p.dbgAvoid then
+		p.dbgHit.Position = p.dbgAvoid
+	end
+end
+
+local function clearDebug(p)
+	if p.dbgLine then
+		p.dbgLine:Destroy()
+	end
+	if p.dbgHit then
+		p.dbgHit:Destroy()
+	end
+end
+
 local function destroy(uid: number)
 	local p = live[uid]
 	if not p then
@@ -102,7 +204,9 @@ local function destroy(uid: number)
 	if p.part then
 		p.part:Destroy()
 	end
+	clearDebug(p)
 end
+
 
 --=====================================================================
 --  MESSAGES
@@ -125,6 +229,9 @@ local function onLaunch(msg)
 	}
 	state.part.CFrame = Ballistics.cframe(state)
 	live[msg.uid] = state
+	if IT.ProjectileDebug then
+		showNodes()
+	end
 end
 
 local function onSync(msg)
@@ -190,6 +297,10 @@ local function step(dt: number)
 			end
 
 			p.part.CFrame = Ballistics.cframe(p)
+
+			if IT.ProjectileDebug then
+				updateDebug(p)
+			end
 		end
 	end
 end

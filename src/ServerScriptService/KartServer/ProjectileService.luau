@@ -123,7 +123,18 @@ end
 --=====================================================================
 --  END OF LIFE
 --=====================================================================
-local function detonate(p, victim: Model?)
+local function detonate(p, victim: Model?, why: string?)
+	if IT.ProjectileDebug then
+		print(
+			("[Missile] #%d %s after %.1fs — node %d, %s"):format(
+				p.uid,
+				why or (if victim then "HIT " .. victim.Name else "gone"),
+				os.clock() - p.born,
+				p.abs,
+				p.dbgMode or "?"
+			)
+		)
+	end
 	local i = table.find(live, p)
 	if i then
 		table.remove(live, i)
@@ -168,7 +179,7 @@ local function step(dt: number)
 		local p = live[i]
 
 		if now >= p.expires then
-			detonate(p, nil)
+			detonate(p, nil, "EXPIRED (out of range — raise Lifetime)")
 			continue
 		end
 
@@ -177,7 +188,7 @@ local function step(dt: number)
 		-- drift and why sync exists.
 		local wall = Ballistics.step(p, dt, targetOf(p.target), rayParams)
 		if wall then
-			detonate(p, nil)
+			detonate(p, nil, "WALL at " .. tostring(wall))
 			continue
 		end
 
@@ -289,10 +300,23 @@ function ProjectileService.start()
 			-- continues forward round the track rather than setting off back
 			-- towards the start line.
 			abs = Route.absoluteOf(from:GetAttribute(Standings.ATTRIBUTE), #nodes) + 1,
+			born = os.clock(),
 			expires = os.clock() + item.Lifetime,
 			nextSync = 0,
 		}
 		table.insert(live, p)
+
+		if IT.ProjectileDebug then
+			print(
+				("[Missile] #%d launched by %s — %d route nodes, entering at %d, target %s"):format(
+					nextUid,
+					player.Name,
+					#nodes,
+					p.abs,
+					if target then target.Name else "none"
+				)
+			)
+		end
 
 		-- Everything a client needs to reproduce the flight itself.
 		viewRemote:FireAllClients("launch", {
