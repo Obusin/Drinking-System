@@ -68,4 +68,11 @@ Names.DRIFT = "KartDrift"
 Names.ROLL_AXIS = "RollAxis"
 Names.STEER_AXIS = "SteerAxis"
 
+--== REMOTES ==========================================================
+
+-- Server -> everyone: "X hit Y with Z". Broadcast rather than sent to
+-- the two people involved, because a hit is a spectacle — the whole
+-- point of landing one is that the lobby sees it.
+Names.FEED_REMOTE = "KartFeed"
+
 return Names

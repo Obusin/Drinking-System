@@ -14,16 +14,39 @@
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerStorage = game:GetService("ServerStorage")
 
 local BloxKart = ReplicatedStorage:WaitForChild("BloxKart")
 local Standings = require(BloxKart:WaitForChild("Standings"))
 local Names = require(BloxKart:WaitForChild("Names"))
 local Config = require(BloxKart:WaitForChild("Config"))
 local Match = require(BloxKart:WaitForChild("Match"))
+local Items = require(BloxKart:WaitForChild("Items"))
 local MatchService = require(script.Parent.MatchService)
 local KartService = require(script.Parent.KartService)
 
 local RaceService = {}
+
+-- "X hit Y with Z", to everyone. A hit is a spectacle: half the value of
+-- a well-timed missile is the lobby seeing it land, and in a race you
+-- rarely even see the person you hit.
+--
+-- Server-side because only the server knows both ends — the attacker's
+-- client can't be trusted to name its own victim, and the victim's client
+-- doesn't know who fired.
+function RaceService.announce(itemId: string?, by: Player?, victim: Player?)
+	if not (RaceService.feed and victim and itemId) then
+		return
+	end
+	local item = Items.byId(itemId)
+	RaceService.feed:FireAllClients({
+		item = if item then item.Name else itemId,
+		-- Nil `by` is normal: a mine kills long after its owner drove off,
+		-- and a missile fired at nobody still hits whoever it runs into.
+		by = if by then by.DisplayName else nil,
+		victim = victim.DisplayName,
+	})
+end
 
 local remote: RemoteEvent
 local itemRemote: RemoteEvent
@@ -58,7 +81,6 @@ function RaceService.start()
 	itemRemote.Name = "KartItemPickup"
 	itemRemote.Parent = BloxKart
 
-	local Items = require(BloxKart:WaitForChild("Items"))
 	local IT = Config.Items
 	local rng = Random.new()
 
@@ -119,6 +141,11 @@ function RaceService.start()
 	hitRemote.Name = "KartItemHit"
 	hitRemote.Parent = BloxKart
 
+	local feed = Instance.new("RemoteEvent")
+	feed.Name = Names.FEED_REMOTE
+	feed.Parent = BloxKart
+	RaceService.feed = feed
+
 	hitRemote.OnServerEvent:Connect(function(player, targetKart, payload)
 		if typeof(targetKart) ~= "Instance" or not targetKart:IsA("Model") then
 			return
@@ -132,6 +159,9 @@ function RaceService.start()
 		local victimId = targetKart:GetAttribute(Names.OWNER)
 		local victim = victimId and Players:GetPlayerByUserId(victimId)
 		if victim and victim ~= player then
+			-- tostring: it's a client-supplied table, and byId simply won't
+			-- match anything that isn't a real id.
+			RaceService.announce(tostring(payload.item), player, victim)
 			-- Every field is re-derived and clamped here rather than passed
 			-- through: this is a client-supplied table, and the only thing
 			-- standing between it and another player's simulation.
@@ -194,6 +224,38 @@ function RaceService.start()
 			hz:SetAttribute(Names.OWNER, player.UserId)
 			hz:SetAttribute(Names.ARM_AT, os.clock() + IT.HazardOwnerGrace)
 			hz:SetAttribute(Names.HAZARD_ITEM, item.Id)
+			-- Optional art. The part above stays the trigger volume and goes
+			-- invisible; the model is decoration welded to it, and must never
+			-- be queryable or it would read as a wall to a kart's sweep.
+			if spec.Model then
+				local folder = ServerStorage:FindFirstChild(IT.HazardModelFolder)
+				local template = folder and folder:FindFirstChild(spec.Model)
+				if template and template:IsA("Model") then
+					hz.Transparency = 1
+					local art = template:Clone()
+					art.Name = "Visual"
+					art.Parent = hz
+					art:PivotTo(hz.CFrame)
+					for _, d in art:GetDescendants() do
+						if d:IsA("BasePart") then
+							d.Anchored = true
+							d.CanCollide = false
+							d.CanQuery = false
+							d.CanTouch = false
+							d.Massless = true
+						end
+					end
+				else
+					warn(
+						("[RaceService] %s wants model %q in ServerStorage.%s — not found, using the plain part."):format(
+							item.Id,
+							spec.Model,
+							IT.HazardModelFolder
+						)
+					)
+				end
+			end
+
 			hz.Parent = workspace
 			CollectionService:AddTag(hz, IT.HazardTag)
 
@@ -206,6 +268,10 @@ function RaceService.start()
 			-- The victim reports driving into it; the server removes it so
 			-- it can't be triggered twice.
 			if typeof(arg) == "Instance" and arg:IsA("BasePart") and CollectionService:HasTag(arg, IT.HazardTag) then
+				-- Read BEFORE destroying, or the attribution goes with it.
+				local ownerId = arg:GetAttribute(Names.OWNER)
+				local owner = ownerId and Players:GetPlayerByUserId(ownerId)
+				RaceService.announce(arg:GetAttribute(Names.HAZARD_ITEM), owner, player)
 				arg:Destroy()
 			end
 		end

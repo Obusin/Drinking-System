@@ -129,6 +129,17 @@ leftmost slot.
 Mines dropped by players are tagged `KartHazard` at runtime — you don't
 place those.
 
+**Hazard art**: an item's `Hazard.Model` names a Model inside
+`ServerStorage.Powerups` (see `Config/Items.HazardModelFolder`). The
+trigger part turns invisible and the model is welded on as decoration.
+`FakeBox` uses `CurrencyDrop` — a decoy only works if it looks like
+something you want to drive into.
+
+**Hit feed**: every hit is announced to everyone — `MISSILE  Obus1n` top
+centre, your own name tinted gold. Nothing to set up. Landing an item was
+previously silent to all but the victim, and the attacker got no
+confirmation at all.
+
 ---
 
 ## 2. Spawning

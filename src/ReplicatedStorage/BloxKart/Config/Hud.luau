@@ -43,6 +43,21 @@ return {
 	ScrambledText = "⇄  CONTROLS SCRAMBLED",
 	ScrambledColor = Color3.fromRGB(200, 130, 255),
 
+	--== HIT FEED ======================================================
+	-- "MISSILE hit Obus1n". Top centre, under the countdown's slot, so it
+	-- reads without competing with the instruments in the corners.
+	FeedPosition = UDim2.fromScale(0.5, 0.13),
+	FeedRows = 4, -- older lines pushed down and faded out
+	FeedRowHeight = 24,
+	FeedSize = 18,
+	FeedHold = 3.2, -- seconds at full strength before fading
+	FeedFade = 1.2, -- seconds to fade out
+	FeedColor = Color3.fromRGB(230, 235, 245),
+	-- The attacker and victim are tinted so a glance tells you whether it
+	-- was you, without reading the whole line.
+	FeedSelfColor = Color3.fromRGB(255, 200, 90),
+	FeedItemColor = Color3.fromRGB(255, 120, 110),
+
 	--== CONTROLS OVERLAY ==============================================
 	ControlsPosition = UDim2.new(0, 18, 1, -18), -- bottom-left
 	ControlsAnchor = Vector2.new(0, 1),

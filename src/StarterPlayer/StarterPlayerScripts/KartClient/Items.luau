@@ -201,6 +201,8 @@ function Items:Update(sim, input): { [string]: any }
 
 	if input.consumeItemUse() and readyIndex then
 		local order = Standings.order(Standings.allKarts())
+		-- Read before ctx so `fire` below can stamp the payload with it.
+		local item = self.held[readyIndex].item
 		local ctx = {
 			sim = sim,
 			kart = self.kart,
@@ -225,12 +227,15 @@ function Items:Update(sim, input): { [string]: any }
 				self.projectileRemote:FireServer(itemId, target)
 			end,
 			fire = function(target, payload)
+				-- Stamped here, so no item module has to remember to include
+				-- it and none of them can disagree about their own name. The
+				-- server uses it for the hit feed.
+				payload.item = item.Id
 				self.hit:FireServer(target, payload)
 			end,
 		}
 		-- Only removed if it actually fired, so an item that couldn't do
 		-- anything stays in your hand rather than being silently binned.
-		local item = self.held[readyIndex].item
 		local ok, reason = item.Use(ctx)
 		if ok ~= false then
 			table.remove(self.held, readyIndex)

@@ -48,6 +48,11 @@ return {
 	-- tagged; clients detect them the same way they detect boost pads.
 	HazardTag = "KartHazard",
 
+	-- Folder in ServerStorage holding hazard/pickup art. An item's
+	-- Hazard.Model names a Model inside it; without one the hazard is
+	-- just the coloured part its Hazard spec describes.
+	HazardModelFolder = "Powerups",
+
 	--== PROJECTILE REPLICATION ========================================
 	-- Missiles are simulated on the server for hits and drawn by each
 	-- client for looks (see ProjectileService / KartClient.Projectiles).

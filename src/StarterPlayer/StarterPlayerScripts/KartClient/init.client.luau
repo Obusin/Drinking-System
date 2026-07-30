@@ -49,6 +49,7 @@ local RaceHud = require(script.RaceHud)
 local ControlsHud = require(script.ControlsHud)
 local SpeedHud = require(script.SpeedHud)
 local ItemHud = require(script.ItemHud)
+local FeedHud = require(script.FeedHud)
 local Items = require(script.Items)
 local Respawn = require(script.Respawn)
 local Projectiles = require(script.Projectiles)
@@ -77,6 +78,7 @@ local hud = RaceHud.new()
 local controls = ControlsHud.new()
 local speedo = SpeedHud.new()
 local itemHud = ItemHud.new()
+local feedHud = FeedHud.new()
 local respawn = Respawn.new()
 -- Mobile only, and nil everywhere else — every call site is guarded, so
 -- desktop carries no touch code at all rather than an inert copy of it.
@@ -417,8 +419,20 @@ end
 --  say "waiting for racers" before the first kart has ever spawned, and
 --  step() returns early when there's no simulation.
 --=====================================================================
+-- Hits are announced to everyone, so this listens whether or not we're
+-- the one who got hit — or did the hitting.
+local feedRemote = ReplicatedStorage.BloxKart:WaitForChild(Names.FEED_REMOTE, 10)
+if feedRemote then
+	feedRemote.OnClientEvent:Connect(function(msg)
+		if typeof(msg) == "table" and msg.victim then
+			feedHud:Add(tostring(msg.item), msg.by, tostring(msg.victim))
+		end
+	end)
+end
+
 RunService.Heartbeat:Connect(function(dt)
 	matchHud:Update(match)
+	feedHud:Update()
 	-- Outside step() on purpose: the pad has to keep fading after you
 	-- leave the kart, and step() returns early once there's no simulation.
 	if touch then

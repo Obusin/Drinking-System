@@ -61,6 +61,7 @@ local Ballistics = require(BloxKart:WaitForChild("Ballistics"))
 local Standings = require(BloxKart:WaitForChild("Standings"))
 local Config = require(BloxKart:WaitForChild("Config"))
 local MatchService = require(script.Parent.MatchService)
+local RaceService = require(script.Parent.RaceService)
 local KartService = require(script.Parent.KartService)
 
 local IT = Config.Items
@@ -154,6 +155,7 @@ local function detonate(p, victim: Model?, why: string?)
 	local id = victim:GetAttribute(Names.OWNER)
 	local plr = id and Players:GetPlayerByUserId(id)
 	if plr and plr ~= p.owner then
+		RaceService.announce(p.item.Id, p.owner, plr)
 		-- Only the victim's own client applies the effect, same rule as
 		-- every other hit in the game.
 		hitRemote:FireClient(plr, {

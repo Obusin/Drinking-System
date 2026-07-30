@@ -46,6 +46,14 @@ return {
 		Color = Color3.fromRGB(170, 180, 195),
 		Material = Enum.Material.SmoothPlastic,
 		Transparency = 0.25,
+
+		-- Art from ServerStorage, in Config.Items.HazardModelFolder. The
+		-- trigger part above stays the hitbox and turns invisible; the model
+		-- is decoration welded to it.
+		--
+		-- Which is the whole point of a decoy: it has to be something a
+		-- player wants to drive into.
+		Model = "CurrencyDrop",
 	},
 
 	Use = function(ctx)
