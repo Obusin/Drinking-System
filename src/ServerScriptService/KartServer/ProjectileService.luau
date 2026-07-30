@@ -58,7 +58,6 @@ local Match = require(BloxKart:WaitForChild("Match"))
 local Route = require(BloxKart:WaitForChild("Route"))
 local Triggers = require(BloxKart:WaitForChild("Triggers"))
 local Ballistics = require(BloxKart:WaitForChild("Ballistics"))
-local Standings = require(BloxKart:WaitForChild("Standings"))
 local Config = require(BloxKart:WaitForChild("Config"))
 local MatchService = require(script.Parent.MatchService)
 local RaceService = require(script.Parent.RaceService)
@@ -104,21 +103,12 @@ local function refreshFilter()
 	rayParams.FilterDescendantsInstances = skip
 end
 
--- Where the target is, and how far round the track. The route index is
--- what decides when the missile stops following the road and commits to
--- a chase — see Ballistics.
+-- Where the target is. Trivial now that a Target is only a position —
+-- it carried a route index until the server took over deciding when to
+-- commit.
 local function targetOf(kart: Model?): Ballistics.Target?
-	if not kart then
-		return nil
-	end
-	local hb = kart.PrimaryPart
-	if not hb then
-		return nil
-	end
-	return {
-		pos = hb.Position,
-		abs = Route.absoluteOf(kart:GetAttribute(Standings.ATTRIBUTE), #Route.nodes()),
-	}
+	local hb = kart and kart.PrimaryPart
+	return if hb then { pos = hb.Position } else nil
 end
 
 --=====================================================================

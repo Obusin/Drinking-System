@@ -86,8 +86,6 @@ return {
 	-- enough that a busy lap doesn't carpet the track
 	DropSize = 3,
 	DropBillboard = 4.5, -- studs across, the icon shown above it
-	DropBob = 0.6,
-	DropBobRate = 2.4,
 
 	--== PROJECTILE REPLICATION ========================================
 	-- Missiles are simulated on the server for hits and drawn by each
@@ -122,14 +120,23 @@ return {
 	ProjectileSnapDistance = 25,
 	-- Seconds before your OWN hazard can hit you. Others can trigger it
 	-- the instant it exists — that asymmetry is the whole point.
-	HazardOwnerGrace = 1.5,
-
-	-- Or never. Throwing something forward and then driving into it is
-	-- the most annoying way to lose a race, and no amount of grace fixes
-	-- it — the trap is ahead of you and you are driving at it.
 	--
-	-- Off makes the timer above the only protection.
-	HazardOwnerImmune = true,
+	-- 1.2 rather than forever, and the number comes from the throw:
+	--
+	--   tap    lands 26 studs out, which is BEHIND you already
+	--   half   lands 59, still behind
+	--   full   lands 92, and you reach it 0.76s after releasing
+	--
+	-- So 1.2 clears your own throw with margin and nothing else. Come
+	-- back round on the next lap and it's live — you laid it, and it's
+	-- fair that you have to remember where.
+	HazardOwnerGrace = 1.2,
+
+	-- Permanent immunity instead. Off by default now: never being able to
+	-- hit your own item means the track fills with traps that are free to
+	-- you and only dangerous to everyone else, which quietly makes the
+	-- leader's position stronger the longer a race runs.
+	HazardOwnerImmune = false,
 
 	--== THROWING ======================================================
 	-- A forward throw travels instead of appearing 22 studs ahead. Same

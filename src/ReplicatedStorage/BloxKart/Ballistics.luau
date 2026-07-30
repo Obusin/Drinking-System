@@ -65,10 +65,10 @@ export type State = {
 	locked: boolean?, -- committed to the target; never returns to the rails
 }
 
-export type Target = {
-	pos: Vector3?,
-	abs: number?, -- absolute route index; see Route.absoluteOf
-}
+-- Just where they are. It used to carry a route index too, for deciding
+-- when to stop following the road and commit — the server does that now
+-- (see ProjectileService.acquire) and this doesn't need to know.
+export type Target = { pos: Vector3? }
 
 --=====================================================================
 --  HEIGHT
