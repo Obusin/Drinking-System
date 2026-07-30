@@ -46,6 +46,12 @@ return {
 	SkillMin = 0.45,
 	SkillMax = 0.92,
 
+	-- A Model with a Humanoid in ServerStorage, sat in each bot's seat so
+	-- they look like racers rather than empty karts. Rider puts its hands
+	-- on the wheel automatically — it doesn't care that the driver isn't
+	-- a player. "" for empty karts.
+	RigName = "BotRig",
+
 	Names = {
 		"Rusty",
 		"Bolt",

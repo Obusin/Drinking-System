@@ -35,6 +35,7 @@
 --]]
 
 local Players = game:GetService("Players")
+local ServerStorage = game:GetService("ServerStorage")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
@@ -62,6 +63,7 @@ local BotService = {}
 local bots = {}
 local rng = Random.new()
 local warnedNoRoute = false
+local warnedNoRig = false
 
 --=====================================================================
 --  CONTROLS
@@ -113,14 +115,24 @@ end
 -- How sharply the road bends between here and `ahead` nodes on, 0..1.
 -- Measured off the racing line rather than off the geometry, so it sees
 -- a corner coming before the kart is in it.
-local function bendAt(u: number, ahead: number): number
+local function bendAt(u: number, ahead: number, up: Vector3): number
 	local a = Route.tangentAt(u)
 	local b = Route.tangentAt(u + ahead)
 	if not (a and b) then
 		return 0
 	end
+
+	-- Flattened onto the surface first. A crest or a dip changes the
+	-- tangent as much as a corner does, and a bot that brakes for every
+	-- slope crawls up every hill — which looks exactly like being stuck.
+	a = a - up * a:Dot(up)
+	b = b - up * b:Dot(up)
+	if a.Magnitude < 1e-4 or b.Magnitude < 1e-4 then
+		return 0
+	end
+
 	-- 1 - dot maps "same direction" to 0 and "hairpin" to 1-ish.
-	return math.clamp((1 - a:Dot(b)) * 0.5, 0, 1)
+	return math.clamp((1 - a.Unit:Dot(b.Unit)) * 0.5, 0, 1)
 end
 
 --=====================================================================
@@ -136,7 +148,7 @@ local function drive(bot, dt: number)
 	bot.u = Route.nearestU(sim.pos)
 
 	local speed = math.abs(sim.speed)
-	local bend = bendAt(bot.u, B.CornerLookahead)
+	local bend = bendAt(bot.u, B.CornerLookahead, sim.up)
 
 	----------------------------------------------------------------
 	-- LINE
@@ -399,8 +411,13 @@ local function step(dt: number)
 
 	for i = #bots, 1, -1 do
 		local bot = bots[i]
+		-- Kart gone entirely — fell past the destroy height, or something
+		-- removed it. Rebuilt rather than dropped: a bot vanishing
+		-- mid-race takes a rival out of the standings and leaves a gap
+		-- nobody can explain.
 		if not bot.kart.Parent then
-			table.remove(bots, i)
+			log("%s lost its kart — rebuilding", bot.name)
+			BotService.revive(bot)
 			continue
 		end
 
@@ -425,17 +442,9 @@ local function step(dt: number)
 		-- Fell off the world, or ended up somewhere the road isn't. No
 		-- character to re-seat, so it puts itself back on the racing line
 		-- — which it already knows how to find.
-		local pos = bot.sim.pos
-		if pos.Y < Config.Rig.RespawnBelow then
-			local u = Route.nearestU(pos)
-			local at = Route.pointAt(u)
-			local tangent = Route.tangentAt(u)
-			if at and tangent then
-				bot.sim:RespawnAt(CFrame.lookAt(at + Vector3.yAxis * 5, at + tangent + Vector3.yAxis * 5))
-				bot.u = u
-				bot.lastU = nil
-				log("%s fell off and rejoined the line", bot.name)
-			end
+		if bot.sim.pos.Y < Config.Rig.RespawnBelow then
+			log("%s fell off and rejoined the line", bot.name)
+			BotService.revive(bot)
 		end
 
 		local ok, err = pcall(function()
@@ -459,12 +468,26 @@ local function step(dt: number)
 			warn("[BotService] " .. bot.name .. " step failed: " .. tostring(err))
 		end
 
+		-- The kart is UNANCHORED so its motion replicates smoothly, which
+		-- means Roblox physics is also acting on it — and it runs at 60Hz
+		-- while bots step at 30. Left alone, gravity accumulates between
+		-- our writes and walks the kart into the floor and off the map.
+		--
+		-- Writing the velocity we actually have does two jobs: it
+		-- overwrites whatever physics accumulated, and it gives clients
+		-- something to interpolate along between updates.
+		local hitbox = bot.kart.PrimaryPart
+		if hitbox then
+			hitbox.AssemblyLinearVelocity = bot.sim.travel * bot.sim.speed + bot.sim.up * bot.sim.vertVel
+			hitbox.AssemblyAngularVelocity = Vector3.zero
+		end
+
 		-- Progress, so bots appear in the standings and the missile's
 		-- route entry. Written directly: the server owns these karts, so
 		-- there's no report to relay.
 		local nodes = #Route.nodes()
 		if nodes > 0 then
-			bot.kart:SetAttribute(Standings.ATTRIBUTE, Standings.score(bot.laps, math.floor(bot.u), 0))
+			bot.kart:SetAttribute(Standings.ATTRIBUTE, Standings.score(bot.laps, math.floor(bot.u or 0), 0))
 		end
 		-- And its steering, so Rider turns the wheel and the front tyres.
 		bot.kart:SetAttribute(Names.STEER, bot.sim.steer)
@@ -510,6 +533,9 @@ function BotService.fill()
 		local bot = table.remove(bots)
 		bot.boxes:Destroy()
 		bot.drops:Destroy()
+		if bot.rig then
+			bot.rig:Destroy()
+		end
 		bot.kart:Destroy()
 	end
 
@@ -547,7 +573,93 @@ function BotService.fill()
 			drops = TagZones.new(Config.Items.DropTag, { cooldown = 0.5, forceQueryable = true }),
 		}
 		table.insert(bots, bot)
+		BotService.seatRig(bot)
 		log("%s joined, skill %.2f", name, bot.skill)
+	end
+end
+
+-- Puts a bot back on the racing line, rebuilding its kart if that went
+-- with it. One path for "fell off" and "kart destroyed", because from a
+-- race's point of view they're the same event.
+--=====================================================================
+--  DRIVERS
+--
+--  A rig sat in the seat, so a bot looks like a racer rather than an
+--  empty kart. Rider picks it up from there for free: it already puts
+--  hands on the wheel for whoever is sitting in one, and doesn't care
+--  whether they're a player.
+--
+--  Authored rather than generated: ServerStorage[Bots.RigName], any
+--  model with a Humanoid. Without one bots drive empty karts, which is
+--  a missing feature rather than a broken game.
+--=====================================================================
+function BotService.seatRig(bot)
+	if bot.rig then
+		bot.rig:Destroy()
+		bot.rig = nil
+	end
+	if B.RigName == "" then
+		return
+	end
+
+	local template = ServerStorage:FindFirstChild(B.RigName)
+	if not (template and template:IsA("Model") and template:FindFirstChildOfClass("Humanoid")) then
+		if not warnedNoRig then
+			warnedNoRig = true
+			warn(("[BotService] no Model named %q with a Humanoid in ServerStorage — bots will drive empty karts."):format(B.RigName))
+		end
+		return
+	end
+
+	local seat = bot.kart:FindFirstChild("Seat")
+	local rig = template:Clone()
+	rig.Name = bot.name
+	local humanoid = rig:FindFirstChildOfClass("Humanoid")
+	-- It never walks anywhere, and a rig that can stand up climbs out of
+	-- the kart the first time anything jostles it.
+	humanoid.WalkSpeed = 0
+	humanoid.JumpPower = 0
+	humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, false)
+
+	for _, d in rig:GetDescendants() do
+		if d:IsA("BasePart") then
+			-- Same group as the kart, so drivers never knock each other
+			-- about as two karts pass.
+			d.CollisionGroup = Config.Rig.CollisionGroup
+			d.CanQuery = false
+		end
+	end
+
+	rig.Parent = workspace
+	rig:PivotTo(seat.CFrame)
+	task.defer(function()
+		if seat and seat.Parent and humanoid.Parent then
+			seat:Sit(humanoid)
+		end
+	end)
+	bot.rig = rig
+end
+
+function BotService.revive(bot)
+	if not bot.kart.Parent then
+		local _, kart = KartService.addBot(bot.name)
+		bot.kart = kart
+		local hitbox = kart.PrimaryPart
+		local seat = kart:FindFirstChild("Seat")
+		if not (hitbox and seat) then
+			return
+		end
+		bot.sim = Simulation.new(kart, hitbox, seat)
+		BotService.seatRig(bot)
+	end
+
+	local u = Route.nearestU(bot.sim.pos)
+	local at = Route.pointAt(u)
+	local tangent = Route.tangentAt(u)
+	if at and tangent then
+		bot.sim:RespawnAt(CFrame.lookAt(at + Vector3.yAxis * 5, at + tangent + Vector3.yAxis * 5))
+		bot.u = u
+		bot.lastU = nil
 	end
 end
 

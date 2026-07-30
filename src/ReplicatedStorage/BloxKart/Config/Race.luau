@@ -106,6 +106,12 @@ return {
 	-- they cost nothing but placement.
 	RouteTension = 0.75,
 
+	-- How far below a checkpoint to look for the road when building the
+	-- racing line. A gate volume's centre floats above the tarmac, and a
+	-- line built from those centres hangs in the air — which reads as a
+	-- permanent corner to anything measuring how much the road bends.
+	RouteDropProbe = 40,
+
 	--== WRONG WAY =====================================================
 	-- Needs no extra setup: "which way does traffic flow here" is already
 	-- stated by CheckpointFacing, so the warning reads the facing of the

@@ -24,7 +24,9 @@
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Config = require(ReplicatedStorage:WaitForChild("BloxKart"):WaitForChild("Config"))
+local BloxKart = ReplicatedStorage:WaitForChild("BloxKart")
+local Config = require(BloxKart:WaitForChild("Config"))
+local Triggers = require(BloxKart:WaitForChild("Triggers"))
 
 local R = Config.Race
 
@@ -44,6 +46,33 @@ function Route.orderOf(part: BasePart): number
 		return attr
 	end
 	return tonumber(part.Name:match("(%d+)$") or "") or 0
+end
+
+-- A checkpoint's CENTRE is not where the road is.
+--
+-- A gate volume is usually a tall slab spanning the track, so its middle
+-- floats several studs above the tarmac. Taken literally, the racing
+-- line built from those centres hangs in the air — which tilts every
+-- tangent, so anything measuring how much the road bends reads a
+-- permanent corner. Bots brake for it and crawl; missiles cruise at the
+-- wrong height.
+--
+-- So each node is dropped onto whatever is beneath it. Along the PART's
+-- own up rather than world down, so this still works on a loop.
+local dropParams = RaycastParams.new()
+dropParams.FilterType = Enum.RaycastFilterType.Exclude
+
+local function dropToRoad(at: Vector3, part: BasePart): Vector3
+	-- Everything trigger-ish is excluded, or a node lands on the gate
+	-- above it or on a power-up box sitting on the road.
+	dropParams.FilterDescendantsInstances = Triggers.collect({})
+
+	local up = part.CFrame.UpVector
+	-- From the top of the part downward: starting at the centre would
+	-- miss a road the volume is already sunk into.
+	local from = at + up * (part.Size.Y * 0.5 + 2)
+	local hit = workspace:Raycast(from, -up * (part.Size.Y + R.RouteDropProbe), dropParams)
+	return if hit then hit.Position else at
 end
 
 --=====================================================================
@@ -85,7 +114,7 @@ function Route.nodes(): { Node }
 		end
 		table.insert(nodes, {
 			order = o,
-			position = sum / #group,
+			position = dropToRoad(sum / #group, group[1]),
 			parts = group,
 		})
 	end
