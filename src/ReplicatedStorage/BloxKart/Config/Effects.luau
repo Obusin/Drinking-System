@@ -4,6 +4,21 @@
 --]]
 
 return {
+	--== SHIELD BUBBLE =================================================
+	-- Authored art, not built in code: a Model (or part) with this name
+	-- anywhere inside the kart visual. Found by name so it can be nested
+	-- and rearranged freely, and everything below is a no-op if the kart
+	-- doesn't have one.
+	--
+	-- Every part of it is forced non-colliding and non-queryable when
+	-- found — it's decoration welded to the kart and must never register
+	-- as a wall, least of all to the swept collision of the racer it's
+	-- wrapped around.
+	ShieldName = "Shield",
+	ShieldTransparency = 0.45, -- how solid it looks while up
+	ShieldFadeRate = 8, -- faded rather than toggled: a bubble that pops
+	-- into existence reads as a glitch, one that swells reads as a shield
+
 	--== CHARGE TIER COLOURS ===========================================
 	TierColors = {
 		Color3.fromRGB(70, 150, 255), -- tier 1  blue

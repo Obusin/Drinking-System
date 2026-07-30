@@ -9,6 +9,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local BloxKart = ReplicatedStorage:WaitForChild("BloxKart")
 local Config = require(BloxKart:WaitForChild("Config"))
+local Util = require(BloxKart:WaitForChild("Util"))
 
 local FX = Config.Effects
 local H = Config.Handling
@@ -16,7 +17,7 @@ local H = Config.Handling
 local Effects = {}
 Effects.__index = Effects
 
-function Effects.new(hitbox: BasePart)
+function Effects.new(hitbox: BasePart, model: Model?)
 	local created = {}
 	local function make(class: string, props, parent: Instance?)
 		local inst = Instance.new(class)
@@ -87,16 +88,68 @@ function Effects.new(hitbox: BasePart)
 		}),
 	}, lineAtt)
 
-	return setmetatable({
+	local self = setmetatable({
 		created = created,
 		trails = { driftTrail(-1), driftTrail(1) },
 		speedLines = speedLines,
+		shieldParts = {},
+		shieldAlpha = 1,
 	}, Effects)
+
+	-- Authored art rather than anything built here, so it's looked up
+	-- rather than created — and if the kart has no bubble, everything
+	-- below is a no-op on an empty list.
+	self:_findShield(model)
+	return self
 end
 
 -- `on` is separate from `tier` because the trails show from the moment
 -- the drift starts (neutral grey) and only take a tier colour once the
 -- charge reaches one.
+--=====================================================================
+--  SHIELD BUBBLE
+--
+--  Authored art, not built here: a Model named after FX.ShieldName
+--  anywhere inside the kart. Found by name so the artist can nest and
+--  rename around it freely.
+--
+--  Faded rather than toggled, because a bubble that pops into existence
+--  reads as a glitch while one that swells reads as a shield coming up.
+--
+--  Collision is forced off on every part of it here as well as in
+--  KartFactory. Belt and braces on purpose: the factory only touches art
+--  that came through the KartVisual path, and a bubble welded on by hand
+--  would otherwise be a solid ball around the kart.
+--=====================================================================
+function Effects:_findShield(model: Model?)
+	self.shieldParts = {}
+	self.shieldAlpha = 1 -- 1 = fully invisible
+	if not model then
+		return
+	end
+	local root = model:FindFirstChild(FX.ShieldName, true)
+	if not root then
+		return
+	end
+	local parts = if root:IsA("BasePart") then { root } else {}
+	if not root:IsA("BasePart") then
+		for _, d in root:GetDescendants() do
+			if d:IsA("BasePart") then
+				table.insert(parts, d)
+			end
+		end
+	end
+	for _, part in parts do
+		part.CanCollide = false
+		part.CanQuery = false -- never a wall to anyone's movement sweep
+		part.CanTouch = false
+		part.Massless = true
+		part.CastShadow = false
+		part.Transparency = 1 -- starts down
+	end
+	self.shieldParts = parts
+end
+
 function Effects:SetTrails(on: boolean, tier: number)
 	local color = if tier > 0 then FX.TierColors[math.clamp(tier, 1, #FX.TierColors)] else FX.TrailBaseColor
 	for _, trail in self.trails do
@@ -116,9 +169,19 @@ function Effects:Boost(_tier: number)
 	self.speedLines.Enabled = true
 end
 
-function Effects:Update(_dt: number, sim)
+function Effects:Update(dt: number, sim)
 	if not sim.boosting and self.speedLines.Enabled then
 		self.speedLines.Enabled = false
+	end
+
+	-- Shield bubble. Driven off the same HasShield the hit logic reads, so
+	-- what you see and what actually protects you can never disagree.
+	if #self.shieldParts > 0 then
+		local target = if sim:HasShield() then FX.ShieldTransparency else 1
+		self.shieldAlpha = Util.approach(self.shieldAlpha, target, FX.ShieldFadeRate, dt)
+		for _, part in self.shieldParts do
+			part.Transparency = self.shieldAlpha
+		end
 	end
 end
 

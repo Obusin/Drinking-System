@@ -334,7 +334,7 @@ local function onSeated(active: boolean, seatPart: BasePart?)
 	end
 
 	sim = Simulation.new(model, hitbox, seatPart, player.Character)
-	effects = Effects.new(hitbox)
+	effects = Effects.new(hitbox, model)
 	audio = Audio.new(hitbox)
 	camera = CameraRig.new(sim)
 	boosters = Boosters.new()
