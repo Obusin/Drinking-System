@@ -84,7 +84,6 @@ return {
 	DropTag = "KartDroppedItem",
 	DropLifetime = 15, -- long enough for the pack to reach it, short
 	-- enough that a busy lap doesn't carpet the track
-	DropSpread = 5, -- studs between them when a full stack scatters
 	DropSize = 3,
 	DropBillboard = 4.5, -- studs across, the icon shown above it
 	DropBob = 0.6,
@@ -138,9 +137,42 @@ return {
 	-- into position doesn't read as having been thrown.
 	--
 	-- Server-animated, so everyone sees the same throw.
-	ThrowSpeed = 165, -- studs/s at release, comfortably faster than a kart
-	ThrowDrag = 190, -- studs/s^2. Ends up roughly 70 studs out
-	ThrowTime = 0.9, -- hard stop, so it can't drift off down a straight
+	-- Properly ballistic: launched with a velocity and pulled down by
+	-- gravity, rather than slid along the floor. Sliding is what it did
+	-- first and it never read as a throw — the arc is the entire tell
+	-- that something was thrown rather than placed.
+	--
+	-- Gravity is applied along the KART's up, not the world's, so a throw
+	-- on a loop arcs onto the ceiling exactly as it would on the ground.
+	-- Tuned against the arithmetic rather than by eye. At 180 gravity:
+	--
+	--   lift 28 -> 0.30s airborne, 2 studs high. A flat shove.
+	--   lift 60 -> 0.65s airborne, 9.5 studs high. A throw.
+	--
+	-- Speed has to beat the kart or the item never gets away from the
+	-- thrower: 190 covers 124 studs in that 0.65s while the kart does 78,
+	-- so it lands a clear 46 studs ahead.
+	ThrowSpeed = 190, -- studs/s forward at release
+	ThrowLift = 60, -- studs/s upward. This is the arc
+	ThrowGravity = 180, -- studs/s^2. High on purpose: a floaty item is
+	-- hard to aim and looks like it's underwater
+
+	-- Bounces on landing, losing this fraction of its speed each time.
+	-- A couple of hops sells the weight; more and it wanders somewhere
+	-- neither player expects.
+	ThrowBounce = 0.35,
+	ThrowBounces = 2,
+	ThrowTime = 4, -- hard stop, so nothing can drift forever off a ledge
+
+	--== SCATTER  (dropped items) ======================================
+	-- Items knocked out of you burst outward rather than appearing in a
+	-- neat row. Same flight code as a throw, just aimed differently.
+	-- 55 gives 0.6s airborne and 8 studs high, so items visibly burst out
+	-- of the kart. At 26 they barely left the floor.
+	DropPop = 55, -- studs/s upward
+	DropScatter = 18, -- studs/s sideways, fanned across the road. Ends up
+	-- about 11 studs either side — spread enough to pick one, close
+	-- enough to grab two on the way past
 
 	-- Box appearance, built for any tagged part that has no art of its
 	-- own. Purely cosmetic and entirely client-side.

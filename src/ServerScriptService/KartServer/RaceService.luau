@@ -55,25 +55,27 @@ local itemRemote: RemoteEvent
 local hitRemote: RemoteEvent
 
 --=====================================================================
---  THROWN HAZARDS
+--  FLIGHT  (thrown hazards and scattered drops)
 --
---  A forward throw travels rather than appearing where it lands. Same
---  reason a thrown shell arcs in any kart game: something that teleports
---  into position doesn't read as having been thrown.
+--  Properly ballistic: a velocity, gravity, and a bounce on landing.
 --
---  Server-side so everyone sees the same throw, and so the thrower can't
---  decide where it ends up.
+--  The first version slid the item along the floor at a decaying speed,
+--  and it never read as a throw — an arc is the entire tell that
+--  something was thrown rather than placed in front of you.
+--
+--  Gravity pulls along the THROWER'S up rather than the world's, so a
+--  throw on a loop arcs onto the ceiling exactly as it would on flat
+--  ground. Same reasoning as the kart's own surface gravity.
+--
+--  Server-side so everyone sees one throw, and so the thrower doesn't
+--  get to decide where it ends up.
 --=====================================================================
 local flying = {}
 
 local throwParams = RaycastParams.new()
 throwParams.FilterType = Enum.RaycastFilterType.Exclude
 
-local function stepThrows(dt: number)
-	if #flying == 0 then
-		return
-	end
-
+local function refreshThrowFilter()
 	-- Karts and triggers excluded, or a throw lands on the roof of the
 	-- kart that threw it, or on top of a checkpoint volume.
 	local skip = {}
@@ -90,25 +92,51 @@ local function stepThrows(dt: number)
 		table.insert(skip, f.part)
 	end
 	throwParams.FilterDescendantsInstances = skip
+end
 
+local function stepThrows(dt: number)
+	if #flying == 0 then
+		return
+	end
+	refreshThrowFilter()
+
+	local IT = Config.Items
 	local now = os.clock()
+
 	for i = #flying, 1, -1 do
 		local f = flying[i]
-		f.speed -= Config.Items.ThrowDrag * dt
-		if not f.part.Parent or now >= f.stop or f.speed <= 0 then
+		if not f.part.Parent or now >= f.stop then
 			table.remove(flying, i)
 			continue
 		end
 
-		local at = f.part.Position + f.dir * f.speed * dt
+		f.vel -= f.up * IT.ThrowGravity * dt
+		local step = f.vel * dt
 
-		-- Follow the road under it, so a throw down a slope settles onto
-		-- the tarmac rather than sailing off it.
-		local probe = workspace:Raycast(at + f.up * 8, -f.up * 40, throwParams)
-		if probe then
-			at = probe.Position + f.up * f.lift
+		-- Cast a little past the step, by the item's own half-height, so
+		-- it lands ON the road rather than with its middle in it.
+		local reach = step.Magnitude + f.lift
+		local dir = if step.Magnitude > 1e-4 then step.Unit else -f.up
+		local hit = workspace:Raycast(f.part.Position, dir * reach, throwParams)
+
+		if not hit then
+			f.part.Position += step
+			continue
 		end
-		f.part.Position = at
+
+		f.part.Position = hit.Position + hit.Normal * f.lift
+
+		-- Bounce, losing speed each time. A couple of hops sells the
+		-- weight; more and it wanders somewhere neither player expects.
+		if f.bounces > 0 and f.vel.Magnitude > 12 then
+			f.bounces -= 1
+			f.vel = (f.vel - 2 * f.vel:Dot(hit.Normal) * hit.Normal) * IT.ThrowBounce
+			-- Landing re-references gravity to the surface it hit, so an
+			-- item that lands on a banked corner settles into the bank.
+			f.up = hit.Normal
+		else
+			table.remove(flying, i)
+		end
 	end
 end
 
@@ -352,10 +380,12 @@ function RaceService.start()
 			if not back then
 				table.insert(flying, {
 					part = hz,
-					dir = arg.LookVector,
+					-- Forward AND up: the lift is what makes it an arc
+					-- rather than a shove along the floor.
+					vel = arg.LookVector * IT.ThrowSpeed + arg.UpVector * IT.ThrowLift,
 					up = arg.UpVector,
-					speed = IT.ThrowSpeed,
 					lift = spec.Size.Y * 0.5,
+					bounces = IT.ThrowBounces,
 					stop = os.clock() + IT.ThrowTime,
 				})
 			end
@@ -387,7 +417,10 @@ function RaceService.start()
 				drop.Size = Vector3.one * IT.DropSize
 				-- Spread sideways from where they span, so a full stack
 				-- doesn't land as one unpickable pile.
-				drop.CFrame = arg * CFrame.new((i - (#itemId + 1) * 0.5) * IT.DropSpread, 0, 0)
+				-- All spawned ON the victim and thrown apart, rather than
+				-- placed in a tidy row: they were knocked out of a kart, so
+				-- they should look like it.
+				drop.CFrame = arg
 				drop.Anchored = true
 				drop.CanCollide = false
 				drop.CanQuery = true -- clients find it with a spatial query
@@ -421,6 +454,22 @@ function RaceService.start()
 				icon.BackgroundTransparency = 1
 				icon.Image = item.Icon or ""
 				icon.Parent = bb
+
+				-- Fanned across the road, evenly either side of the victim,
+				-- so a full stack doesn't land as one unpickable pile.
+				local fan = (i - (#itemId + 1) * 0.5) / math.max(#itemId, 1)
+				table.insert(flying, {
+					part = drop,
+					vel = arg.RightVector * (fan * 2 * IT.DropScatter)
+						+ arg.UpVector * IT.DropPop
+						-- A little backwards, so they land behind the spinout
+						-- rather than in the path of whoever caused it.
+						- arg.LookVector * IT.DropScatter * 0.4,
+					up = arg.UpVector,
+					lift = IT.DropSize * 0.5,
+					bounces = IT.ThrowBounces,
+					stop = os.clock() + IT.ThrowTime,
+				})
 
 				CollectionService:AddTag(drop, IT.DropTag)
 				task.delay(IT.DropLifetime, function()
