@@ -152,6 +152,22 @@ non-colliding, massless, no say in the handling.
 - A part named `SteeringWheel` inside it is used as the wheel and gets
   the steering Motor6D. Add `GripL` / `GripR` attachments to it for the
   hands.
+- **Road wheels**: tag them `KartWheelFront` (steer + roll) or
+  `KartWheelRear` (roll only). Untagged parts named `WheelFL`/`WheelFR`/
+  `WheelRL`/`WheelRR` work too. They get a Motor6D instead of a weld,
+  because a weld can't be rotated at runtime.
+  - If they spin like plates instead of tyres, your mesh rolls about a
+    different axis — set `Config/Rig.RoadWheelAxis` to `Vector3.zAxis`.
+
+**Don't include a `Seat` or a part named `Hitbox`** — the factory builds
+both and strips yours on clone, so a whole modelled kart is fine to drop
+in as-is. It also forces `CanCollide`, `CanQuery` and `Massless`, so
+don't bother setting those either.
+
+**Per-player art**: `Config/Rig.VisualByPlayer` maps a username to a
+model name for trying a new kart on one account. Cosmetic only — the
+hitbox is forced to `HitboxSize` whatever the art is, so a bespoke kart
+can never be a faster kart.
 
 Without any of this a placeholder kart is built in code.
 

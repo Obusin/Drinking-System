@@ -43,4 +43,14 @@ Names.ARM_AT = "ArmAt"
 -- oil, fake boxes and anything added later.
 Names.HAZARD_ITEM = "HazardItem"
 
+-- On a road wheel's Motor6D. True for the front pair, which steer as
+-- well as roll.
+Names.WHEEL_FRONT = "IsFront"
+
+-- On a kart, written by its own driver's client. Steering as the DRIVER
+-- knows it, which on a touch device the VehicleSeat never sees — see
+-- Rider. Client-set, so it does NOT replicate; remote karts fall back to
+-- SteerFloat, which is correct for anyone on a keyboard.
+Names.STEER = "KartSteer"
+
 return Names

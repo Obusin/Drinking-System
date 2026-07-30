@@ -15,6 +15,7 @@ local ServerStorage = game:GetService("ServerStorage")
 
 local Config = require(ReplicatedStorage.BloxKart.Config)
 local Util = require(ReplicatedStorage.BloxKart.Util)
+local Names = require(ReplicatedStorage.BloxKart.Names)
 local PlaceholderVisual = require(script.Parent.PlaceholderVisual)
 local SteeringWheel = require(script.Parent.SteeringWheel)
 
@@ -125,6 +126,25 @@ function KartFactory.build(color: Color3?, visualName: string?): Model
 	local supplied = visual:FindFirstChild("SteeringWheel", true)
 	local suppliedWheel = if supplied and supplied:IsA("BasePart") then supplied else nil
 
+	-- Road wheels: tagged, or named from the config lists. A wheel gets a
+	-- Motor6D rather than a weld so Rider can turn it; a welded wheel is
+	-- frozen to the body forever.
+	local function wheelKind(part: BasePart): boolean?
+		if CollectionService:HasTag(part, RIG.WheelFrontTag) then
+			return true
+		end
+		if CollectionService:HasTag(part, RIG.WheelRearTag) then
+			return false
+		end
+		if table.find(RIG.FrontWheelNames, part.Name) then
+			return true
+		end
+		if table.find(RIG.RearWheelNames, part.Name) then
+			return false
+		end
+		return nil
+	end
+
 	for _, desc in visual:GetDescendants() do
 		if desc:IsA("BasePart") then
 			desc.Anchored = false
@@ -140,7 +160,17 @@ function KartFactory.build(color: Color3?, visualName: string?): Model
 
 			-- The hub itself gets a Motor6D below, not a weld. Its
 			-- children weld to the hub so they spin with it.
-			if desc ~= suppliedWheel then
+			local isFront = wheelKind(desc)
+			if isFront ~= nil then
+				-- Motor6D, not a weld: a weld can't be rotated at runtime.
+				local motor = Instance.new("Motor6D")
+				motor.Name = "RoadWheelMotor"
+				motor.Part0, motor.Part1 = hitbox, desc
+				motor.C0 = hitbox.CFrame:ToObjectSpace(desc.CFrame)
+				motor:SetAttribute(Names.WHEEL_FRONT, isFront)
+				motor.Parent = desc
+				log("%s -> %s road wheel", desc.Name, if isFront then "front" else "rear")
+			elseif desc ~= suppliedWheel then
 				local anchorTo = if suppliedWheel and desc:IsDescendantOf(suppliedWheel)
 					then suppliedWheel
 					else hitbox

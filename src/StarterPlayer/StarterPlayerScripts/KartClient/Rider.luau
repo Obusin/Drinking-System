@@ -34,9 +34,11 @@ local BloxKart = ReplicatedStorage:WaitForChild("BloxKart")
 local RunService = game:GetService("RunService")
 
 local Config = require(BloxKart:WaitForChild("Config"))
+local Names = require(BloxKart:WaitForChild("Names"))
 local Util = require(BloxKart:WaitForChild("Util"))
 
 local R = Config.Rider
+local RIG = Config.Rig
 local KART_TAG = "Kart"
 
 local Rider = {}
@@ -154,7 +156,7 @@ local state: { [Model]: any } = {}
 local function stateFor(kart: Model)
 	local s = state[kart]
 	if not s then
-		s = { steer = 0, rig = nil, ikL = nil, ikR = nil, boundTo = nil }
+		s = { steer = 0, wheelSteer = 0, roll = 0, lastPos = nil, rig = nil, ikL = nil, ikR = nil, boundTo = nil }
 		state[kart] = s
 	end
 	return s
@@ -171,6 +173,50 @@ local function report(reason: string?)
 	if reason ~= lastReason or now - lastReasonAt > 1 then
 		lastReason, lastReasonAt = reason, now
 		print("[Rider] " .. (reason or "hands on the wheel"))
+	end
+end
+
+--=====================================================================
+--  ROAD WHEELS
+--
+--  Cosmetic only — the hitbox decides how the kart moves, and these just
+--  have to look like they belong to it. Fronts steer and roll, rears
+--  roll.
+--
+--  Roll comes from how far the kart actually MOVED, not from a speed
+--  value: this runs for every kart including other people's, and their
+--  speed isn't replicated. Distance between frames is, because their
+--  position is.
+--=====================================================================
+local function updateRoadWheels(kart: Model, s, dt: number)
+	local hitbox = kart.PrimaryPart
+	if not hitbox then
+		return
+	end
+
+	-- Metres rolled since last frame -> radians, via the wheel's
+	-- circumference. Signed, so reversing spins them backwards.
+	local pos = hitbox.Position
+	local moved = 0
+	if s.lastPos then
+		local delta = pos - s.lastPos
+		moved = delta.Magnitude * math.sign(delta:Dot(hitbox.CFrame.LookVector))
+	end
+	s.lastPos = pos
+	s.roll = (s.roll or 0) + moved / math.max(RIG.RoadWheelRadius, 0.1)
+
+	-- Fronts lag the input a touch, like the steering wheel does.
+	s.wheelSteer = Util.approach(s.wheelSteer or 0, s.steer, RIG.RoadWheelSteerRate, dt)
+	local lock = s.wheelSteer * math.rad(RIG.RoadWheelSteer)
+
+	for _, motor in kart:GetDescendants() do
+		if motor:IsA("Motor6D") and motor.Name == "RoadWheelMotor" then
+			-- Yaw THEN pitch: steering turns the whole wheel, and the wheel
+			-- rolls about its own axle afterwards. The other order would
+			-- swing the axle around instead.
+			local turn = if motor:GetAttribute(Names.WHEEL_FRONT) then CFrame.Angles(0, -lock, 0) else CFrame.new()
+			motor.Transform = turn * CFrame.fromAxisAngle(RIG.RoadWheelAxis, s.roll)
+		end
 	end
 end
 
@@ -193,10 +239,24 @@ local function updateKart(kart: Model, dt: number)
 	-- for other people's karts as well as our own. No Animator is
 	-- involved here, so Transform is the right tool.
 	----------------------------------------------------------------
-	local targetSteer = if occupant then seat.SteerFloat else 0
+	-- The kart's own attribute first, then the seat.
+	--
+	-- On a touch device the pad feeds Simulation directly and the
+	-- VehicleSeat never sees a steer value at all, so SteerFloat alone
+	-- would leave a mobile player's wheel dead straight while they corner.
+	-- The driver's client writes its real steer onto its own kart; that
+	-- doesn't replicate, so remote karts fall through to SteerFloat, which
+	-- is right for anyone on a keyboard.
+	local own = kart:GetAttribute(Names.STEER)
+	local targetSteer = 0
+	if occupant then
+		targetSteer = if typeof(own) == "number" then own else seat.SteerFloat
+	end
 	s.steer = Util.approach(s.steer, targetSteer, R.WheelSmoothing, dt)
 	local spin = -s.steer * math.rad(R.MaxWheelAngle)
 	motor.Transform = CFrame.Angles(0, 0, if R.InvertWheel then -spin else spin)
+
+	updateRoadWheels(kart, s, dt)
 
 	----------------------------------------------------------------
 	-- Hands

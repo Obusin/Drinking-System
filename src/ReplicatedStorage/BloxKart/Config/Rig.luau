@@ -52,6 +52,34 @@ return {
 	PaintTag = "KartPaint",
 	PaintParts = { "Chassis", "Nose" },
 
+	--== ROAD WHEELS ===================================================
+	-- Purely cosmetic: nothing here touches handling, which is decided
+	-- entirely by the hitbox. Tag the wheels in your kart art, or name
+	-- them from the lists below if you'd rather not tag.
+	--
+	-- Wheels get a Motor6D instead of a weld, because a weld can't be
+	-- rotated at runtime and a Motor6D can — the same reason the steering
+	-- wheel has one.
+	WheelFrontTag = "KartWheelFront", -- steers AND rolls
+	WheelRearTag = "KartWheelRear", -- rolls only
+
+	-- Fallback if nothing is tagged, so the built-in placeholder works.
+	FrontWheelNames = { "WheelFL", "WheelFR" },
+	RearWheelNames = { "WheelRL", "WheelRR" },
+
+	RoadWheelSteer = 26, -- degrees of lock at full steer. Real karts turn
+	-- their fronts much further than a car; too little reads as broken
+	RoadWheelRadius = 1.1, -- studs. Only sets how fast they LOOK like
+	-- they're rolling — wrong and they visibly skid or spin up
+	RoadWheelSteerRate = 12, -- how fast the fronts follow the input
+
+	-- Which way a wheel rolls, in ITS OWN space. A Roblox Cylinder spins
+	-- about X, and so does the built-in placeholder — but an imported
+	-- mesh spins about whatever axis it was modelled down, and getting
+	-- this wrong makes the wheels rotate like plates instead of tyres.
+	-- If yours look wrong, this is the setting: try Vector3.zAxis.
+	RoadWheelAxis = Vector3.xAxis,
+
 	--== COLLISION =====================================================
 	-- Karts pass through each other. Racers bumping is a whole physics
 	-- problem we don't need, and our movement is query-based anyway.

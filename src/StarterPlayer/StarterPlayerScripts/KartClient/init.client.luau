@@ -34,6 +34,7 @@ local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 
 local Config = require(ReplicatedStorage:WaitForChild("BloxKart"):WaitForChild("Config"))
+local Names = require(ReplicatedStorage.BloxKart.Names)
 local WorldFilter = require(script.WorldFilter)
 local Simulation = require(script.Simulation)
 local Input = require(script.Input)
@@ -159,6 +160,15 @@ local function step(dt: number)
 
 	Input.update(dt)
 	local events = sim:Step(dt, Input)
+
+	-- Publish OUR steer onto OUR kart so Rider can turn the wheel and the
+	-- front tyres. The VehicleSeat never sees a touch player's steering —
+	-- the pad feeds Simulation directly — so SteerFloat alone leaves a
+	-- mobile driver cornering with the wheel dead straight. Client-set, so
+	-- it stays local; other people's karts fall back to SteerFloat.
+	if sim.model then
+		sim.model:SetAttribute(Names.STEER, sim.steer)
+	end
 
 	-- Dispatch. Simulation doesn't know these modules exist.
 	if events.driftStarted then
