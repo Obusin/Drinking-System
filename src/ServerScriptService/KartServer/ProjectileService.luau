@@ -282,11 +282,17 @@ function ProjectileService.start()
 		local cruise = if item.CruiseHeight then up * item.CruiseHeight else Vector3.zero
 		local pos = hb.Position + dir * item.Projectile.Offset + cruise
 
-		-- Enters the route where the SHOOTER is, not at node 1 — otherwise
-		-- a missile fired on lap 3 sets off back towards the start line.
-		-- The shooter's checkpoint count is already replicated inside their
-		-- progress score, so nothing new has to be tracked for this.
+		-- Enters the route at the shooter's ACTUAL position on it, not at
+		-- the last checkpoint they passed.
+		--
+		-- A checkpoint count is an integer: it says which one you're past,
+		-- not where between it and the next you are. Launching from the
+		-- integer drops the missile back at the checkpoint behind the
+		-- shooter, so it appears at the kart and is instantly somewhere
+		-- else — which reads as it spawning and vanishing.
 		local nodes = Route.nodes()
+		local startU = if #nodes > 0 then Route.nearestU(pos) else 0
+		local startLateral = if #nodes > 0 then Route.lateralAt(startU, pos, up) else 0
 
 		nextUid += 1
 		local p = {
@@ -298,13 +304,12 @@ function ProjectileService.start()
 			pos = pos,
 			dir = dir,
 			up = up,
-			-- Where on the racing line it starts. Absolute, so laps are
-			-- included: a missile fired on lap 3 carries on round rather
-			-- than setting off back towards the start line.
-			u = Route.absoluteOf(from:GetAttribute(Standings.ATTRIBUTE), #nodes),
-			-- Starts on the shooter's own line rather than the centre, so it
-			-- leaves from where the kart actually is.
-			lateral = 0,
+			u = startU,
+			-- On the shooter's own line rather than the centre of the road,
+			-- so it leaves from where the kart actually is.
+			lateral = startLateral,
+			-- railOff is captured on the first step, from wherever the nose
+			-- was versus the racing line, and decays to nothing.
 			born = os.clock(),
 			expires = os.clock() + item.Lifetime,
 			nextSync = 0,
@@ -313,11 +318,12 @@ function ProjectileService.start()
 
 		if IT.ProjectileDebug then
 			print(
-				("[Missile] #%d launched by %s — %d route nodes, entering at u %.1f, target %s"):format(
+				("[Missile] #%d launched by %s — %d route nodes, entering at u %.2f (lat %.1f), target %s"):format(
 					nextUid,
 					player.Name,
 					#nodes,
 					p.u,
+					p.lateral,
 					if target then target.Name else "none"
 				)
 			)

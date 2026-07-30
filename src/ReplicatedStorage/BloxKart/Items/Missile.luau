@@ -75,6 +75,11 @@ return {
 	-- Too small and it sails past someone parked beside the centreline.
 	StrikeRange = 45,
 
+	-- Seconds to settle from the launch point onto the racing line. Long
+	-- enough that it visibly leaves the kart, short enough that it's on
+	-- the rails before the first corner.
+	RailBlend = 0.35,
+
 	Projectile = {
 		Size = Vector3.new(1.3, 1.3, 3.6),
 		Color = Color3.fromRGB(255, 120, 60),

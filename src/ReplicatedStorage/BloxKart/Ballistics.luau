@@ -170,7 +170,23 @@ function Ballistics.step(p: State, dt: number, target: Target?, rayParams: Rayca
 	end
 
 	local before = p.pos
-	p.pos = ground + right * p.lateral + p.up * item.CruiseHeight
+	local onRail = ground + right * p.lateral + p.up * item.CruiseHeight
+
+	-- Settled onto the rail as a DECAYING OFFSET, not a lerp from the
+	-- previous position.
+	--
+	-- The launch point is the kart's nose, which is never exactly on the
+	-- racing line, and snapping to the rail on frame one is the difference
+	-- between a missile leaving the kart and one appearing near it. But
+	-- lerping position toward the rail would also scale down the forward
+	-- step, so the missile would crawl out of the launcher.
+	--
+	-- Holding the displacement separately and shrinking it lets the
+	-- missile travel the road at full speed from the first frame while
+	-- visibly converging onto the line.
+	p.railOff = if p.railOff then p.railOff else (before - onRail)
+	p.railOff = p.railOff:Lerp(Vector3.zero, math.min(dt / math.max(item.RailBlend, 1e-3), 1))
+	p.pos = onRail + p.railOff
 
 	-- Facing follows actual movement, so it points where it's going even
 	-- while sliding sideways across the road.

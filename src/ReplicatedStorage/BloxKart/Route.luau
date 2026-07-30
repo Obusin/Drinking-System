@@ -246,4 +246,67 @@ function Route.segmentLength(u: number): number
 	return math.max((wrapNode(nodes, i + 1) - wrapNode(nodes, i)).Magnitude, 1)
 end
 
+-- Where on the racing line a world position sits, as a `u`.
+--
+-- Needed because a racer's checkpoint COUNT is only an integer — it says
+-- which checkpoint they last passed, not where between that one and the
+-- next they are. Launching a missile from the integer drops it back at
+-- the checkpoint behind the shooter, which looks like it spawning and
+-- vanishing.
+--
+-- Coarse sweep then a local refine. Called once per launch, not per
+-- frame, so simple beats clever.
+function Route.nearestU(pos: Vector3): number
+	local nodes = Route.nodes()
+	local n = #nodes
+	if n == 0 then
+		return 0
+	end
+
+	local bestU, bestD = 0, math.huge
+	local steps = n * 8
+	for k = 0, steps - 1 do
+		local u = k / 8
+		local pt = Route.pointAt(u)
+		if pt then
+			local d = (pt - pos).Magnitude
+			if d < bestD then
+				bestU, bestD = u, d
+			end
+		end
+	end
+
+	-- Refine around the winner, halving the window each pass.
+	local window = 1 / 8
+	for _ = 1, 6 do
+		for _, u in { bestU - window, bestU + window } do
+			local pt = Route.pointAt(u % n)
+			if pt then
+				local d = (pt - pos).Magnitude
+				if d < bestD then
+					bestU, bestD = u, d
+				end
+			end
+		end
+		window *= 0.5
+	end
+	return bestU % n
+end
+
+-- Sideways offset of a world position from the racing line at `u`,
+-- positive to the right. `up` decides which way "right" is, so this
+-- still works on a banked or inverted section.
+function Route.lateralAt(u: number, pos: Vector3, up: Vector3): number
+	local centre = Route.pointAt(u)
+	local tangent = Route.tangentAt(u)
+	if not (centre and tangent) then
+		return 0
+	end
+	local right = tangent:Cross(up)
+	if right.Magnitude < 1e-4 then
+		return 0
+	end
+	return (pos - centre):Dot(right.Unit)
+end
+
 return Route

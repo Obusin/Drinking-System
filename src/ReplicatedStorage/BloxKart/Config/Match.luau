@@ -20,7 +20,7 @@ return {
 	-- isn't assigned to anybody — so the match sits in Waiting forever
 	-- and you free-drive. That's usually what you want out of test mode,
 	-- but it does mean the countdown can't be tested from it.
-	MinRacers = 1,
+	MinRacers = 2,
 	-- NOTE: grid size lives in Rig.MaxRacers, not here. There was a second
 	-- copy of it in this file that nothing read — two numbers meaning one
 	-- thing, waiting to disagree.
