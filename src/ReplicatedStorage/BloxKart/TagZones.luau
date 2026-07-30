@@ -15,6 +15,11 @@
 --]]
 
 local CollectionService = game:GetService("CollectionService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+-- Read straight from Config rather than through Triggers, which requires
+-- this module's siblings and would make the graph circular.
+local SURFACE_TAG = require(ReplicatedStorage:WaitForChild("BloxKart"):WaitForChild("Config")).Race.SurfaceTag
 
 local TagZones = {}
 TagZones.__index = TagZones
@@ -48,6 +53,20 @@ function TagZones.new(tag: string, opts: Options?)
 		-- queries and would silently do nothing. Local-only fix.
 		if self.forceQueryable then
 			inst.CanQuery = true
+		end
+
+		-- And a trigger authored SOLID is a wall.
+		--
+		-- Our own movement ignores these — WorldFilter filters them out —
+		-- but Roblox physics doesn't, and anything physically simulated
+		-- gets caught on them: an unanchored bot kart, a seated rig's
+		-- limbs, a player on foot. A fresh Part defaults to CanCollide on,
+		-- so this is the state a checkpoint is in unless somebody
+		-- remembered to turn it off.
+		--
+		-- Except a road that's also a trigger, which is solid on purpose.
+		if not CollectionService:HasTag(inst, SURFACE_TAG) then
+			inst.CanCollide = false
 		end
 		table.insert(self.parts, inst)
 		self.params.FilterDescendantsInstances = self.parts

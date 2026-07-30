@@ -369,8 +369,18 @@ how hard they push, `StepRate` (30) for server cost — the controller is
 frame-rate independent, so halving it changes nothing about how they
 drive.
 
-They need **checkpoints**: the racing line is what they steer along. No
-checkpoints, no bots worth having.
+They need **checkpoints**: the racing line is what they steer along, and
+with none they refuse to spawn and say so.
+
+Optional: a Model with a **Humanoid** named `BotRig` in `ServerStorage`
+gets sat in each bot's seat, so they look like racers rather than empty
+karts. Hands go on the wheel automatically.
+
+**`Config/Bots.Debug = true`** draws what each bot has decided — a white
+line to where it's steering, and a bar above it for throttle that turns
+red when it thinks it's cornering. Plus one line a second saying its
+speed, throttle and steering. A bot that's stopped tells you which of the
+three reasons it is instead of leaving you to guess.
 
 ---
 

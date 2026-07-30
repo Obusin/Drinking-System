@@ -136,6 +136,71 @@ local function bendAt(u: number, ahead: number, up: Vector3): number
 end
 
 --=====================================================================
+--  DEBUG
+--
+--  Draws what a bot has decided, because guessing at this has already
+--  cost two rounds. Same idea as the missile's path lines, and for the
+--  same reason: "it gets stuck" describes a dozen different causes.
+--
+--    white line   where it's steering
+--    green        throttle, as a bar rising out of the roof
+--    red          it thinks it's cornering, so it's braking
+--
+--  Debug parts are CanQuery and CanCollide off, or the debugging tool
+--  becomes the bug.
+--=====================================================================
+local function debugPart(bot, key: string, colour: Color3): BasePart
+	local part = bot.dbg[key]
+	if not part then
+		part = Instance.new("Part")
+		part.Name = "BotDbg_" .. key
+		part.Anchored = true
+		part.CanCollide = false
+		part.CanQuery = false
+		part.CanTouch = false
+		part.CastShadow = false
+		part.Material = Enum.Material.Neon
+		part.Color = colour
+		part.Parent = workspace
+		bot.dbg[key] = part
+	end
+	return part
+end
+
+local function drawDebug(bot, aim: Vector3?, bend: number)
+	if not B.Debug then
+		return
+	end
+	local from = bot.sim.pos
+
+	local line = debugPart(bot, "aim", Color3.fromRGB(255, 255, 255))
+	if aim then
+		local span = aim - from
+		line.Size = Vector3.new(0.3, 0.3, math.max(span.Magnitude, 0.1))
+		line.CFrame = CFrame.lookAt(from + span * 0.5, aim)
+		line.Transparency = 0.3
+	else
+		line.Transparency = 1
+	end
+
+	-- Throttle as a bar, so a bot crawling for no reason is obvious from
+	-- across the track rather than from a log line.
+	local bar = debugPart(bot, "throttle", Color3.fromRGB(90, 240, 130))
+	local t = bot.controls.touchThrottle
+	bar.Color = if bend > 0.2 then Color3.fromRGB(255, 90, 90) else Color3.fromRGB(90, 240, 130)
+	bar.Size = Vector3.new(0.6, math.max(t, 0.05) * 8, 0.6)
+	bar.CFrame = CFrame.new(from + bot.sim.up * (4 + math.max(t, 0.05) * 4))
+	bar.Transparency = 0.2
+end
+
+local function clearDebug(bot)
+	for _, part in bot.dbg do
+		part:Destroy()
+	end
+	table.clear(bot.dbg)
+end
+
+--=====================================================================
 --  DRIVING
 --=====================================================================
 local function drive(bot, dt: number)
@@ -206,6 +271,8 @@ local function drive(bot, dt: number)
 	----------------------------------------------------------------
 	local ease = bend * B.CornerBrake * (2 - bot.skill)
 	c.touchThrottle = math.clamp(1 - ease, B.MinCornerSpeed, 1)
+
+	drawDebug(bot, aim, bend)
 
 	----------------------------------------------------------------
 	-- DRIFTING
@@ -482,6 +549,22 @@ local function step(dt: number)
 			hitbox.AssemblyAngularVelocity = Vector3.zero
 		end
 
+		-- One line a second per bot when debugging. A bot that has stopped
+		-- says which of the three possible reasons it is: no throttle, no
+		-- route, or wedged against something with throttle applied.
+		if B.Debug and now >= (bot.nextLog or 0) then
+			bot.nextLog = now + 1
+			log(
+				"%s u=%.1f spd=%.0f thr=%.2f steer=%+.2f %s",
+				bot.name,
+				bot.u or 0,
+				bot.sim.speed,
+				bot.controls.touchThrottle,
+				bot.controls.touchSteer,
+				if bot.sim.grounded then "" else "AIRBORNE"
+			)
+		end
+
 		-- Progress, so bots appear in the standings and the missile's
 		-- route entry. Written directly: the server owns these karts, so
 		-- there's no report to relay.
@@ -533,6 +616,7 @@ function BotService.fill()
 		local bot = table.remove(bots)
 		bot.boxes:Destroy()
 		bot.drops:Destroy()
+		clearDebug(bot)
 		if bot.rig then
 			bot.rig:Destroy()
 		end
@@ -569,6 +653,7 @@ function BotService.fill()
 			item = nil,
 			itemAt = 0,
 			lastU = nil,
+			dbg = {},
 			boxes = TagZones.new(Config.Items.BoxTag, { cooldown = Config.Items.PickupCooldown, forceQueryable = true }),
 			drops = TagZones.new(Config.Items.DropTag, { cooldown = 0.5, forceQueryable = true }),
 		}
@@ -627,6 +712,11 @@ function BotService.seatRig(bot)
 			-- about as two karts pass.
 			d.CollisionGroup = Config.Rig.CollisionGroup
 			d.CanQuery = false
+			-- Non-solid. A seated rig is welded to the kart, so a limb
+			-- catching on scenery drags the whole kart to a stop — and
+			-- limbs are CanCollide by default.
+			d.CanCollide = false
+			d.Massless = true
 		end
 	end
 

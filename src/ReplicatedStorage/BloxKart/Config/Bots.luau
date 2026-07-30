@@ -34,11 +34,18 @@ return {
 	FillTo = 4,
 	MaxBots = 7, -- never more than the grid has slots for
 
-	-- Bots are stepped at this rate rather than every frame. The
-	-- controller is frame-rate independent by construction, so this costs
-	-- nothing in behaviour and halves the server's raycast load — which
-	-- is the real limit on how many bots a race can have.
-	StepRate = 30,
+	-- Every frame, and it has to be.
+	--
+	-- Their karts are unanchored so motion replicates smoothly, which
+	-- means physics runs on them at 60Hz. Writing their CFrame at 30
+	-- meant physics extrapolated them along their velocity for a frame
+	-- and then got snapped back by the next write — visible as a flicker.
+	-- Matching the physics rate makes each correction tiny.
+	--
+	-- The controller is frame-rate independent, so lowering this doesn't
+	-- change how bots DRIVE. It trades smoothness for server cost, and
+	-- smoothness is the thing you notice.
+	StepRate = 60,
 
 	--== SKILL =========================================================
 	-- Rolled per bot at spawn, and scales everything below. Kept away
