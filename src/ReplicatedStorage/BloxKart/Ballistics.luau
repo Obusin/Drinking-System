@@ -156,16 +156,20 @@ local function followTerrain(p: State, dt: number, rayParams: RaycastParams)
 	-- the notion of "up" with the road rather than fighting it.
 	p.up = p.up:Lerp(probe.Normal, math.min(item.ClimbRate * dt, 1)).Unit
 
-	local height = (p.pos - probe.Position).Magnitude
-	local drift = item.CruiseHeight - height
-
-	-- Correct the DIRECTION rather than the position, then renormalise:
-	-- that keeps the flight path smooth instead of stair-stepping over
-	-- every bump.
-	local corrected = p.dir + p.up * (drift * item.ClimbRate * dt / math.max(item.Speed, 1))
-	if corrected.Magnitude > 1e-3 then
-		p.dir = corrected.Unit
-	end
+	-- Hold the height DIRECTLY, correcting only the component along up so
+	-- forward motion is untouched.
+	--
+	-- This used to steer toward the right height by tilting `dir`, which
+	-- is an integrator with no damping: the missile builds a climb angle,
+	-- sails past the target height still climbing, then over-corrects. A
+	-- slow porpoise rather than a hover, and the reason it never looked
+	-- like it was floating at a set distance.
+	--
+	-- Proportional on position instead, damped by the lerp factor, so it
+	-- settles onto the height and stays there.
+	local want = probe.Position + p.up * item.CruiseHeight
+	local off = (want - p.pos):Dot(p.up)
+	p.pos += p.up * (off * math.min(item.ClimbRate * dt, 1))
 end
 
 --=====================================================================

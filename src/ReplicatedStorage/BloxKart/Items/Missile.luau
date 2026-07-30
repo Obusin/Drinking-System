@@ -44,7 +44,11 @@ return {
 	-- Fired straight down the kart's nose, a missile buries itself in the
 	-- first dip or ramp it meets. It flies at a fixed height above the
 	-- road instead, correcting every frame.
-	CruiseHeight = 6, -- studs above the surface
+	-- Low enough to read as skimming the road rather than flying over it,
+	-- high enough to clear kerbs and the kart's own bodywork. The hitbox
+	-- centre sits about 1.2 above the road, so this stays well inside
+	-- HitRadius vertically.
+	CruiseHeight = 3, -- studs above the surface
 	CruiseProbe = 80, -- how far down to look for road. Needs to exceed
 	-- any drop it should fly over rather than dive into
 	ClimbRate = 7, -- how hard it corrects its height. Too high and it
