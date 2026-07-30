@@ -61,6 +61,7 @@ local BotService = {}
 
 local bots = {}
 local rng = Random.new()
+local warnedNoRoute = false
 
 --=====================================================================
 --  CONTROLS
@@ -421,6 +422,22 @@ local function step(dt: number)
 			bot.item = nil
 		end
 
+		-- Fell off the world, or ended up somewhere the road isn't. No
+		-- character to re-seat, so it puts itself back on the racing line
+		-- — which it already knows how to find.
+		local pos = bot.sim.pos
+		if pos.Y < Config.Rig.RespawnBelow then
+			local u = Route.nearestU(pos)
+			local at = Route.pointAt(u)
+			local tangent = Route.tangentAt(u)
+			if at and tangent then
+				bot.sim:RespawnAt(CFrame.lookAt(at + Vector3.yAxis * 5, at + tangent + Vector3.yAxis * 5))
+				bot.u = u
+				bot.lastU = nil
+				log("%s fell off and rejoined the line", bot.name)
+			end
+		end
+
 		local ok, err = pcall(function()
 			if racing then
 				drive(bot, dt)
@@ -465,6 +482,27 @@ function BotService.fill()
 	if Match.isDriving(MatchService.phase()) then
 		return
 	end
+	-- No racing line, no bots. They steer along the checkpoint spline and
+	-- there is nothing else for them to follow — spawned anyway they'd
+	-- sit on the grid as statues, which reads as broken code rather than
+	-- as a track that isn't finished.
+	if #Route.nodes() == 0 then
+		if #bots > 0 then
+			for _, bot in bots do
+				bot.boxes:Destroy()
+				bot.drops:Destroy()
+				bot.kart:Destroy()
+			end
+			table.clear(bots)
+		end
+		if not warnedNoRoute then
+			warnedNoRoute = true
+			warn("[BotService] no Checkpoint-tagged parts — bots have no racing line to follow, so none will spawn. Tag and number some checkpoints (see Kart/SETUP.md).")
+		end
+		return
+	end
+	warnedNoRoute = false
+
 	local humans = #Players:GetPlayers()
 	local want = math.clamp(B.FillTo - humans, 0, B.MaxBots)
 

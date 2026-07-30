@@ -31,6 +31,15 @@ local KartService = {}
 -- type was most of what bots cost this file.
 export type Racer = Player | { Name: string, Bot: true }
 
+-- MUST be a type check, not `racer.Bot`.
+--
+-- Roblox Instances THROW on unknown property access, so reading `.Bot`
+-- off a real Player errors rather than returning nil — which took out
+-- the whole spawn path for actual players the moment bots existed.
+local function isBot(racer: any): boolean
+	return typeof(racer) == "table" and racer.Bot == true
+end
+
 local karts: { [any]: Model } = {}
 local slots: { [any]: number } = {}
 
@@ -134,7 +143,7 @@ local function visualFor(player: any?): string?
 	end
 	-- Bots get whatever the config says, so they show up in the new kart
 	-- alongside you rather than in the placeholder.
-	if player.Bot then
+	if isBot(player) then
 		return RIG.BotVisual ~= "" and RIG.BotVisual or nil
 	end
 	for name, visual in RIG.VisualByPlayer do
@@ -281,7 +290,7 @@ end
 
 function KartService.removeBots()
 	for racer, kart in karts do
-		if racer.Bot then
+		if isBot(racer) then
 			karts[racer] = nil
 			slots[racer] = nil
 			kart:Destroy()
@@ -370,10 +379,13 @@ function KartService.start()
 		end
 
 		local fallen
-		for player, kart in karts do
-			if isLost(kart) then
+		for racer, kart in karts do
+			-- Bots excluded: this path re-seats a character, and a bot has
+			-- none. BotService puts its own back on the road — it already
+			-- knows where the racing line is.
+			if not isBot(racer) and isLost(kart) then
 				fallen = fallen or {}
-				table.insert(fallen, player)
+				table.insert(fallen, racer)
 			end
 		end
 		if fallen then
