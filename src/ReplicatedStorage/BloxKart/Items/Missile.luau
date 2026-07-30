@@ -94,8 +94,9 @@ return {
 	HitNote = 2,
 
 	Use = function(ctx)
-		-- Target is a hint. Nil is fine — it flies straight.
-		ctx.fireProjectile("Missile", ctx.aheadOf(ctx.kart))
+		-- Target is a hint. Nil is fine — it flies the route and hits
+		-- whoever it runs into.
+		ctx.fireProjectile("Missile", ctx.victimOf(ctx.kart))
 		return true
 	end,
 }

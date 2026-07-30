@@ -92,4 +92,14 @@ function Standings.ahead(order, kart: Model): Model?
 	return order[place - 1].kart
 end
 
+-- The kart directly behind `kart`, or nil if it's last. The mirror of
+-- `ahead`, for items thrown backwards.
+function Standings.behind(order, kart: Model): Model?
+	local place, field = Standings.placeOf(order, kart)
+	if place <= 0 or place >= field then
+		return nil
+	end
+	return order[place + 1].kart
+end
+
 return Standings

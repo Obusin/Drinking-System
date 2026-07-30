@@ -199,15 +199,32 @@ function Items:Update(sim, input): { [string]: any }
 		end
 	end
 
-	if input.consumeItemUse() and readyIndex then
+	-- Both keys drained every frame, whichever fired, so a queued press
+	-- can't go off later in the wrong direction.
+	local fireFwd = input.consumeItemUse()
+	local fireBack = input.consumeItemBack()
+	-- Looking back aims back, whichever key you pressed — you're throwing
+	-- at what you can actually see.
+	local back = fireBack or (IT.LookBackAims and input.lookingBack and fireFwd)
+
+	if (fireFwd or fireBack) and readyIndex then
 		local order = Standings.order(Standings.allKarts())
 		-- Read before ctx so `fire` below can stamp the payload with it.
 		local item = self.held[readyIndex].item
 		local ctx = {
 			sim = sim,
 			kart = self.kart,
+			-- Which way this one was thrown. Each item decides what that
+			-- means for it — a hazard flips where it lands, a missile flips
+			-- who it hunts.
+			back = back,
 			aheadOf = function(k)
 				return Standings.ahead(order, k)
+			end,
+			-- The racer this throw is aimed at, in whichever direction.
+			-- Saves every targeting item repeating the same branch.
+			victimOf = function(k)
+				return if back then Standings.behind(order, k) else Standings.ahead(order, k)
 			end,
 			-- Everyone in front, best first. Lightning needs the whole list;
 			-- nothing may ever return the racers BEHIND, which is the one
@@ -224,7 +241,7 @@ function Items:Update(sim, input): { [string]: any }
 				self.hazardRemote:FireServer("drop", cf, itemId)
 			end,
 			fireProjectile = function(itemId, target)
-				self.projectileRemote:FireServer(itemId, target)
+				self.projectileRemote:FireServer(itemId, target, back)
 			end,
 			fire = function(target, payload)
 				-- Stamped here, so no item module has to remember to include

@@ -13,6 +13,8 @@
 	footprint, change HitNote for a different sound.
 --]]
 
+local IT = require(script.Parent.Parent.Config).Items
+
 return {
 	Id = "OilSpill",
 	Tint = Color3.fromRGB(150, 130, 200), -- fallback tile if Icon fails to load
@@ -40,7 +42,12 @@ return {
 	},
 
 	Use = function(ctx)
-		local at = ctx.sim.pos - ctx.sim.forward * 10 + ctx.sim.up * 0.6
+		-- Behind by default, lobbed ahead when thrown forward. Along the
+		-- kart's own up so it lands on the track rather than inside it on
+		-- a loop.
+		local at = ctx.sim.pos
+			+ ctx.sim.forward * (if ctx.back then -10 else IT.ThrowAhead)
+			+ ctx.sim.up * 0.6
 		ctx.dropHazard(CFrame.lookAt(at, at + ctx.sim.forward, ctx.sim.up), "OilSpill")
 		return true
 	end,

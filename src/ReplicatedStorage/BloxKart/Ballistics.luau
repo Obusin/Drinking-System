@@ -61,6 +61,7 @@ export type State = {
 	up: Vector3,
 	u: number, -- position along the racing line, node units, wraps past a lap
 	lateral: number, -- studs right of the centreline
+	way: number?, -- +1 down the track, -1 back up it. Nil means forwards
 }
 
 export type Target = {
@@ -146,10 +147,13 @@ function Ballistics.step(p: State, dt: number, target: Target?, rayParams: Rayca
 	p.dbgMode = "route"
 
 	-- Advance along the line, converted through the local segment length
-	-- so a short segment isn't crossed as slowly as a long one.
-	p.u += step / Route.segmentLength(p.u)
+	-- so a short segment isn't crossed as slowly as a long one. `way` is
+	-- -1 for an item thrown backwards, which rides the same rails in the
+	-- opposite direction.
+	local way = p.way or 1
+	p.u += way * step / Route.segmentLength(p.u)
 	centre = Route.pointAt(p.u) or centre
-	local tangent = Route.tangentAt(p.u) or p.dir
+	local tangent = (Route.tangentAt(p.u) or p.dir) * way
 
 	-- The surface under the racing line, and its normal — which becomes
 	-- our up, so a banked or inverted section carries the missile round

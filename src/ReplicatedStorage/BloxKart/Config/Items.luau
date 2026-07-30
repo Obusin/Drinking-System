@@ -18,7 +18,28 @@ return {
 	--
 	-- Set to 1 for the stricter "spend before you collect" rule.
 	MaxHeld = 3,
+	-- FORWARD and BACKWARD, as a pair.
+	--
+	-- E rather than a mouse button: right mouse is already free-look and
+	-- left would mean the aiming hand doing two jobs — you could never
+	-- fire while looking around, which is exactly when you want to throw
+	-- backwards. E sits next to W, so it's the same left hand that's
+	-- already on WASD + Space + Shift + Q, and Q/E as a pair is the usual
+	-- convention for one action with two variants.
+	--
+	-- NOTE: E is also Input.ExitKeys, which only binds when AllowExit is
+	-- on — i.e. in test mode. Change one of them if you turn that on.
 	UseKeys = { Enum.KeyCode.Q, Enum.KeyCode.ButtonX },
+	UseBackKeys = { Enum.KeyCode.E, Enum.KeyCode.ButtonB },
+
+	-- Firing while look-back is held throws backwards whichever key you
+	-- pressed. Kart games have done this forever and it's nice because
+	-- you're aiming at what you can actually see.
+	LookBackAims = true,
+
+	-- How far ahead a hazard is lobbed when thrown forward. Backwards it
+	-- uses the item's own DropBack.
+	ThrowAhead = 22,
 
 	-- Getting hit costs you everything you were holding.
 	--

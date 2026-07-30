@@ -22,6 +22,7 @@ local LOOKBACK_ACTION = "KartLookBack"
 local NITRO_ACTION = "KartNitro"
 local RESET_ACTION = "KartReset"
 local ITEM_ACTION = "KartItem"
+local ITEM_BACK_ACTION = "KartItemBack"
 
 local Input = {
 	-- Touch steering / throttle. Added to whatever the VehicleSeat
@@ -35,6 +36,7 @@ local Input = {
 	nitroTaps = 0, -- queued, consumed one per frame by Simulation
 	resetRequested = false,
 	itemRequested = false,
+	itemBackRequested = false,
 	freeLooking = false,
 	lookingBack = false,
 	lookYaw = 0,
@@ -87,6 +89,13 @@ local function onItem(_, state: Enum.UserInputState)
 	return Enum.ContextActionResult.Sink
 end
 
+local function onItemBack(_, state: Enum.UserInputState)
+	if state == Enum.UserInputState.Begin then
+		Input.itemBackRequested = true
+	end
+	return Enum.ContextActionResult.Sink
+end
+
 local function sink()
 	return Enum.ContextActionResult.Sink
 end
@@ -134,6 +143,10 @@ end
 
 function Input.tapItem()
 	Input.itemRequested = true
+end
+
+function Input.tapItemBack()
+	Input.itemBackRequested = true
 end
 
 function Input.tapReset()
@@ -194,6 +207,17 @@ end)
 function Input.consumeItemUse(): boolean
 	if Input.itemRequested then
 		Input.itemRequested = false
+		return true
+	end
+	return false
+end
+
+-- Returns whether an item was fired, and which way. Both keys are
+-- drained either way so a queued press can't fire a frame later in the
+-- wrong direction.
+function Input.consumeItemBack(): boolean
+	if Input.itemBackRequested then
+		Input.itemBackRequested = false
 		return true
 	end
 	return false
@@ -262,6 +286,7 @@ function Input.bind(humanoidGetter: () -> Humanoid?)
 	ContextActionService:BindAction(NITRO_ACTION, onNitro, false, table.unpack(IN.NitroKeys))
 	ContextActionService:BindAction(RESET_ACTION, onReset, false, table.unpack(Config.Respawn.ResetKeys))
 	ContextActionService:BindAction(ITEM_ACTION, onItem, false, table.unpack(Config.Items.UseKeys))
+	ContextActionService:BindAction(ITEM_BACK_ACTION, onItemBack, false, table.unpack(Config.Items.UseBackKeys))
 	ContextActionService:BindAction(JUMPSINK_ACTION, sink, false, IN.JumpSinkKey)
 	if IN.AllowExit then
 		ContextActionService:BindAction(EXIT_ACTION, onExit, false, table.unpack(IN.ExitKeys))
@@ -274,12 +299,14 @@ function Input.unbind()
 	ContextActionService:UnbindAction(NITRO_ACTION)
 	ContextActionService:UnbindAction(RESET_ACTION)
 	ContextActionService:UnbindAction(ITEM_ACTION)
+	ContextActionService:UnbindAction(ITEM_BACK_ACTION)
 	ContextActionService:UnbindAction(JUMPSINK_ACTION)
 	ContextActionService:UnbindAction(EXIT_ACTION)
 	Input.driftHeld = false
 	Input.nitroTaps = 0
 	Input.resetRequested = false
 	Input.itemRequested = false
+	Input.itemBackRequested = false
 	Input.freeLooking = false
 	Input.lookingBack = false
 	Input.lookYaw, Input.lookPitch = 0, 0

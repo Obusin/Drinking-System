@@ -36,9 +36,11 @@ return {
 	HitNote = 2,
 
 	Use = function(ctx)
-		local target = ctx.aheadOf(ctx.kart)
+		-- Works both ways: scrambling the racer behind you as they line up
+		-- an overtake is at least as funny as doing it to the leader.
+		local target = ctx.victimOf(ctx.kart)
 		if not target then
-			return false, "nobody ahead"
+			return false, if ctx.back then "nobody behind" else "nobody ahead"
 		end
 		ctx.fire(target, {
 			-- No spin, no speed loss: the steering IS the payload.

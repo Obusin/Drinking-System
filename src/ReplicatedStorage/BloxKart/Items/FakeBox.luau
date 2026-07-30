@@ -16,6 +16,8 @@
 	Deliberately NOT a perfect copy — see Hazard below.
 --]]
 
+local IT = require(script.Parent.Parent.Config).Items
+
 return {
 	Id = "FakeBox",
 	Tint = Color3.fromRGB(150, 170, 190),
@@ -57,10 +59,11 @@ return {
 	},
 
 	Use = function(ctx)
-		-- Same placement as a mine: behind, and lifted along the kart's own
-		-- up so it lands on the track rather than inside it on a loop.
-		local back, lift = 10, 2.2
-		local at = ctx.sim.pos - ctx.sim.forward * back + ctx.sim.up * lift
+		-- Behind by default, lobbed ahead when thrown forward. Along the
+		-- kart's own up so it lands on the track rather than inside it on
+		-- a loop.
+		local drop, lift = 10, 2.2
+		local at = ctx.sim.pos + ctx.sim.forward * (if ctx.back then -drop else IT.ThrowAhead) + ctx.sim.up * lift
 		ctx.dropHazard(CFrame.lookAt(at, at + ctx.sim.forward, ctx.sim.up), "FakeBox")
 		return true
 	end,

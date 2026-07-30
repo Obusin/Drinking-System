@@ -36,29 +36,39 @@ Match.__index = Match
 --=====================================================================
 --  BINDING COLLISION CHECK
 --
---  ReadyKey lives in a different config module from every other
---  binding, so nothing stops it being set to a key that's already
---  taken — and a doubled key fires BOTH actions silently, which is
---  miserable to debug. Cheaper to notice at startup.
+--  Bindings live in four different config modules, so nothing stops two
+--  of them claiming the same key — and a doubled key fires BOTH actions
+--  silently, which is miserable to debug. ReadyKey and Respawn's reset
+--  key collided exactly this way once already.
+--
+--  Checked at startup rather than documented, because the config that
+--  would tell you lives in whichever file you weren't looking at.
 --=====================================================================
-local function checkReadyKey()
-	local taken: { [Enum.KeyCode]: string } = {}
+local function checkBindings()
+	local claimed: { [Enum.KeyCode]: string } = {}
+
 	local function claim(keys, what: string)
 		for _, k in keys do
-			taken[k] = what
+			if typeof(k) == "EnumItem" and k.EnumType == Enum.KeyCode then
+				if claimed[k] and claimed[k] ~= what then
+					warn(("[Match] key %s is bound to BOTH %q and %q — both will fire."):format(k.Name, claimed[k], what))
+				end
+				claimed[k] = claimed[k] or what
+			end
 		end
 	end
-	claim(Config.Respawn.ResetKeys, "reset to checkpoint")
-	claim(Config.Items.UseKeys, "use item")
+
 	claim(Config.Input.DriftKeys, "hop-drift")
 	claim(Config.Input.NitroKeys, "nitro")
 	claim(Config.Input.LookBackKeys, "look back")
-	claim(Config.Input.ExitKeys, "exit kart")
+	claim(Config.Items.UseKeys, "use item forward")
+	claim(Config.Items.UseBackKeys, "use item backward")
+	claim(Config.Respawn.ResetKeys, "reset to checkpoint")
 	claim({ Config.Hud.ControlsToggleKey }, "controls toggle")
-
-	local clash = taken[M.ReadyKey]
-	if clash then
-		warn(("[Match] ReadyKey (%s) is already bound to %q — both will fire."):format(M.ReadyKey.Name, clash))
+	claim({ M.ReadyKey }, "ready up")
+	-- Only bound in test mode, so it's the one that collides quietly.
+	if Config.Input.AllowExit then
+		claim(Config.Input.ExitKeys, "exit kart")
 	end
 end
 
@@ -70,7 +80,7 @@ function Match.new()
 	if not state then
 		warn("[Match] no MatchState folder — is MatchService running?")
 	end
-	checkReadyKey()
+	checkBindings()
 
 	return setmetatable({
 		state = state,

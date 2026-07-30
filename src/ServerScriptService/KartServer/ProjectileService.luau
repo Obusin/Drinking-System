@@ -239,7 +239,7 @@ function ProjectileService.start()
 	viewRemote.Name = "KartProjectileView"
 	viewRemote.Parent = BloxKart
 
-	remote.OnServerEvent:Connect(function(player, itemId, target)
+	remote.OnServerEvent:Connect(function(player, itemId, target, back)
 		-- Racing only. Between rounds players are free to drive but not to
 		-- shoot: a missile fired during the countdown would arrive while
 		-- the field is still pinned on the grid and unable to dodge.
@@ -276,6 +276,11 @@ function ProjectileService.start()
 		local dir = hb.CFrame.LookVector
 		local flat = dir - up * dir:Dot(up)
 		dir = if flat.Magnitude > 1e-3 then flat.Unit else dir
+		-- Thrown backwards: leaves out of the back and rides the route the
+		-- other way. Boolean-ised because it came from a client and could
+		-- be anything at all.
+		local way = if back == true then -1 else 1
+		dir *= way
 
 		-- Starts at cruise height so it doesn't spend its first frames
 		-- climbing out of the ground.
@@ -305,6 +310,7 @@ function ProjectileService.start()
 			dir = dir,
 			up = up,
 			u = startU,
+			way = way,
 			-- On the shooter's own line rather than the centre of the road,
 			-- so it leaves from where the kart actually is.
 			lateral = startLateral,
@@ -318,12 +324,13 @@ function ProjectileService.start()
 
 		if IT.ProjectileDebug then
 			print(
-				("[Missile] #%d launched by %s — %d route nodes, entering at u %.2f (lat %.1f), target %s"):format(
+				("[Missile] #%d launched by %s — %d route nodes, entering at u %.2f (lat %.1f)%s, target %s"):format(
 					nextUid,
 					player.Name,
 					#nodes,
 					p.u,
 					p.lateral,
+					if way < 0 then " BACKWARDS" else "",
 					if target then target.Name else "none"
 				)
 			)
@@ -338,6 +345,7 @@ function ProjectileService.start()
 			up = up,
 			u = p.u,
 			lateral = p.lateral,
+			way = p.way,
 			target = target,
 			shooter = from,
 		})

@@ -123,8 +123,17 @@ spins/bobs on its own — a plain 4×4×4 Part works. Collected boxes vanish
 and come back after `RespawnTime`.
 
 You can hold **3 power-ups** at once. They're used first-in-first-out, so
-the order you drive over boxes is the order you spend them. `Q` fires the
-leftmost slot.
+the order you drive over boxes is the order you spend them.
+
+**`Q` fires forward, `E` fires backward.** A missile hunts the racer
+ahead or behind accordingly; mines, oil and fake boxes drop behind you on
+`E` and are lobbed ahead on `Q`. Firing while **look-back is held** also
+throws backward, so you can aim at what you can see.
+
+`E` is next to `W` on purpose — it's the same left hand already on
+WASD + Space + Shift + Q. Mouse buttons were the obvious idea but right
+mouse is free-look, so you could never throw backward while looking
+around, which is exactly when you want to.
 
 Mines dropped by players are tagged `KartHazard` at runtime — you don't
 place those.
@@ -216,7 +225,8 @@ Without any of this a placeholder kart is built in code.
 | `A` / `D` | Steer |
 | `Space` | Hop-drift — hold with steering |
 | `Shift` | Nitro. **One tap per tank**: 1 → 2 → 3 |
-| `Q` | Use item |
+| `Q` | Use item — **forward** |
+| `E` | Use item — **backward** |
 | `R` | Reset to last checkpoint |
 | `F` | Ready up (during the intermission) |
 | `C` | Look back |

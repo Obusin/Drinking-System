@@ -224,6 +224,7 @@ local function onLaunch(msg)
 		up = msg.up,
 		u = msg.u,
 		lateral = msg.lateral or 0,
+		way = msg.way,
 		target = msg.target,
 		shooter = msg.shooter,
 		part = makePart(item),

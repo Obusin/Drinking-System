@@ -106,6 +106,11 @@ local ACTIONS: { [string]: (self: any, down: boolean) -> () } = {
 			Input.tapItem()
 		end
 	end,
+	ItemBack = function(_, down)
+		if down then
+			Input.tapItemBack()
+		end
+	end,
 	Reset = function(_, down)
 		if down then
 			Input.tapReset()

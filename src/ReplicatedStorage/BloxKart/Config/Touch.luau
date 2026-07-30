@@ -121,11 +121,21 @@ return {
 		},
 		{
 			Action = "Item",
-			Label = "ITEM",
+			Label = "▲",
 			Size = Vector2.new(96, 96),
 			Position = UDim2.new(1, -40, 1, -186),
 			Anchor = Vector2.new(1, 1),
 			Round = 48,
+		},
+		{
+			-- Directly under the forward one, so the pair reads as one
+			-- control with two directions rather than two buttons.
+			Action = "ItemBack",
+			Label = "▼",
+			Size = Vector2.new(96, 78),
+			Position = UDim2.new(1, -40, 1, -288),
+			Anchor = Vector2.new(1, 1),
+			Round = 39,
 		},
 		{
 			-- Small and out of the way: useful, but not something you need

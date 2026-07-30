@@ -13,6 +13,8 @@
 	client vanishing shouldn't leave a phantom hazard behind.
 --]]
 
+local IT = require(script.Parent.Parent.Config).Items
+
 return {
 	Id = "Mine",
 	Tint = Color3.fromRGB(255, 80, 70), -- fallback tile if Icon fails to load
@@ -41,10 +43,11 @@ return {
 	},
 
 	Use = function(ctx)
-		-- Behind, and along the kart's own up, so it lands on the track
-		-- rather than inside it on a loop.
-		local back, lift = 12, 1.5
-		local at = ctx.sim.pos - ctx.sim.forward * back + ctx.sim.up * lift
+		-- Behind by default, lobbed ahead when thrown forward. Along the
+		-- kart's own up so it lands on the track rather than inside it on
+		-- a loop.
+		local drop, lift = 12, 1.5
+		local at = ctx.sim.pos + ctx.sim.forward * (if ctx.back then -drop else IT.ThrowAhead) + ctx.sim.up * lift
 		ctx.dropHazard(CFrame.lookAt(at, at + ctx.sim.forward, ctx.sim.up), "Mine")
 		return true
 	end,

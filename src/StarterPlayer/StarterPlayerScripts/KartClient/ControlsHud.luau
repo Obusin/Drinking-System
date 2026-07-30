@@ -107,7 +107,8 @@ function ControlsHud.new()
 		{ "A / D", "Steer" },
 		{ keyName(primary(I.DriftKeys)), "Hop-drift" },
 		{ keyName(primary(I.NitroKeys)), "Nitro — tap per tank" },
-		{ keyName(primary(Config.Items.UseKeys)), "Use item" },
+		{ keyName(primary(Config.Items.UseKeys)), "Use item — forward" },
+		{ keyName(primary(Config.Items.UseBackKeys)), "Use item — backward" },
 		{ keyName(primary(I.LookBackKeys)), "Look back" },
 		{ keyName(I.FreeLookButton), "Free look" },
 	}
