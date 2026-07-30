@@ -134,20 +134,24 @@ function KartFactory.build(color: Color3?, visualName: string?): Model
 	local supplied = visual:FindFirstChild("SteeringWheel", true)
 	local suppliedWheel = if supplied and supplied:IsA("BasePart") then supplied else nil
 
-	-- Which way a wheel rolls: down its axle, which for a disc is its
-	-- thinnest dimension. Config can force it if a mesh's bounding box
-	-- lies about its shape.
-	local function axleOf(part: BasePart): Vector3
+	-- Which way a wheel rolls: down its axle, which for a ROAD wheel is
+	-- always the kart's lateral axis. Wheels roll forwards, so the axle
+	-- points sideways — that is true of every wheel on every vehicle, and
+	-- it doesn't care how the mesh was modelled.
+	--
+	-- This replaced measuring the mesh's thinnest dimension, which broke
+	-- on a single mesh containing BOTH front wheels: that bounding box is
+	-- wide across the kart rather than disc-shaped, so the "axle" came out
+	-- vertical. Roll and steer then shared one axis and the steering was
+	-- invisible inside the spin.
+	--
+	-- Config can still force it in the mesh's own frame if a wheel really
+	-- is mounted oddly.
+	local function axleOf(motor: Motor6D): Vector3
 		if typeof(RIG.RoadWheelAxis) == "Vector3" then
-			return RIG.RoadWheelAxis
+			return motor.C1.Rotation:VectorToObjectSpace(RIG.RoadWheelAxis)
 		end
-		local s = part.Size
-		if s.X <= s.Y and s.X <= s.Z then
-			return Vector3.xAxis
-		elseif s.Y <= s.X and s.Y <= s.Z then
-			return Vector3.yAxis
-		end
-		return Vector3.zAxis
+		return motor.C0.Rotation:VectorToObjectSpace(Vector3.xAxis)
 	end
 
 	-- Road wheels: tagged, or named from the config lists. A wheel gets a
@@ -196,20 +200,15 @@ function KartFactory.build(color: Color3?, visualName: string?): Model
 				motor.C0, motor.C1 = Util.pivotJoint(hitbox, desc)
 				motor:SetAttribute(Names.WHEEL_FRONT, isFront)
 
-				-- Both axes are worked out per wheel, in the joint's frame.
+				-- Both axes come from the KART and are converted into the
+				-- joint's frame, so they're right whatever orientation the
+				-- mesh was modelled in AND always perpendicular to each other
+				-- — which is what makes steering visible rather than lost
+				-- inside the roll.
 				--
-				-- ROLL is the axle: a wheel is a disc, so its axle is its
-				-- THINNEST dimension. That holds for any mesh however it was
-				-- modelled, whereas assuming X is only true of a Cylinder.
-				--
-				-- STEER is the KART's up, converted into the joint's frame.
-				-- Yawing about the wheel's own local up instead only works if
-				-- the mesh happens to be axis-aligned; on anything else the
-				-- wheel tips over rather than turning.
-				-- Converted from the PART's frame into the JOINT's. Identical
-				-- unless the mesh's PivotOffset carries a rotation, in which
-				-- case the two differ and the wheel would roll askew.
-				motor:SetAttribute(Names.ROLL_AXIS, motor.C1.Rotation:VectorToObjectSpace(axleOf(desc)))
+				--   roll  = kart's lateral axis (the axle)
+				--   steer = kart's up
+				motor:SetAttribute(Names.ROLL_AXIS, axleOf(motor))
 				motor:SetAttribute(Names.STEER_AXIS, motor.C0.Rotation:VectorToObjectSpace(Vector3.yAxis))
 				motor.Parent = desc
 				log("%s -> %s road wheel", desc.Name, if isFront then "front" else "rear")

@@ -99,6 +99,15 @@ return {
 	-- its shape (a wheel with a long axle stub modelled in, say).
 	RoadWheelAxis = "auto",
 
+	-- Cap on how fast a wheel LOOKS like it's spinning, radians/sec.
+	--
+	-- A 1.1-stud wheel at full speed turns about 17 times a second, which
+	-- at 60fps is nearly two whole revolutions per frame — it aliases into
+	-- a strobing blur, and any steering angle is invisible inside it.
+	-- Real footage has motion blur to sell that; we don't, so the visual
+	-- spin is capped where it still reads as fast.
+	RoadWheelMaxSpin = 26,
+
 	-- Counter-steer during a drift, as a fraction of the body's slide
 	-- angle. The body is yawed sideways while the kart still travels
 	-- roughly forwards, so cancelling that angle points the fronts back

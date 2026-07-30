@@ -203,7 +203,13 @@ local function updateRoadWheels(kart: Model, s, dt: number)
 		moved = delta.Magnitude * math.sign(delta:Dot(hitbox.CFrame.LookVector))
 	end
 	s.lastPos = pos
-	s.roll = (s.roll or 0) + moved / math.max(RIG.RoadWheelRadius, 0.1)
+	-- Capped, not just scaled. Past a couple of revolutions per frame the
+	-- spin aliases into a strobe and any steering angle disappears inside
+	-- it; real footage sells that speed with motion blur, which we don't
+	-- have.
+	local spin = moved / math.max(RIG.RoadWheelRadius, 0.1)
+	local maxSpin = RIG.RoadWheelMaxSpin * dt
+	s.roll = (s.roll or 0) + math.clamp(spin, -maxSpin, maxSpin)
 
 	-- Fronts lag the input a touch, like the steering wheel does.
 	local maxLock = math.rad(RIG.RoadWheelSteer)
