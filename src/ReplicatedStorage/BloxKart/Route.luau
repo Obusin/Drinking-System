@@ -157,6 +157,20 @@ local function wrapNode(nodes: { Node }, i: number): Vector3
 end
 
 -- Position on the racing line at `u`.
+--
+-- CENTRIPETAL Catmull-Rom (alpha = 0.5), not the uniform kind.
+--
+-- Uniform Catmull-Rom overshoots when its control points are unevenly
+-- spaced — the curve bulges OUTSIDE the polygon through them, and on a
+-- tight corner between two distant checkpoints that bulge goes through
+-- the scenery. It can also form a cusp or a small loop where spacing
+-- changes sharply, which puts a missile briefly through the wall and
+-- back.
+--
+-- Centripetal parameterisation is proven not to self-intersect or cusp,
+-- and stays much closer to the control polygon. The cost is the four
+-- knot values below; the benefit is that checkpoint spacing stops being
+-- something you have to be careful about.
 function Route.pointAt(u: number): Vector3?
 	local nodes = Route.nodes()
 	local n = #nodes
@@ -167,23 +181,36 @@ function Route.pointAt(u: number): Vector3?
 		-- Too few points for a spline; straight lines are all the shape
 		-- there is to describe.
 		local i = math.floor(u)
-		local t = u - i
-		return wrapNode(nodes, i):Lerp(wrapNode(nodes, i + 1), t)
+		return wrapNode(nodes, i):Lerp(wrapNode(nodes, i + 1), u - i)
 	end
 
 	local i = math.floor(u)
-	local t = u - i
+	local s = u - i
 	local p0, p1 = wrapNode(nodes, i - 1), wrapNode(nodes, i)
 	local p2, p3 = wrapNode(nodes, i + 1), wrapNode(nodes, i + 2)
 
-	local t2, t3 = t * t, t * t * t
-	return 0.5
-		* (
-			2 * p1
-			+ (-p0 + p2) * t
-			+ (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2
-			+ (-p0 + 3 * p1 - 3 * p2 + p3) * t3
-		)
+	-- Knots spaced by the SQUARE ROOT of the distance between points.
+	-- Guarded against coincident checkpoints, which would otherwise
+	-- divide by zero — two nodes at the same spot is a setup mistake, not
+	-- a reason to error.
+	local function knot(a: number, from: Vector3, to: Vector3): number
+		return a + math.max((to - from).Magnitude, 1e-4) ^ 0.5
+	end
+	local t0 = 0
+	local t1 = knot(t0, p0, p1)
+	local t2 = knot(t1, p1, p2)
+	local t3 = knot(t2, p2, p3)
+
+	local t = t1 + (t2 - t1) * s
+
+	local a1 = p0 * ((t1 - t) / (t1 - t0)) + p1 * ((t - t0) / (t1 - t0))
+	local a2 = p1 * ((t2 - t) / (t2 - t1)) + p2 * ((t - t1) / (t2 - t1))
+	local a3 = p2 * ((t3 - t) / (t3 - t2)) + p3 * ((t - t2) / (t3 - t2))
+
+	local b1 = a1 * ((t2 - t) / (t2 - t0)) + a2 * ((t - t0) / (t2 - t0))
+	local b2 = a2 * ((t3 - t) / (t3 - t1)) + a3 * ((t - t1) / (t3 - t1))
+
+	return b1 * ((t2 - t) / (t2 - t1)) + b2 * ((t - t1) / (t2 - t1))
 end
 
 -- Which way the road runs at `u`. Sampled rather than differentiated —
