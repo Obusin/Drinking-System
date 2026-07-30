@@ -40,10 +40,10 @@ return {
 
 	HitRadius = 7,
 
-	--== TERRAIN FOLLOWING =============================================
-	-- Fired straight down the kart's nose, a missile buries itself in the
-	-- first dip or ramp it meets. It flies at a fixed height above the
-	-- road instead, correcting every frame.
+	--== HEIGHT ========================================================
+	-- Held above whatever road is under the racing line, probed each
+	-- frame rather than taken from the checkpoint's own height — a
+	-- checkpoint volume can sit well above the tarmac.
 	-- Low enough to read as skimming the road rather than flying over it,
 	-- high enough to clear kerbs and the kart's own bodywork. The hitbox
 	-- centre sits about 1.2 above the road, so this stays well inside
@@ -54,33 +54,26 @@ return {
 	ClimbRate = 7, -- how hard it corrects its height. Too high and it
 	-- snaps to the road like a magnet; too low and it clips crests
 
-	-- What separates "the road" from "a wall". Dot of the surface normal
-	-- against the missile's own up: 1 is flat floor, 0 is sheer wall.
-	-- Anything above this is terrain to follow, and crucially NOT
-	-- something to explode on — treating the floor as a wall is why the
-	-- missile used to die on the first bump.
-	FloorDot = 0.45,
 
-	--== ROUTE FOLLOWING ===============================================
-	-- Follows the checkpoint route round corners until the target is
-	-- close enough to chase directly. Without this it flies into the
-	-- outside wall of the first bend, which on a real track means it
-	-- never reaches anybody.
-	WaypointRadius = 22, -- how close before advancing to the next node
-	WaypointTurnRate = 2.6, -- gentler than HomingRate: the route is a
-	-- suggestion, and a missile that snaps between waypoints looks robotic
-	HomingRange = 100, -- switch from route to direct chase inside this,
-	-- but only once it's within a segment of the target — see Ballistics
+	--== ON THE RAILS ==================================================
+	-- The missile rides the checkpoint spline rather than steering toward
+	-- it, so it physically cannot cut a corner into the scenery or orbit
+	-- a waypoint it can't turn tightly enough to reach. See Ballistics.
+	--
+	-- There is deliberately no obstacle avoidance any more. Nothing to
+	-- avoid: it never leaves the road.
 
-	--== OBSTACLE AVOIDANCE ============================================
-	-- The route says where to go; this stops it flying into things on the
-	-- way. Without it, cutting the corner between two checkpoints works
-	-- fine until the corner has a cliff in it.
-	AvoidDistance = 48, -- how far ahead it looks. Roughly a quarter-second
-	-- of flight, which is how long it needs to turn
-	AvoidAngle = 40, -- degrees off-nose for the side probes
-	AvoidStrength = 10, -- how hard it swerves clear. Higher is tighter but
-	-- twitchier; too high and it wobbles down a straight corridor
+	-- How far across the road it will slide to line up with its target.
+	-- Roughly half a track width — beyond that it's aiming at someone on
+	-- a different piece of road.
+	MaxLateral = 18,
+	LateralRate = 2.2, -- how fast it drifts across. Snapping sideways
+	-- reads as a bug; drifting across is what a real one does
+
+	-- Final approach: inside this it leaves the rails and flies straight
+	-- at the target, because by then the road and the straight line agree.
+	-- Too small and it sails past someone parked beside the centreline.
+	StrikeRange = 45,
 
 	Projectile = {
 		Size = Vector3.new(1.3, 1.3, 3.6),

@@ -134,4 +134,80 @@ function Route.nodeAt(nodes: { Node }, abs: number): Node?
 	return nodes[((abs - 1) % #nodes) + 1]
 end
 
+--=====================================================================
+--  THE RACING LINE
+--
+--  Checkpoint nodes are corners of a polygon; a missile flying straight
+--  between them cuts every bend, which on a real track means through the
+--  scenery. A Catmull-Rom spline through the same nodes gives a smooth
+--  curve that passes through all of them, which is the racing line.
+--
+--  Catmull-Rom specifically because it INTERPOLATES its control points
+--  rather than being pulled near them — the curve goes through each
+--  checkpoint exactly, which is what makes it a valid route rather than
+--  an approximation of one.
+--
+--  `u` is a position along the route in node units and wraps: 3.5 is
+--  halfway between node 3 and node 4, and it keeps counting past the
+--  lap so laps stay comparable.
+--=====================================================================
+
+local function wrapNode(nodes: { Node }, i: number): Vector3
+	return nodes[((i - 1) % #nodes) + 1].position
+end
+
+-- Position on the racing line at `u`.
+function Route.pointAt(u: number): Vector3?
+	local nodes = Route.nodes()
+	local n = #nodes
+	if n == 0 then
+		return nil
+	end
+	if n < 4 then
+		-- Too few points for a spline; straight lines are all the shape
+		-- there is to describe.
+		local i = math.floor(u)
+		local t = u - i
+		return wrapNode(nodes, i):Lerp(wrapNode(nodes, i + 1), t)
+	end
+
+	local i = math.floor(u)
+	local t = u - i
+	local p0, p1 = wrapNode(nodes, i - 1), wrapNode(nodes, i)
+	local p2, p3 = wrapNode(nodes, i + 1), wrapNode(nodes, i + 2)
+
+	local t2, t3 = t * t, t * t * t
+	return 0.5
+		* (
+			2 * p1
+			+ (-p0 + p2) * t
+			+ (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2
+			+ (-p0 + 3 * p1 - 3 * p2 + p3) * t3
+		)
+end
+
+-- Which way the road runs at `u`. Sampled rather than differentiated —
+-- the exact derivative buys nothing here and this can't divide by zero.
+function Route.tangentAt(u: number): Vector3?
+	local a = Route.pointAt(u)
+	local b = Route.pointAt(u + 0.02)
+	if not (a and b) then
+		return nil
+	end
+	local d = b - a
+	return if d.Magnitude > 1e-4 then d.Unit else nil
+end
+
+-- How far apart the two nodes bracketing `u` are, so a speed in studs
+-- can be converted into a step in node units. Without this a missile
+-- crosses a short segment as slowly as a long one.
+function Route.segmentLength(u: number): number
+	local nodes = Route.nodes()
+	if #nodes == 0 then
+		return 0
+	end
+	local i = math.floor(u)
+	return math.max((wrapNode(nodes, i + 1) - wrapNode(nodes, i)).Magnitude, 1)
+end
+
 return Route

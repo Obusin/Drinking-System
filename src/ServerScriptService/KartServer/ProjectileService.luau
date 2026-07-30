@@ -127,11 +127,11 @@ end
 local function detonate(p, victim: Model?, why: string?)
 	if IT.ProjectileDebug then
 		print(
-			("[Missile] #%d %s after %.1fs — node %d, %s"):format(
+			("[Missile] #%d %s after %.1fs — u %.1f, %s"):format(
 				p.uid,
 				why or (if victim then "HIT " .. victim.Name else "gone"),
 				os.clock() - p.born,
-				p.abs,
+				p.u or 0,
 				p.dbgMode or "?"
 			)
 		)
@@ -298,10 +298,13 @@ function ProjectileService.start()
 			pos = pos,
 			dir = dir,
 			up = up,
-			-- Absolute, so laps are included: a missile fired on lap 3
-			-- continues forward round the track rather than setting off back
-			-- towards the start line.
-			abs = Route.absoluteOf(from:GetAttribute(Standings.ATTRIBUTE), #nodes) + 1,
+			-- Where on the racing line it starts. Absolute, so laps are
+			-- included: a missile fired on lap 3 carries on round rather
+			-- than setting off back towards the start line.
+			u = Route.absoluteOf(from:GetAttribute(Standings.ATTRIBUTE), #nodes),
+			-- Starts on the shooter's own line rather than the centre, so it
+			-- leaves from where the kart actually is.
+			lateral = 0,
 			born = os.clock(),
 			expires = os.clock() + item.Lifetime,
 			nextSync = 0,
@@ -310,11 +313,11 @@ function ProjectileService.start()
 
 		if IT.ProjectileDebug then
 			print(
-				("[Missile] #%d launched by %s — %d route nodes, entering at %d, target %s"):format(
+				("[Missile] #%d launched by %s — %d route nodes, entering at u %.1f, target %s"):format(
 					nextUid,
 					player.Name,
 					#nodes,
-					p.abs,
+					p.u,
 					if target then target.Name else "none"
 				)
 			)
@@ -327,7 +330,8 @@ function ProjectileService.start()
 			pos = pos,
 			dir = dir,
 			up = up,
-			abs = p.abs,
+			u = p.u,
+			lateral = p.lateral,
 			target = target,
 			shooter = from,
 		})
