@@ -173,7 +173,6 @@ function Match:Update(_dt: number, sim, race): { [string]: any }
 	if phase ~= self.phase then
 		self.phase = phase
 		self.lastWhole = -1
-		events.phase = phase
 	end
 
 	----------------------------------------------------------------

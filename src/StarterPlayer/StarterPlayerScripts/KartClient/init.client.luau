@@ -269,6 +269,13 @@ local function step(dt: number)
 	if itemEvents.used then
 		audio:Boost(2)
 	end
+	-- An item that refused to fire. Lightning and Scramble both need
+	-- somebody ahead, so in first place Q did nothing at all and gave no
+	-- reason — indistinguishable from a dropped input. The item stays in
+	-- your hand; this just says so.
+	if itemEvents.failed then
+		audio:PlayTick()
+	end
 	if itemEvents.hit then
 		camera:BoostPunch(1)
 		-- Hazards carry their own note so oil and mines sound different

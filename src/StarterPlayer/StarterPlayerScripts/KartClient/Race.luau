@@ -514,28 +514,18 @@ function Race:ProgressScore(sim): number
 	return Standings.score(self.lapsDone, self.cpPassed, distance)
 end
 
-local function allKarts(): { Model }
-	local out = {}
-	for _, k in CollectionService:GetTagged("Kart") do
-		if k:IsA("Model") and k.Parent then
-			table.insert(out, k)
-		end
-	end
-	return out
-end
-
 -- Our place in the field, from the replicated progress attributes.
 function Race:Place(sim): number
 	local kart = sim.model
 	if not kart then
 		return 0
 	end
-	local place = Standings.placeOf(Standings.order(allKarts()), kart)
+	local place = Standings.placeOf(Standings.order(Standings.allKarts()), kart)
 	return place
 end
 
 function Race:FieldSize(): number
-	return #Standings.order(allKarts())
+	return #Standings.order(Standings.allKarts())
 end
 
 function Race:Destroy()

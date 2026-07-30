@@ -473,7 +473,6 @@ function Simulation:Step(dt: number, input): { [string]: any }
 		if now >= self.burnUntil then
 			self.burnStage = 0
 			self.burnRemaining = 0
-			events.nitroSpent = true
 		end
 	end
 

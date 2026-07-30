@@ -15,6 +15,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
 local Config = require(ReplicatedStorage.BloxKart.Config)
+local Names = require(ReplicatedStorage.BloxKart.Names)
 local Util = require(ReplicatedStorage.BloxKart.Util)
 local Match = require(ReplicatedStorage.BloxKart.Match)
 local KartFactory = require(script.Parent.KartFactory)
@@ -191,7 +192,7 @@ local function spawnKartFor(player: Player)
 
 	-- Stamped so RaceService can map a reporting player to their kart
 	-- without keeping a second table in sync.
-	kart:SetAttribute("OwnerUserId", player.UserId)
+	kart:SetAttribute(Names.OWNER, player.UserId)
 	karts[player] = kart
 	bindLockIn(player, kart)
 	seatPlayer(player, kart)

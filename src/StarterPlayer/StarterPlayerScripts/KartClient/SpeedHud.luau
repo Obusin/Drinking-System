@@ -35,14 +35,7 @@ local NITRO = Config.Nitro
 local SpeedHud = {}
 SpeedHud.__index = SpeedHud
 
-local function resolveFont(): Font
-	local ok, font = pcall(function()
-		return Font.fromName(H.FontName, H.FontWeight)
-	end)
-	return if ok and font then font else Font.fromEnum(Enum.Font.GothamBold)
-end
-
-local FONT = resolveFont()
+local FONT = Util.font(H.FontName, H.FontWeight)
 
 local function rampColor(t: number): Color3
 	if t < 0.5 then

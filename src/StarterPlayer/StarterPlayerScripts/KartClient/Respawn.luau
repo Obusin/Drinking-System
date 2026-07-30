@@ -26,6 +26,7 @@ local BloxKart = ReplicatedStorage:WaitForChild("BloxKart")
 local Players = game:GetService("Players")
 
 local Config = require(BloxKart:WaitForChild("Config"))
+local Util = require(BloxKart:WaitForChild("Util"))
 local TagZones = require(BloxKart:WaitForChild("TagZones"))
 
 local RS = Config.Respawn
@@ -33,13 +34,6 @@ local H = Config.Hud
 
 local Respawn = {}
 Respawn.__index = Respawn
-
-local function resolveFont(): Font
-	local ok, font = pcall(function()
-		return Font.fromName(H.FontName, H.FontWeight)
-	end)
-	return if ok and font then font else Font.fromEnum(Enum.Font.GothamBold)
-end
 
 function Respawn.new()
 	local gui = Instance.new("ScreenGui")
@@ -57,7 +51,7 @@ function Respawn.new()
 	button.Position = UDim2.new(0.5, 0, 1, -150)
 	button.Size = UDim2.fromOffset(220, 44)
 	button.BackgroundTransparency = 1
-	button.FontFace = resolveFont()
+	button.FontFace = Util.font(H.FontName, H.FontWeight)
 	button.TextSize = 18
 	button.TextColor3 = Color3.fromRGB(255, 255, 255)
 	button.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)

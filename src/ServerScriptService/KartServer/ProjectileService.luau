@@ -53,6 +53,7 @@ local RunService = game:GetService("RunService")
 
 local BloxKart = ReplicatedStorage:WaitForChild("BloxKart")
 local Items = require(BloxKart:WaitForChild("Items"))
+local Names = require(BloxKart:WaitForChild("Names"))
 local Match = require(BloxKart:WaitForChild("Match"))
 local Route = require(BloxKart:WaitForChild("Route"))
 local Triggers = require(BloxKart:WaitForChild("Triggers"))
@@ -60,6 +61,7 @@ local Ballistics = require(BloxKart:WaitForChild("Ballistics"))
 local Standings = require(BloxKart:WaitForChild("Standings"))
 local Config = require(BloxKart:WaitForChild("Config"))
 local MatchService = require(script.Parent.MatchService)
+local KartService = require(script.Parent.KartService)
 
 local IT = Config.Items
 
@@ -89,7 +91,7 @@ rayParams.FilterType = Enum.RaycastFilterType.Exclude
 -- WorldFilter now precisely so the two can't disagree again.
 local function refreshFilter()
 	local skip = {}
-	for _, kart in CollectionService:GetTagged("Kart") do
+	for _, kart in CollectionService:GetTagged(Names.KART_TAG) do
 		table.insert(skip, kart)
 	end
 	for _, plr in Players:GetPlayers() do
@@ -118,15 +120,6 @@ local function targetOf(kart: Model?): Ballistics.Target?
 	}
 end
 
-local function kartOf(player: Player): Model?
-	for _, kart in CollectionService:GetTagged("Kart") do
-		if kart:GetAttribute("OwnerUserId") == player.UserId then
-			return kart
-		end
-	end
-	return nil
-end
-
 --=====================================================================
 --  END OF LIFE
 --=====================================================================
@@ -147,7 +140,7 @@ local function detonate(p, victim: Model?)
 	if not victim then
 		return
 	end
-	local id = victim:GetAttribute("OwnerUserId")
+	local id = victim:GetAttribute(Names.OWNER)
 	local plr = id and Players:GetPlayerByUserId(id)
 	if plr and plr ~= p.owner then
 		-- Only the victim's own client applies the effect, same rule as
@@ -191,7 +184,7 @@ local function step(dt: number)
 		-- Proximity to ANY kart but the shooter's, not just the target, so
 		-- a missile fired at nobody is still dangerous.
 		local blew = false
-		for _, kart in CollectionService:GetTagged("Kart") do
+		for _, kart in CollectionService:GetTagged(Names.KART_TAG) do
 			local hb = kart.PrimaryPart
 			if hb and kart ~= p.from and (hb.Position - p.pos).Magnitude <= p.item.HitRadius then
 				detonate(p, kart)
@@ -249,13 +242,13 @@ function ProjectileService.start()
 		end
 		-- Target is a hint from the client; if it isn't a real kart the
 		-- missile just flies the route rather than the call failing.
-		if typeof(target) ~= "Instance" or not (target:IsA("Model") and CollectionService:HasTag(target, "Kart")) then
+		if typeof(target) ~= "Instance" or not (target:IsA("Model") and CollectionService:HasTag(target, Names.KART_TAG)) then
 			target = nil
 		end
 
 		-- Spawn position comes from the REPLICATED kart, never from the
 		-- client, so nobody can fire from across the map.
-		local from = kartOf(player)
+		local from = KartService.kartFor(player)
 		local hb = from and from.PrimaryPart
 		if not hb then
 			return

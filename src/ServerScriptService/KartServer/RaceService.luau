@@ -17,24 +17,17 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local BloxKart = ReplicatedStorage:WaitForChild("BloxKart")
 local Standings = require(BloxKart:WaitForChild("Standings"))
+local Names = require(BloxKart:WaitForChild("Names"))
 local Config = require(BloxKart:WaitForChild("Config"))
 local Match = require(BloxKart:WaitForChild("Match"))
 local MatchService = require(script.Parent.MatchService)
+local KartService = require(script.Parent.KartService)
 
 local RaceService = {}
 
 local remote: RemoteEvent
 local itemRemote: RemoteEvent
 local hitRemote: RemoteEvent
-
-local function kartOf(player: Player): Model?
-	for _, kart in CollectionService:GetTagged("Kart") do
-		if kart:GetAttribute("OwnerUserId") == player.UserId then
-			return kart
-		end
-	end
-	return nil
-end
 
 function RaceService.start()
 	remote = Instance.new("RemoteEvent")
@@ -45,7 +38,7 @@ function RaceService.start()
 		if typeof(score) ~= "number" or score ~= score then
 			return -- NaN or garbage
 		end
-		local kart = kartOf(player)
+		local kart = KartService.kartFor(player)
 		if kart then
 			-- TODO: validate the jump against the last known score before
 			-- trusting it. Cheap to add here, impossible to add later if
@@ -84,16 +77,16 @@ function RaceService.start()
 			return
 		end
 		-- Already taken and waiting to respawn.
-		if box:GetAttribute("Taken") then
+		if box:GetAttribute(Names.TAKEN) then
 			return
 		end
 
 		-- Rolled server-side so the client can't choose its own item, and
 		-- weighted by race position so trailers get better odds.
-		local kart = kartOf(player)
+		local kart = KartService.kartFor(player)
 		local place, field = 0, 0
 		if kart then
-			local order = Standings.order(CollectionService:GetTagged("Kart"))
+			local order = Standings.order(CollectionService:GetTagged(Names.KART_TAG))
 			place, field = Standings.placeOf(order, kart)
 		end
 		local item = Items.roll(rng, place, field)
@@ -101,14 +94,14 @@ function RaceService.start()
 			return
 		end
 
-		box:SetAttribute("Taken", true)
+		box:SetAttribute(Names.TAKEN, true)
 		box.Transparency = 1
 		box.CanQuery = false
 		itemRemote:FireClient(player, item.Id)
 
 		task.delay(IT.RespawnTime, function()
 			if box.Parent then
-				box:SetAttribute("Taken", false)
+				box:SetAttribute(Names.TAKEN, false)
 				box.Transparency = 0
 				box.CanQuery = true
 			end
@@ -130,13 +123,13 @@ function RaceService.start()
 		if typeof(targetKart) ~= "Instance" or not targetKart:IsA("Model") then
 			return
 		end
-		if not CollectionService:HasTag(targetKart, "Kart") then
+		if not CollectionService:HasTag(targetKart, Names.KART_TAG) then
 			return
 		end
 		if typeof(payload) ~= "table" then
 			return
 		end
-		local victimId = targetKart:GetAttribute("OwnerUserId")
+		local victimId = targetKart:GetAttribute(Names.OWNER)
 		local victim = victimId and Players:GetPlayerByUserId(victimId)
 		if victim and victim ~= player then
 			-- Every field is re-derived and clamped here rather than passed
@@ -198,9 +191,9 @@ function RaceService.start()
 			-- Stamped so a dropper doesn't immediately drive into their own
 			-- hazard, nobody can claim someone else's, and the victim's
 			-- client knows which effect to apply.
-			hz:SetAttribute("OwnerUserId", player.UserId)
-			hz:SetAttribute("ArmAt", os.clock() + IT.HazardOwnerGrace)
-			hz:SetAttribute("HazardItem", item.Id)
+			hz:SetAttribute(Names.OWNER, player.UserId)
+			hz:SetAttribute(Names.ARM_AT, os.clock() + IT.HazardOwnerGrace)
+			hz:SetAttribute(Names.HAZARD_ITEM, item.Id)
 			hz.Parent = workspace
 			CollectionService:AddTag(hz, IT.HazardTag)
 
@@ -219,7 +212,7 @@ function RaceService.start()
 	end)
 
 	Players.PlayerRemoving:Connect(function(player)
-		local kart = kartOf(player)
+		local kart = KartService.kartFor(player)
 		if kart then
 			kart:SetAttribute(Standings.ATTRIBUTE, nil)
 		end

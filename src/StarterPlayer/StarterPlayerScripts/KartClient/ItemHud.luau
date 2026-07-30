@@ -10,6 +10,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local BloxKart = ReplicatedStorage:WaitForChild("BloxKart")
 
 local Config = require(BloxKart:WaitForChild("Config"))
+local Util = require(BloxKart:WaitForChild("Util"))
 local H = Config.Hud
 
 local ItemHud = {}
@@ -45,14 +46,7 @@ local function verify(label: ImageLabel, id: string)
 	end)
 end
 
-local function resolveFont(): Font
-	local ok, font = pcall(function()
-		return Font.fromName(H.FontName, H.FontWeight)
-	end)
-	return if ok and font then font else Font.fromEnum(Enum.Font.GothamBold)
-end
-
-local FONT = resolveFont()
+local FONT = Util.font(H.FontName, H.FontWeight)
 
 function ItemHud.new()
 	local gui = Instance.new("ScreenGui")

@@ -16,6 +16,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local BloxKart = ReplicatedStorage:WaitForChild("BloxKart")
 
 local Config = require(BloxKart:WaitForChild("Config"))
+local Names = require(BloxKart:WaitForChild("Names"))
 local TagZones = require(BloxKart:WaitForChild("TagZones"))
 local Registry = require(BloxKart:WaitForChild("Items"))
 local Standings = require(BloxKart:WaitForChild("Standings"))
@@ -114,17 +115,6 @@ function Items.new(kart: Model)
 	return self
 end
 
--- Every kart in the world, for standings.
-local function allKarts(): { Model }
-	local out = {}
-	for _, k in CollectionService:GetTagged("Kart") do
-		if k:IsA("Model") and k.Parent then
-			table.insert(out, k)
-		end
-	end
-	return out
-end
-
 -- Everything you were holding, gone. Called only on a LANDED hit, so a
 -- shield protects your stack as well as your speed — which is most of
 -- what makes holding one worth the slot.
@@ -192,7 +182,7 @@ function Items:Update(sim, input): { [string]: any }
 		-- `Taken` is set by the SERVER, so there's a round-trip window where
 		-- we'd happily ask again for a box we already claimed — and get
 		-- granted twice. Two boxes filling three slots was this.
-		if box and not box:GetAttribute("Taken") and not self.pending[box] then
+		if box and not box:GetAttribute(Names.TAKEN) and not self.pending[box] then
 			self.pending[box] = true
 			self.pickup:FireServer(box)
 		end
@@ -210,7 +200,7 @@ function Items:Update(sim, input): { [string]: any }
 	end
 
 	if input.consumeItemUse() and readyIndex then
-		local order = Standings.order(allKarts())
+		local order = Standings.order(Standings.allKarts())
 		local ctx = {
 			sim = sim,
 			kart = self.kart,
@@ -254,15 +244,15 @@ function Items:Update(sim, input): { [string]: any }
 	-- as everything else: no client ever tells another client it was hit.
 	local hz = self.hazards:Touch(sim.hitbox.CFrame, sim.hitbox.Size)
 	if hz then
-		local armAt = hz:GetAttribute("ArmAt")
-		local mine = hz:GetAttribute("OwnerUserId") == Players.LocalPlayer.UserId
+		local armAt = hz:GetAttribute(Names.ARM_AT)
+		local mine = hz:GetAttribute(Names.OWNER) == Players.LocalPlayer.UserId
 		-- Your own mine can't hit you until it's armed, so dropping one at
 		-- speed doesn't spin the person who dropped it.
 		local live = not (mine and typeof(armAt) == "number" and os.clock() < armAt)
 		if live then
 			-- Which hazard this is comes off the part, so one code path
 			-- serves mines, oil and anything added later.
-			local item = Registry.byId(hz:GetAttribute("HazardItem") or "Mine")
+			local item = Registry.byId(hz:GetAttribute(Names.HAZARD_ITEM) or "Mine")
 			if item then
 				local landed = sim:Spinout(item.SpinTime, item.SpeedKeep, item.StunTime)
 				events[if landed then "hit" else "blocked"] = {

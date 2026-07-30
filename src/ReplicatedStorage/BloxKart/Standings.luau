@@ -25,10 +25,30 @@
 	off replicated state rather than a client guessing.
 --]]
 
+local CollectionService = game:GetService("CollectionService")
+local Names = require(script.Parent:WaitForChild("Names"))
+
 local Standings = {}
 
 Standings.ATTRIBUTE = "KartProgress"
 Standings.REMOTE = "KartProgressReport"
+
+-- Every kart currently in the world. Parented-and-a-Model checked
+-- because CollectionService keeps handing out tagged instances for a
+-- moment after they're destroyed.
+--
+-- Lives here rather than in each caller because `order` and `placeOf`
+-- below both take this list, and two copies of "what counts as a kart"
+-- is how the standings and the item targeting start disagreeing.
+function Standings.allKarts(): { Model }
+	local out = {}
+	for _, k in CollectionService:GetTagged(Names.KART_TAG) do
+		if k:IsA("Model") and k.Parent then
+			table.insert(out, k)
+		end
+	end
+	return out
+end
 
 -- Collapse lap / checkpoint / distance into one comparable number.
 function Standings.score(laps: number, checkpoints: number, distance: number): number

@@ -113,17 +113,7 @@ local ACTIONS: { [string]: (self: any, down: boolean) -> () } = {
 	end,
 }
 
---=====================================================================
---  BUILD
---=====================================================================
-local function resolveFont(): Font
-	local ok, font = pcall(function()
-		return Font.fromName(H.FontName, H.FontWeight)
-	end)
-	return if ok and font then font else Font.fromEnum(Enum.Font.GothamBold)
-end
-
-local FONT = resolveFont()
+local FONT = Util.font(H.FontName, H.FontWeight)
 
 function TouchHud.new()
 	-- Before anything else: the default stick has to stop driving the seat

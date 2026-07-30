@@ -16,6 +16,7 @@ local TweenService = game:GetService("TweenService")
 local BloxKart = ReplicatedStorage:WaitForChild("BloxKart")
 
 local Config = require(BloxKart:WaitForChild("Config"))
+local Util = require(BloxKart:WaitForChild("Util"))
 local H = Config.Hud
 local I = Config.Input
 
@@ -63,20 +64,7 @@ local function primary(keys: { EnumItem }?): EnumItem?
 	return keys[1]
 end
 
---=====================================================================
---  BUILD
---=====================================================================
-local function resolveFont(): Font
-	local ok, font = pcall(function()
-		return Font.fromName(H.FontName, H.FontWeight)
-	end)
-	if ok and font then
-		return font
-	end
-	return Font.fromEnum(Enum.Font.GothamBold)
-end
-
-local FONT = resolveFont()
+local FONT = Util.font(H.FontName, H.FontWeight)
 
 local function text(parent: Instance, size: UDim2, pos: UDim2, textSize: number, colour: Color3, align)
 	local l = Instance.new("TextLabel")

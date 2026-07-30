@@ -10,6 +10,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local BloxKart = ReplicatedStorage:WaitForChild("BloxKart")
 
 local Config = require(BloxKart:WaitForChild("Config"))
+local Util = require(BloxKart:WaitForChild("Util"))
 local R = Config.Race
 local H = Config.Hud
 
@@ -27,24 +28,7 @@ local function formatTime(t: number): string
 	return ("%d:%05.2f"):format(minutes, seconds)
 end
 
--- Zekton, resolved once. Wrapped because a font name that isn't
--- installed throws, and a HUD that fails to build is worse than one in
--- the wrong typeface.
-local function resolveFont(): Font
-	local ok, font = pcall(function()
-		return Font.fromName(H.FontName, H.FontWeight)
-	end)
-	if ok and font then
-		return font
-	end
-	-- tostring, because a nil name here would throw inside the very
-	-- branch meant to recover — and a HUD that can't build takes the
-	-- whole client down with it.
-	warn("[RaceHud] font unavailable, falling back: " .. tostring(H.FontName))
-	return Font.fromEnum(Enum.Font.GothamBold)
-end
-
-local FONT = resolveFont()
+local FONT = Util.font(H.FontName, H.FontWeight)
 
 local function label(parent: Instance, name: string, size: UDim2, pos: UDim2, textSize: number, colour: Color3)
 	local l = Instance.new("TextLabel")

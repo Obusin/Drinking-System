@@ -19,6 +19,8 @@ local TweenService = game:GetService("TweenService")
 
 local BloxKart = ReplicatedStorage:WaitForChild("BloxKart")
 local Config = require(BloxKart:WaitForChild("Config"))
+local Util = require(BloxKart:WaitForChild("Util"))
+local Names = require(BloxKart:WaitForChild("Names"))
 local Shared = require(BloxKart:WaitForChild("Match"))
 
 local M = Config.Match
@@ -28,14 +30,7 @@ local P = Shared.Phase
 local MatchHud = {}
 MatchHud.__index = MatchHud
 
-local function resolveFont(): Font
-	local ok, font = pcall(function()
-		return Font.fromName(H.FontName, H.FontWeight)
-	end)
-	return if ok and font then font else Font.fromEnum(Enum.Font.GothamBold)
-end
-
-local FONT = resolveFont()
+local FONT = Util.font(H.FontName, H.FontWeight)
 
 local function label(parent: Instance, size: number, colour: Color3): TextLabel
 	local l = Instance.new("TextLabel")
@@ -146,7 +141,7 @@ end
 --  RESULTS
 --=====================================================================
 local function nameFor(kart: Model): string
-	local id = kart:GetAttribute("OwnerUserId")
+	local id = kart:GetAttribute(Names.OWNER)
 	local player = id and Players:GetPlayerByUserId(id)
 	if player then
 		return player.DisplayName
@@ -155,7 +150,7 @@ local function nameFor(kart: Model): string
 end
 
 local function isSelf(kart: Model): boolean
-	return kart:GetAttribute("OwnerUserId") == Players.LocalPlayer.UserId
+	return kart:GetAttribute(Names.OWNER) == Players.LocalPlayer.UserId
 end
 
 local function clockText(t: number): string
@@ -181,7 +176,7 @@ end
 -- nothing extra to keep in sync and a late joiner sees the board too.
 function MatchHud:ShowResults()
 	local finished = {}
-	for _, kart in CollectionService:GetTagged("Kart") do
+	for _, kart in CollectionService:GetTagged(Names.KART_TAG) do
 		local place = kart:GetAttribute(Shared.FINISH_PLACE)
 		if typeof(place) == "number" then
 			table.insert(finished, {

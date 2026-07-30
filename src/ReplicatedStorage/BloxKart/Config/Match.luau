@@ -21,7 +21,9 @@ return {
 	-- and you free-drive. That's usually what you want out of test mode,
 	-- but it does mean the countdown can't be tested from it.
 	MinRacers = 1,
-	MaxRacers = 8, -- matches Rig.MaxRacers; the grid has 8 slots
+	-- NOTE: grid size lives in Rig.MaxRacers, not here. There was a second
+	-- copy of it in this file that nothing read — two numbers meaning one
+	-- thing, waiting to disagree.
 
 	--== PHASE LENGTHS =================================================
 	-- Time between rounds. Long enough to read the results board and

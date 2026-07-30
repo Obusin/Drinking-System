@@ -65,6 +65,26 @@ function Util.orthonormal(forward: Vector3, up: Vector3): (Vector3, Vector3)
 end
 
 -- Tagged logger that compiles out when disabled.
+-- Resolve a font by name, falling back if it isn't installed.
+--
+-- Font.fromName THROWS on an unknown name, so every HUD wrapped it in
+-- the same pcall — seven identical copies, which is seven chances for
+-- one of them to be missing the fallback and take the whole client down
+-- with it just because a font wasn't uploaded.
+--
+-- Takes the name rather than reading Config, so Util stays free of
+-- dependencies.
+function Util.font(name: string, weight: Enum.FontWeight): Font
+	local ok, font = pcall(function()
+		return Font.fromName(name, weight)
+	end)
+	if ok and font then
+		return font
+	end
+	warn(("[Util] font %q unavailable, falling back."):format(tostring(name)))
+	return Font.fromEnum(Enum.Font.GothamBold)
+end
+
 function Util.logger(tag: string, enabled: boolean)
 	return function(fmt: string, ...)
 		if enabled then

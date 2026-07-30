@@ -64,16 +64,11 @@ return {
 	-- Past this much error, easing would look like the missile sliding
 	-- sideways through the air, so it snaps and accepts one visible jump.
 	ProjectileSnapDistance = 25,
-	HazardSize = 3,
-	HazardColor = Color3.fromRGB(255, 90, 70),
-	-- Grace before your own mine can hit you, so dropping one at speed
-	-- doesn't immediately spin the person who dropped it.
 	HazardOwnerGrace = 1.5,
 
 	-- Box appearance, built for any tagged part that has no art of its
 	-- own. Purely cosmetic and entirely client-side.
 	BoxSize = 4,
-	BoxColor = Color3.fromRGB(255, 255, 255),
 	BoxSpin = 60, -- degrees per second
 	BoxBob = 0.6, -- studs of float
 	BoxBobRate = 1.4,
