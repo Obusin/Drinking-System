@@ -26,13 +26,18 @@ local log = Util.logger("KartService", RIG.Debug)
 
 local KartService = {}
 
-local karts: { [Player]: Model } = {}
-local slots: { [Player]: number } = {}
+-- Keyed by RACER, not by Player: a bot is a plain table with a Name, and
+-- everything here only ever needed a unique key and a name. Widening the
+-- type was most of what bots cost this file.
+export type Racer = Player | { Name: string, Bot: true }
+
+local karts: { [any]: Model } = {}
+local slots: { [any]: number } = {}
 
 -- Lowest free grid slot, so a leaver's position is reused rather than
 -- pushing the next joiner another row back. Slot decides both grid
 -- position and colour, so recycling keeps the field tidy.
-local function takeSlot(player: Player): number
+local function takeSlot(player: any): number
 	if slots[player] then
 		return slots[player]
 	end
@@ -123,9 +128,14 @@ end
 --
 -- Case-insensitive, because a username that differs only in case here is
 -- the sort of thing you stare straight past.
-local function visualFor(player: Player?): string?
+local function visualFor(player: any?): string?
 	if not player then
 		return nil
+	end
+	-- Bots get whatever the config says, so they show up in the new kart
+	-- alongside you rather than in the placeholder.
+	if player.Bot then
+		return RIG.BotVisual ~= "" and RIG.BotVisual or nil
 	end
 	for name, visual in RIG.VisualByPlayer do
 		if name:lower() == player.Name:lower() then
@@ -140,7 +150,7 @@ local function visualFor(player: Player?): string?
 	return nil
 end
 
-local function createKart(name: string, slot: number, player: Player?): Model
+local function createKart(name: string, slot: number, player: any?): Model
 	local pad = Placement.findSpawn()
 	if pad then
 		log("spawn pad: %s at %s", pad:GetFullName(), tostring(pad.Position))
@@ -250,7 +260,36 @@ end
 --=====================================================================
 --  ROSTER  (read by MatchService)
 --=====================================================================
-function KartService.kartFor(player: Player): Model?
+-- Adds a bot racer and its kart. The caller keeps the returned racer
+-- handle; everything else here treats it exactly like a player.
+function KartService.addBot(name: string): (any, Model)
+	local racer = { Name = name, Bot = true }
+	local slot = takeSlot(racer)
+	local kart = createKart(name .. "_Kart", slot, racer)
+	karts[racer] = kart
+
+	-- Unanchored and server-owned. An anchored part moved from a server
+	-- loop replicates as bare position updates with no interpolation —
+	-- the same thing that made missiles stutter. Physics-replicated
+	-- motion is interpolated for free.
+	local hitbox = kart.PrimaryPart
+	if hitbox then
+		hitbox.Anchored = false
+	end
+	return racer, kart
+end
+
+function KartService.removeBots()
+	for racer, kart in karts do
+		if racer.Bot then
+			karts[racer] = nil
+			slots[racer] = nil
+			kart:Destroy()
+		end
+	end
+end
+
+function KartService.kartFor(player: any): Model?
 	return karts[player]
 end
 

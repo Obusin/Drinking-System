@@ -336,7 +336,45 @@ one rule worth not breaking.
 
 ---
 
-## 7. The match loop
+## 7. Bots
+
+Nothing to set up. The field is topped up to `Config/Bots.FillTo` (4), so
+solo practice is a four-kart race.
+
+**They drive your kart.** A bot runs the same `Simulation` your client
+does, filling in the same five controls a keyboard fills in: throttle,
+steer, drift held, drift pressed, nitro taps. No special physics, no
+hidden top speed, and it cannot corner harder than the kart allows.
+
+That's the point. The usual way to make bots competitive is to cheat
+their handling, and it shows — they hold lines no player can hold, and
+losing feels arbitrary. Here a bot is quick only by driving well.
+
+**They're beatable by being imperfect, not slow.** Each rolls a `skill`
+once (`SkillMin`..`SkillMax`) which scales:
+
+| | |
+|---|---|
+| how early it lifts for a corner | a poor bot brakes late and runs wide |
+| how far off the ideal line it sits | and how much that line wanders |
+| how long it dithers before using an item | `ItemDelayMin`..`Max` |
+| how often it takes a drift it should | `DriftChance` |
+
+They pick up boxes, drop and throw hazards, fire missiles and use nitro,
+all through the same item modules you do — **anything a bot can do, you
+can do.**
+
+Tuning lives in `Config/Bots`. `FillTo` for field size, `SkillMax` for
+how hard they push, `StepRate` (30) for server cost — the controller is
+frame-rate independent, so halving it changes nothing about how they
+drive.
+
+They need **checkpoints**: the racing line is what they steer along. No
+checkpoints, no bots worth having.
+
+---
+
+## 8. The match loop
 
 Nothing to tag. It runs itself as soon as there's a player.
 
@@ -374,7 +412,7 @@ Tag the same part `RaceStart` + `RaceEnd` for a circuit.
 
 ---
 
-## 8. Test mode
+## 9. Test mode
 
 `Config/Rig.TestMode`:
 

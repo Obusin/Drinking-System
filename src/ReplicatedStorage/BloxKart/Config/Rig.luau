@@ -43,6 +43,11 @@ return {
 	-- Does nothing in a real server, so it's safe to leave set while
 	-- building a kart.
 	StudioVisual = "Kart",
+
+	-- What the BOTS drive. Same model as you by default — a race where
+	-- the AI is visibly in different karts reads as a demo rather than a
+	-- race. "" puts them in the placeholder.
+	BotVisual = "Kart",
 	VisualOffset = Vector3.new(0, 0, 0),
 
 	--== PAINT =========================================================

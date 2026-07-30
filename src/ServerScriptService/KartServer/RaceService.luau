@@ -28,6 +28,10 @@ local KartService = require(script.Parent.KartService)
 
 local RaceService = {}
 
+local remote: RemoteEvent
+local itemRemote: RemoteEvent
+local hitRemote: RemoteEvent
+
 -- "X hit Y with Z", to everyone. A hit is a spectacle: half the value of
 -- a well-timed missile is the lobby seeing it land, and in a race you
 -- rarely even see the person you hit.
@@ -35,8 +39,10 @@ local RaceService = {}
 -- Server-side because only the server knows both ends — the attacker's
 -- client can't be trusted to name its own victim, and the victim's client
 -- doesn't know who fired.
-function RaceService.announce(itemId: string?, by: Player?, victim: Player?)
-	if not (RaceService.feed and victim and itemId) then
+-- Names rather than Players, because a bot has no Player object and the
+-- feed shouldn't care which kind of racer landed the hit.
+function RaceService.announce(itemId: string?, byName: string?, victimName: string?)
+	if not (RaceService.feed and victimName and itemId) then
 		return
 	end
 	local item = Items.byId(itemId)
@@ -44,14 +50,32 @@ function RaceService.announce(itemId: string?, by: Player?, victim: Player?)
 		item = if item then item.Name else itemId,
 		-- Nil `by` is normal: a mine kills long after its owner drove off,
 		-- and a missile fired at nobody still hits whoever it runs into.
-		by = if by then by.DisplayName else nil,
-		victim = victim.DisplayName,
+		by = byName,
+		victim = victimName,
 	})
 end
 
-local remote: RemoteEvent
-local itemRemote: RemoteEvent
-local hitRemote: RemoteEvent
+-- Applying a hit, as a function, because bots throw things too.
+--
+-- Bots can only ever be the ATTACKER. Nothing is relayed to them: they
+-- have no client, and their Simulation is right here — BotService reads
+-- the same effects straight off it.
+function RaceService.relayHit(byName: string?, targetKart: Model, payload)
+	local victimId = targetKart:GetAttribute(Names.OWNER)
+	local victim = victimId and Players:GetPlayerByUserId(victimId)
+	if not victim then
+		return
+	end
+	RaceService.announce(tostring(payload.item), byName, victim.DisplayName)
+	hitRemote:FireClient(victim, {
+		spin = math.clamp(tonumber(payload.spin) or 1, 0, 5),
+		keep = math.clamp(tonumber(payload.keep) or 0.5, 0, 1),
+		stun = math.clamp(tonumber(payload.stun) or 0, 0, 3),
+		reverse = math.clamp(tonumber(payload.reverse) or 0, 0, 8),
+		note = math.clamp(math.floor(tonumber(payload.note) or 1), 0, 3),
+	})
+end
+
 
 --=====================================================================
 --  FLIGHT  (thrown hazards and scattered drops)
@@ -116,6 +140,114 @@ local function stepSettling()
 			table.remove(settling, i)
 		end
 	end
+end
+
+--=====================================================================
+--  HAZARDS
+--
+--  A function rather than remote-handler guts, because BOTS drop things
+--  too and a bot can't fire a remote at its own server. The handler
+--  below is now just validation plus a call to this.
+--
+--  `ownerId` is a UserId for a player, or 0 for a bot — nobody's, so
+--  every racer including the one that laid it can trigger it. Bots have
+--  no client to be protected from their own traps.
+--=====================================================================
+function RaceService.spawnHazard(ownerId: number, cf: CFrame, item, back: boolean?, power: number?)
+	local IT = Config.Items
+	local spec = item.Hazard
+
+	local hz = Instance.new("Part")
+	hz.Name = item.Id
+	hz.Size = spec.Size
+	hz.CFrame = cf
+	hz.Anchored = true
+	hz.CanCollide = false
+	hz.CanQuery = true -- clients detect it with a spatial query
+	hz.Color = spec.Color
+	hz.Material = spec.Material
+	hz.Transparency = spec.Transparency
+	-- Stamped so a dropper doesn't immediately drive into their own
+	-- hazard, nobody can claim someone else's, and the victim's
+	-- client knows which effect to apply.
+	hz:SetAttribute(Names.OWNER, ownerId)
+	hz:SetAttribute(Names.ARM_AT, os.clock() + IT.HazardOwnerGrace)
+	hz:SetAttribute(Names.HAZARD_ITEM, item.Id)
+	-- Optional art. The part above stays the trigger volume and goes
+	-- invisible; the model is decoration welded to it, and must never
+	-- be queryable or it would read as a wall to a kart's sweep.
+	if spec.Model then
+		local folder = ServerStorage:FindFirstChild(IT.HazardModelFolder)
+		local template = folder and folder:FindFirstChild(spec.Model)
+		-- A Model OR a single Part. Art is just as often one
+		-- MeshPart with decals on it as a whole model, and rejecting
+		-- that was a silent fallback to the grey box.
+		if template and (template:IsA("Model") or template:IsA("BasePart")) then
+			hz.Transparency = 1
+			local art = template:Clone()
+			art.Name = "Visual"
+			art.Parent = hz
+			if art:IsA("Model") then
+				art:PivotTo(cf)
+			else
+				art.CFrame = cf
+			end
+			local parts = if art:IsA("BasePart") then { art } else {}
+			for _, d in art:GetDescendants() do
+				if d:IsA("BasePart") then
+					table.insert(parts, d)
+				end
+			end
+			for _, d in parts do
+				-- WELDED, not anchored. The hazard part is unanchored
+				-- while it's in the air, and anchored art would stay
+				-- hanging where it was created while the thing it
+				-- decorates arcs away without it.
+				d.Anchored = false
+				d.CanCollide = false
+				d.CanQuery = false
+				d.CanTouch = false
+				d.Massless = true
+				local weld = Instance.new("WeldConstraint")
+				weld.Part0, weld.Part1 = hz, d
+				weld.Parent = hz
+			end
+		else
+			warn(
+				("[RaceService] %s wants %q in ServerStorage.%s — no Model or Part by that name, using the plain part."):format(
+					item.Id,
+					spec.Model,
+					IT.HazardModelFolder
+				)
+			)
+		end
+	end
+
+	hz.Parent = workspace
+	CollectionService:AddTag(hz, IT.HazardTag)
+
+	-- Thrown forward: it leaves the kart and travels. Dropped
+	-- backwards it just sits where it was put.
+	-- Thrown forward: it arcs out of the kart. Dropped backwards it
+	-- just sits where it was put.
+	if not back then
+		-- Wind-up scales the FORWARD speed only. Lift stays put, so
+		-- a weak throw is a short lob at the same height rather than
+		-- a sad little hop — it's how far it goes that the player is
+		-- choosing, not how high.
+		--
+		-- Clamped here because it arrived from a client.
+		local charge = math.clamp(tonumber(power) or 1, 0, 1)
+		local reach = IT.ThrowSpeed * (IT.ThrowMinPower + (1 - IT.ThrowMinPower) * charge)
+		launch(hz, cf.LookVector * reach + cf.UpVector * IT.ThrowLift, item.Lifetime)
+	end
+
+	task.delay(item.Lifetime, function()
+		if hz.Parent then
+	hz:Destroy()
+		end
+	end)
+	return hz
 end
 
 function RaceService.start()
@@ -239,25 +371,10 @@ function RaceService.start()
 		if typeof(payload) ~= "table" then
 			return
 		end
+		-- Never to yourself, whatever the client claims.
 		local victimId = targetKart:GetAttribute(Names.OWNER)
-		local victim = victimId and Players:GetPlayerByUserId(victimId)
-		if victim and victim ~= player then
-			-- tostring: it's a client-supplied table, and byId simply won't
-			-- match anything that isn't a real id.
-			RaceService.announce(tostring(payload.item), player, victim)
-			-- Every field is re-derived and clamped here rather than passed
-			-- through: this is a client-supplied table, and the only thing
-			-- standing between it and another player's simulation.
-			--
-			-- Clamps are generous enough for any real item but finite, so a
-			-- forged payload can't stun someone for a minute.
-			hitRemote:FireClient(victim, {
-				spin = math.clamp(tonumber(payload.spin) or 1, 0, 5),
-				keep = math.clamp(tonumber(payload.keep) or 0.5, 0, 1),
-				stun = math.clamp(tonumber(payload.stun) or 0, 0, 3),
-				reverse = math.clamp(tonumber(payload.reverse) or 0, 0, 8),
-				note = math.clamp(math.floor(tonumber(payload.note) or 1), 0, 3),
-			})
+		if victimId ~= player.UserId then
+			RaceService.relayHit(player.DisplayName, targetKart, payload)
 		end
 	end)
 
@@ -289,98 +406,7 @@ function RaceService.start()
 			if not (item and item.Scope == "world" and item.Hazard) then
 				return
 			end
-			local spec = item.Hazard
-
-			local hz = Instance.new("Part")
-			hz.Name = item.Id
-			hz.Size = spec.Size
-			hz.CFrame = arg
-			hz.Anchored = true
-			hz.CanCollide = false
-			hz.CanQuery = true -- clients detect it with a spatial query
-			hz.Color = spec.Color
-			hz.Material = spec.Material
-			hz.Transparency = spec.Transparency
-			-- Stamped so a dropper doesn't immediately drive into their own
-			-- hazard, nobody can claim someone else's, and the victim's
-			-- client knows which effect to apply.
-			hz:SetAttribute(Names.OWNER, player.UserId)
-			hz:SetAttribute(Names.ARM_AT, os.clock() + IT.HazardOwnerGrace)
-			hz:SetAttribute(Names.HAZARD_ITEM, item.Id)
-			-- Optional art. The part above stays the trigger volume and goes
-			-- invisible; the model is decoration welded to it, and must never
-			-- be queryable or it would read as a wall to a kart's sweep.
-			if spec.Model then
-				local folder = ServerStorage:FindFirstChild(IT.HazardModelFolder)
-				local template = folder and folder:FindFirstChild(spec.Model)
-				-- A Model OR a single Part. Art is just as often one
-				-- MeshPart with decals on it as a whole model, and rejecting
-				-- that was a silent fallback to the grey box.
-				if template and (template:IsA("Model") or template:IsA("BasePart")) then
-					hz.Transparency = 1
-					local art = template:Clone()
-					art.Name = "Visual"
-					art.Parent = hz
-					if art:IsA("Model") then
-						art:PivotTo(hz.CFrame)
-					else
-						art.CFrame = hz.CFrame
-					end
-					local parts = if art:IsA("BasePart") then { art } else {}
-					for _, d in art:GetDescendants() do
-						if d:IsA("BasePart") then
-							table.insert(parts, d)
-						end
-					end
-					for _, d in parts do
-						-- WELDED, not anchored. The hazard part is unanchored
-						-- while it's in the air, and anchored art would stay
-						-- hanging where it was created while the thing it
-						-- decorates arcs away without it.
-						d.Anchored = false
-						d.CanCollide = false
-						d.CanQuery = false
-						d.CanTouch = false
-						d.Massless = true
-						local weld = Instance.new("WeldConstraint")
-						weld.Part0, weld.Part1 = hz, d
-						weld.Parent = hz
-					end
-				else
-					warn(
-						("[RaceService] %s wants %q in ServerStorage.%s — no Model or Part by that name, using the plain part."):format(
-							item.Id,
-							spec.Model,
-							IT.HazardModelFolder
-						)
-					)
-				end
-			end
-
-			hz.Parent = workspace
-			CollectionService:AddTag(hz, IT.HazardTag)
-
-			-- Thrown forward: it leaves the kart and travels. Dropped
-			-- backwards it just sits where it was put.
-			-- Thrown forward: it arcs out of the kart. Dropped backwards it
-			-- just sits where it was put.
-			if not back then
-				-- Wind-up scales the FORWARD speed only. Lift stays put, so
-				-- a weak throw is a short lob at the same height rather than
-				-- a sad little hop — it's how far it goes that the player is
-				-- choosing, not how high.
-				--
-				-- Clamped here because it arrived from a client.
-				local charge = math.clamp(tonumber(power) or 1, 0, 1)
-				local reach = IT.ThrowSpeed * (IT.ThrowMinPower + (1 - IT.ThrowMinPower) * charge)
-				launch(hz, arg.LookVector * reach + arg.UpVector * IT.ThrowLift, item.Lifetime)
-			end
-
-			task.delay(item.Lifetime, function()
-				if hz.Parent then
-					hz:Destroy()
-				end
-			end)
+			RaceService.spawnHazard(player.UserId, arg, item, back, power)
 		elseif action == "spill" then
 			-- Someone was spun and scattered their stack. Server-spawned for
 			-- the same reason hazards are: a client can't be trusted to
@@ -475,7 +501,11 @@ function RaceService.start()
 				-- Read BEFORE destroying, or the attribution goes with it.
 				local ownerId = arg:GetAttribute(Names.OWNER)
 				local owner = ownerId and Players:GetPlayerByUserId(ownerId)
-				RaceService.announce(arg:GetAttribute(Names.HAZARD_ITEM), owner, player)
+				RaceService.announce(
+					arg:GetAttribute(Names.HAZARD_ITEM),
+					if owner then owner.DisplayName else nil,
+					player.DisplayName
+				)
 				arg:Destroy()
 			end
 		end

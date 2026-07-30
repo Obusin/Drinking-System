@@ -193,7 +193,7 @@ local function detonate(p, victim: Model?, why: string?)
 	local id = victim:GetAttribute(Names.OWNER)
 	local plr = id and Players:GetPlayerByUserId(id)
 	if plr and plr ~= p.owner then
-		RaceService.announce(p.item.Id, p.owner, plr)
+		RaceService.announce(p.item.Id, if p.owner then p.owner.DisplayName else p.ownerName, plr.DisplayName)
 		-- Only the victim's own client applies the effect, same rule as
 		-- every other hit in the game.
 		hitRemote:FireClient(plr, {
@@ -271,6 +271,103 @@ end
 --=====================================================================
 --  START
 --=====================================================================
+--=====================================================================
+--  LAUNCH
+--
+--  A function rather than remote-handler guts, because BOTS fire
+--  missiles too and a bot can't fire a remote at its own server. The
+--  handler is now validation plus a call to this.
+--=====================================================================
+-- `owner` is nil for a bot; `ownerName` is what the feed shows either way.
+function ProjectileService.fire(from: Model, owner: Player?, item, back: boolean?, ownerName: string?)
+	local hb = from.PrimaryPart
+	if not hb then
+		return
+	end
+	local up = hb.CFrame.UpVector
+
+	-- Launched LEVEL with the road, not down the nose. A kart pitched
+	-- nose-down on a crest would otherwise fire straight into the
+	-- tarmac — flattening against the kart's own up means it leaves
+	-- level whatever the kart is doing.
+	local dir = hb.CFrame.LookVector
+	local flat = dir - up * dir:Dot(up)
+	dir = if flat.Magnitude > 1e-3 then flat.Unit else dir
+	-- Thrown backwards: leaves out of the back and rides the route the
+	-- other way. Boolean-ised because it came from a client and could
+	-- be anything at all.
+	local way = if back == true then -1 else 1
+	dir *= way
+
+	-- Starts at cruise height so it doesn't spend its first frames
+	-- climbing out of the ground.
+	local cruise = if item.CruiseHeight then up * item.CruiseHeight else Vector3.zero
+	local pos = hb.Position + dir * item.Projectile.Offset + cruise
+
+	-- Enters the route at the shooter's ACTUAL position on it, not at
+	-- the last checkpoint they passed.
+	--
+	-- A checkpoint count is an integer: it says which one you're past,
+	-- not where between it and the next you are. Launching from the
+	-- integer drops the missile back at the checkpoint behind the
+	-- shooter, so it appears at the kart and is instantly somewhere
+	-- else — which reads as it spawning and vanishing.
+	local nodes = Route.nodes()
+	local startU = if #nodes > 0 then Route.nearestU(pos) else 0
+	local startLateral = if #nodes > 0 then Route.lateralAt(startU, pos, up) else 0
+
+	nextUid += 1
+	local p = {
+		uid = nextUid,
+		item = item,
+		owner = owner,
+		-- A bot has no Player, so the feed uses this instead.
+		ownerName = if owner then owner.DisplayName else ownerName,
+		from = from,
+		target = nil, -- acquired in flight, never handed over
+		pos = pos,
+		dir = dir,
+		up = up,
+		u = startU,
+		way = way,
+		-- On the shooter's own line rather than the centre of the road,
+		-- so it leaves from where the kart actually is.
+		lateral = startLateral,
+		-- railOff is captured on the first step, from wherever the nose
+		-- was versus the racing line, and decays to nothing.
+		born = os.clock(),
+		expires = os.clock() + item.Lifetime,
+		nextSync = 0,
+	}
+	table.insert(live, p)
+
+	if IT.ProjectileDebug then
+		print(
+			("[Missile] #%d launched by %s — %d route nodes, entering at u %.2f (lat %.1f)%s"):format(
+				nextUid,
+				(if owner then owner.Name else "a bot"),
+				#nodes,
+				p.u,
+				p.lateral,
+				if way < 0 then " BACKWARDS" else ""
+			)
+		)
+	end
+
+	-- Everything a client needs to reproduce the flight itself.
+	viewRemote:FireAllClients("launch", {
+		uid = p.uid,
+		itemId = item.Id,
+		pos = pos,
+		dir = dir,
+		up = up,
+		u = p.u,
+		lateral = p.lateral,
+		way = p.way,
+		shooter = from,
+	})
+end
+
 function ProjectileService.start()
 	hitRemote = BloxKart:WaitForChild("KartItemHit")
 
@@ -308,86 +405,7 @@ function ProjectileService.start()
 			return
 		end
 
-		local up = hb.CFrame.UpVector
-
-		-- Launched LEVEL with the road, not down the nose. A kart pitched
-		-- nose-down on a crest would otherwise fire straight into the
-		-- tarmac — flattening against the kart's own up means it leaves
-		-- level whatever the kart is doing.
-		local dir = hb.CFrame.LookVector
-		local flat = dir - up * dir:Dot(up)
-		dir = if flat.Magnitude > 1e-3 then flat.Unit else dir
-		-- Thrown backwards: leaves out of the back and rides the route the
-		-- other way. Boolean-ised because it came from a client and could
-		-- be anything at all.
-		local way = if back == true then -1 else 1
-		dir *= way
-
-		-- Starts at cruise height so it doesn't spend its first frames
-		-- climbing out of the ground.
-		local cruise = if item.CruiseHeight then up * item.CruiseHeight else Vector3.zero
-		local pos = hb.Position + dir * item.Projectile.Offset + cruise
-
-		-- Enters the route at the shooter's ACTUAL position on it, not at
-		-- the last checkpoint they passed.
-		--
-		-- A checkpoint count is an integer: it says which one you're past,
-		-- not where between it and the next you are. Launching from the
-		-- integer drops the missile back at the checkpoint behind the
-		-- shooter, so it appears at the kart and is instantly somewhere
-		-- else — which reads as it spawning and vanishing.
-		local nodes = Route.nodes()
-		local startU = if #nodes > 0 then Route.nearestU(pos) else 0
-		local startLateral = if #nodes > 0 then Route.lateralAt(startU, pos, up) else 0
-
-		nextUid += 1
-		local p = {
-			uid = nextUid,
-			item = item,
-			owner = player,
-			from = from,
-			target = nil, -- acquired in flight, never handed over
-			pos = pos,
-			dir = dir,
-			up = up,
-			u = startU,
-			way = way,
-			-- On the shooter's own line rather than the centre of the road,
-			-- so it leaves from where the kart actually is.
-			lateral = startLateral,
-			-- railOff is captured on the first step, from wherever the nose
-			-- was versus the racing line, and decays to nothing.
-			born = os.clock(),
-			expires = os.clock() + item.Lifetime,
-			nextSync = 0,
-		}
-		table.insert(live, p)
-
-		if IT.ProjectileDebug then
-			print(
-				("[Missile] #%d launched by %s — %d route nodes, entering at u %.2f (lat %.1f)%s"):format(
-					nextUid,
-					player.Name,
-					#nodes,
-					p.u,
-					p.lateral,
-					if way < 0 then " BACKWARDS" else ""
-				)
-			)
-		end
-
-		-- Everything a client needs to reproduce the flight itself.
-		viewRemote:FireAllClients("launch", {
-			uid = p.uid,
-			itemId = item.Id,
-			pos = pos,
-			dir = dir,
-			up = up,
-			u = p.u,
-			lateral = p.lateral,
-			way = p.way,
-			shooter = from,
-		})
+		ProjectileService.fire(from, player, item, back)
 	end)
 
 	RunService.Heartbeat:Connect(step)

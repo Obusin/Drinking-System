@@ -7,6 +7,7 @@
 
 		KartServer (Script)
 		├── KartService        lifecycle: spawn, own, seat, respawn
+		├── BotService         AI racers, so a lobby is never empty
 		├── MatchService       the round loop: grid, countdown, results
 		├── RaceService        progress relay, item boxes, hazards
 		├── ProjectileService  homing missiles
@@ -24,6 +25,7 @@ local KartService = require(script.KartService)
 local MatchService = require(script.MatchService)
 local RaceService = require(script.RaceService)
 local ProjectileService = require(script.ProjectileService)
+local BotService = require(script.BotService)
 
 KartService.start()
 -- After KartService: MatchService counts the karts it owns to decide
@@ -32,3 +34,8 @@ MatchService.start()
 RaceService.start()
 -- After RaceService: it waits on the KartItemHit remote that one makes.
 ProjectileService.start()
+
+-- Last: bots need every service they drive through to exist first, and
+-- they fill the grid on the match's cue rather than at startup.
+BotService.start()
+MatchService.onGrid = BotService.fill

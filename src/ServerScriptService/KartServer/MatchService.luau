@@ -124,6 +124,11 @@ end
 
 local function startGrid()
 	round += 1
+	-- Topped up before the grid is assigned, so new bots get a slot and a
+	-- start position with everybody else.
+	if MatchService.onGrid then
+		MatchService.onGrid()
+	end
 	clearFinishes()
 	clearHazards()
 	table.clear(ready)
@@ -275,6 +280,10 @@ function MatchService.start()
 		end
 	end)
 end
+
+-- Set by BotService, so MatchService needn't know bots exist — it just
+-- gives whoever cares a moment before the grid is laid out.
+MatchService.onGrid = nil
 
 function MatchService.phase(): string
 	return phase

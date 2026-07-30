@@ -34,7 +34,7 @@ local Config = require(BloxKart:WaitForChild("Config"))
 local Registry = require(BloxKart:WaitForChild("Items"))
 local Ballistics = require(BloxKart:WaitForChild("Ballistics"))
 local Route = require(BloxKart:WaitForChild("Route"))
-local WorldFilter = require(script.Parent.WorldFilter)
+local WorldFilter = require(BloxKart:WaitForChild("WorldFilter"))
 
 local IT = Config.Items
 

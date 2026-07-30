@@ -13,6 +13,7 @@
 return {
 	Handling = require(script.Handling), -- how it moves
 	Rig = require(script.Rig), -- how it's built and spawned
+	Bots = require(script.Bots), -- AI racers
 	Camera = require(script.Camera), -- chase cam, FOV, looking around
 	Audio = require(script.Audio), -- sound ids and pitches
 	Effects = require(script.Effects), -- trails and body motion

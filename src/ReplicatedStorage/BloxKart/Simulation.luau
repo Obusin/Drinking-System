@@ -38,6 +38,17 @@
 	Reads exactly two things off the kart: the Hitbox and the Seat.
 	Never wheels, mass, or part sizes.
 
+	SHARED, NOT CLIENT-ONLY
+	-----------------------
+	Lives here rather than under KartClient because the SERVER runs it
+	too, for bots. It touches no client-only API — no LocalPlayer, no
+	camera, no input service — and reads its controls off a plain table,
+	so a bot is simply another thing filling that table in.
+
+	Which also means a bot drives the identical kart with identical
+	handling. There is no separate AI physics to drift out of sync with
+	this one, and that is usually why bot racers feel fake.
+
 	Step() returns an events table so Effects and Audio can react without
 	this module knowing they exist.
 --]]
@@ -47,7 +58,7 @@ local BloxKart = ReplicatedStorage:WaitForChild("BloxKart")
 
 local Config = require(BloxKart:WaitForChild("Config"))
 local Util = require(BloxKart:WaitForChild("Util"))
-local WorldFilter = require(script.Parent.WorldFilter)
+local WorldFilter = require(BloxKart:WaitForChild("WorldFilter"))
 
 local H = Config.Handling
 local N = Config.Nitro
