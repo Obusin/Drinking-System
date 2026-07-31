@@ -30,5 +30,6 @@ return {
 	Music = require(script.Music), -- background playlists
 	Spectate = require(script.Spectate), -- watching after you finish
 	Rewards = require(script.Rewards), -- end-of-race results and payout
+	Level = require(script.Level), -- XP, the curve, and what earns it
 	Hud = require(script.Hud), -- shared on-screen styling
 }

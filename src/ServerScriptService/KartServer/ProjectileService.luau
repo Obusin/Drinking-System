@@ -198,7 +198,7 @@ local function detonate(p, victim: Model?, why: string?)
 		keep = p.item.SpeedKeep,
 		stun = p.item.StunTime,
 		note = p.item.HitNote,
-	})
+	}, p.owner)
 end
 
 --=====================================================================

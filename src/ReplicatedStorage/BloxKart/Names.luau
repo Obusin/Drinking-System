@@ -91,5 +91,6 @@ Names.DROP_ITEM = "DroppedItem"
 -- the two people involved, because a hit is a spectacle — the whole
 -- point of landing one is that the lobby sees it.
 Names.FEED_REMOTE = "KartFeed"
+Names.REWARD_REMOTE = "KartReward"
 
 return Names

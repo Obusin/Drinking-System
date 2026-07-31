@@ -30,6 +30,7 @@ local Match = require(BloxKart:WaitForChild("Match"))
 local Items = require(BloxKart:WaitForChild("Items"))
 local MatchService = require(script.Parent.MatchService)
 local KartService = require(script.Parent.KartService)
+local Progress = require(script.Parent.Progress)
 
 local RaceService = {}
 
@@ -53,6 +54,10 @@ function RaceService.announce(itemId: string?, byName: string?, victimName: stri
 	local item = Items.byId(itemId)
 	RaceService.feed:FireAllClients({
 		item = if item then item.Name else itemId,
+		-- The icon carries the verb. An icon between two names reads as
+		-- "did this to" in every game that has ever shipped a kill feed,
+		-- and unlike a word it survives translation.
+		icon = if item then item.Icon else "",
 		-- Nil `by` is normal: a mine kills long after its owner drove off,
 		-- and a missile fired at nobody still hits whoever it runs into.
 		by = byName,
@@ -74,7 +79,22 @@ end
 -- exists.
 RaceService.onNonPlayerHit = nil
 
-function RaceService.relayHit(byName: string?, targetKart: Model, payload)
+-- Cheapest possible bound on the hit remote. Generous enough that no
+-- honest player will ever touch it — landing two items in a third of a
+-- second is not a thing that happens — and finite, which is the point.
+local HIT_COOLDOWN = 0.35
+local lastHitAt: { [number]: number } = {}
+
+Players.PlayerRemoving:Connect(function(player)
+	lastHitAt[player.UserId] = nil
+end)
+
+-- `byPlayer` is the attacker as a Player, where there is one. It is
+-- separate from `byName` on purpose: the feed wants a name and works
+-- fine for a bot, whereas XP needs an account and must NOT be awarded
+-- to one. Passing the name and hoping to resolve it back would be the
+-- same question answered twice, and wrong for any bot sharing a name.
+function RaceService.relayHit(byName: string?, targetKart: Model, payload, byPlayer: Player?)
 	-- Clamped once, here, and reused for both kinds of victim. This is a
 	-- client-supplied table and the only thing between it and somebody
 	-- else's simulation; clamps are generous enough for any real item but
@@ -90,6 +110,17 @@ function RaceService.relayHit(byName: string?, targetKart: Model, payload)
 
 	local victimId = targetKart:GetAttribute(Names.OWNER)
 	local victim = victimId and Players:GetPlayerByUserId(victimId)
+
+	-- A takedown is a hit that actually costs the victim time. The game
+	-- has no elimination — nobody dies in a kart racer, they spin and
+	-- carry on — so this is the closest honest thing to one.
+	local takedown = effect.spin > 0 or effect.stun > 0
+	-- Never pay for hitting yourself. A mine you drove into is still a
+	-- hit for the feed; it is not an achievement.
+	if byPlayer and byPlayer ~= victim then
+		Progress.hit(byPlayer, takedown)
+	end
+
 	if victim then
 		RaceService.announce(tostring(effect.item), byName, victim.DisplayName)
 		-- Only the victim's own client applies it, same rule as always.
@@ -668,10 +699,27 @@ function RaceService.start()
 		if typeof(payload) ~= "table" then
 			return
 		end
+		-- RATE LIMIT.
+		--
+		-- This remote was already the thinnest thing between a modified
+		-- client and everyone else's simulation — it can name any victim
+		-- and stun them. It now also grants XP, which turns spamming it
+		-- from griefing into farming, and farming gets automated.
+		--
+		-- This is a cap, NOT a fix. The real answer is the server owning
+		-- which item a player is holding and whether it was fired, which
+		-- is the same trust seam the finish time has. Until then this
+		-- bounds the damage to roughly what honest play produces.
+		local now = os.clock()
+		if now - (lastHitAt[player.UserId] or 0) < HIT_COOLDOWN then
+			return
+		end
+		lastHitAt[player.UserId] = now
+
 		-- Never to yourself, whatever the client claims.
 		local victimId = targetKart:GetAttribute(Names.OWNER)
 		if victimId ~= player.UserId then
-			RaceService.relayHit(player.DisplayName, targetKart, payload)
+			RaceService.relayHit(player.DisplayName, targetKart, payload, player)
 		end
 	end)
 

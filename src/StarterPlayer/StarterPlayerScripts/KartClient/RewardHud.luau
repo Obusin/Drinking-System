@@ -28,6 +28,7 @@
 		standings { place, name, kart, score, isSelf }
 		bonus     { amount, reason }            -- optional
 		level     { n, max, progress, note }    -- optional
+		xpGained  number                        -- optional, "+N XP"
 		quests    { { text, done, progress } }  -- optional
 		stats     { { icon, value } }           -- optional
 		record    { value, best, isNew }        -- optional
@@ -96,14 +97,14 @@ end
 
 -- Rolls a number up rather than snapping to it. Most of why a results
 -- screen reads as a reward rather than as a receipt.
-local function countUp(label: TextLabel, to: number, prefix: string)
+local function countUp(label: TextLabel, to: number, prefix: string, suffix: string?)
 	local from = 0
 	local t0 = os.clock()
 	local conn
 	conn = game:GetService("RunService").RenderStepped:Connect(function()
 		local a = math.clamp((os.clock() - t0) / R.CountUpTime, 0, 1)
 		local v = math.floor(from + (to - from) * Util.smoothstep(a) + 0.5)
-		label.Text = prefix .. tostring(v)
+		label.Text = prefix .. tostring(v) .. (suffix or "")
 		if a >= 1 then
 			conn:Disconnect()
 		end
@@ -297,6 +298,13 @@ function RewardHud.new()
 	lvlNote.Position = UDim2.fromOffset(30, 76)
 	lvlNote.Size = UDim2.fromOffset(260, 22)
 
+	-- What THIS race earned, next to the bar it filled. The level number
+	-- alone answers "where am I"; this answers "what did I just do",
+	-- which is the question a results screen exists for.
+	local xpGain = text(right, R.ValueSize, R.AccentColor)
+	xpGain.Position = UDim2.fromOffset(30, 100)
+	xpGain.Size = UDim2.fromOffset(260, 32)
+
 	local quests = Instance.new("Frame")
 	quests.BackgroundTransparency = 1
 	quests.Position = UDim2.new(0, 310, 0, 16)
@@ -422,6 +430,7 @@ function RewardHud.new()
 		lvl = lvl,
 		barFill = barFill,
 		lvlNote = lvlNote,
+		xpGain = xpGain,
 		recTitle = recTitle,
 		recValue = recValue,
 		recBest = recBest,
@@ -589,13 +598,32 @@ function RewardHud:Show(payload)
 	local lv = payload.level
 	if lv then
 		self.lvl.Text = ("LEVEL %d/%d"):format(lv.n or 0, lv.max or 0)
-		self.barFill.Size = UDim2.fromScale(math.clamp(lv.progress or 0, 0, 1), 1)
 		self.lvlNote.Text = tostring(lv.note or "")
+		-- The bar is animated from where the race STARTED, not snapped
+		-- to where it ended. A bar that is already full when you look at
+		-- it never rewarded anything.
+		local to = math.clamp(lv.progress or 0, 0, 1)
+		self.barFill.Size = UDim2.fromScale(0, 1)
+		task.delay(R.WipeTime, function()
+			if self.showing then
+				TweenService
+					:Create(
+						self.barFill,
+						TweenInfo.new(R.CountUpTime, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+						{ Size = UDim2.fromScale(to, 1) }
+					)
+					:Play()
+			end
+		end)
 	else
 		self.lvl.Text = ""
 		self.barFill.Size = UDim2.fromScale(0, 1)
 		self.lvlNote.Text = ""
 	end
+
+	local gained = payload.xpGained or 0
+	self.xpGain.Visible = gained > 0
+	self.xpGain.Text = "+0 XP"
 
 	local qs = payload.quests or {}
 	for i, q in self.questPool do
@@ -665,6 +693,9 @@ function RewardHud:Show(payload)
 			table.insert(self.tweens, countUp(self.recValue, rec.value or 0, ""))
 		end
 		table.insert(self.tweens, countUp(self.payBolt, pay.bolt or 0, "+"))
+		if gained > 0 then
+			table.insert(self.tweens, countUp(self.xpGain, gained, "+", " XP"))
+		end
 	end)
 end
 

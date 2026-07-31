@@ -501,11 +501,27 @@ end
 --=====================================================================
 -- Hits are announced to everyone, so this listens whether or not we're
 -- the one who got hit — or did the hitting.
+-- What the client cannot work out for itself: XP and level live on the
+-- server. Standings it already rebuilds from replicated attributes, so
+-- they are deliberately not sent — one board, described once.
+--
+-- Held rather than shown on arrival. It lands as the flag drops and the
+-- panel opens a moment later; showing it here would race the phase.
+local serverReward = nil
+local rewardRemote = ReplicatedStorage.BloxKart:WaitForChild(Names.REWARD_REMOTE, 10)
+if rewardRemote then
+	rewardRemote.OnClientEvent:Connect(function(msg)
+		if typeof(msg) == "table" then
+			serverReward = msg
+		end
+	end)
+end
+
 local feedRemote = ReplicatedStorage.BloxKart:WaitForChild(Names.FEED_REMOTE, 10)
 if feedRemote then
 	feedRemote.OnClientEvent:Connect(function(msg)
 		if typeof(msg) == "table" and msg.victim then
-			feedHud:Add(tostring(msg.item), msg.by, tostring(msg.victim))
+			feedHud:Add(tostring(msg.item), msg.by, tostring(msg.victim), msg.icon)
 		end
 	end)
 end
@@ -630,10 +646,18 @@ RunService.Heartbeat:Connect(function(dt)
 	if phase == Shared.Phase.Results then
 		if not shownForPhase then
 			shownForPhase = true
-			rewardHud:Show(RewardHud.preview())
+			local payload = RewardHud.preview()
+			-- The server's half wins wherever the two overlap: it is the
+			-- only one that knows what was actually earned.
+			if serverReward then
+				payload.level = serverReward.level
+				payload.xpGained = serverReward.xpGained
+			end
+			rewardHud:Show(payload)
 		end
 	elseif shownForPhase then
 		shownForPhase = false
+		serverReward = nil
 		rewardHud:Hide()
 	end
 

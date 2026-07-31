@@ -24,11 +24,13 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local BloxKart = ReplicatedStorage:WaitForChild("BloxKart")
 local Config = require(BloxKart:WaitForChild("Config"))
 local Match = require(BloxKart:WaitForChild("Match"))
+local Names = require(BloxKart:WaitForChild("Names"))
 -- For the progress attribute, which has to be cleared with the finish
 -- attributes or a new round starts holding the last one's scores.
 local Standings = require(BloxKart:WaitForChild("Standings"))
 local Util = require(BloxKart:WaitForChild("Util"))
 local KartService = require(script.Parent.KartService)
+local Progress = require(script.Parent.Progress)
 
 local M = Config.Match
 local P = Match.Phase
@@ -110,6 +112,22 @@ end
 --=====================================================================
 --  PHASES
 --=====================================================================
+-- Sent to each player as the flag drops. ONLY the things the client
+-- cannot work out for itself: it already rebuilds standings from the
+-- replicated finish attributes, and sending those again would be the
+-- same board described twice.
+local function sendRewards()
+	if not MatchService.reward then
+		return
+	end
+	for _, player in Players:GetPlayers() do
+		MatchService.reward:FireClient(player, {
+			level = Progress.summary(player),
+			xpGained = Progress.since(player),
+		})
+	end
+end
+
 local function enter(next: string, duration: number?)
 	phase = next
 	endsAt = if duration and duration > 0 then workspace:GetServerTimeNow() + duration else 0
@@ -117,6 +135,15 @@ local function enter(next: string, duration: number?)
 	-- it from here rather than keeping a second copy.
 	if next == P.Racing then
 		racingStartedAt = workspace:GetServerTimeNow()
+	end
+	-- Marked at the grid and diffed at the flag, so "+N XP this race" is
+	-- one subtraction rather than a second running total to keep in step.
+	if next == P.Grid then
+		for _, player in Players:GetPlayers() do
+			Progress.mark(player)
+		end
+	elseif next == P.Results then
+		sendRewards()
 	end
 	log("→ %s%s", next, if duration then (" (%.1fs)"):format(duration) else "")
 	publish()
@@ -204,6 +231,17 @@ local function finishKart(kart: Model, who: string, totalTime: number)
 	kart:SetAttribute(Match.FINISH_PLACE, finishers)
 	kart:SetAttribute(Match.FINISH_TIME, totalTime)
 	log("%s finished P%d in %.2fs", who, finishers, totalTime)
+
+	-- Resolved from the kart rather than taken from `who`, so both
+	-- routes in — the client remote and the bot one — pay through the
+	-- same line. A bot resolves to nil and earns nothing, which is
+	-- correct and is exactly the "assumes a Player behind the kart"
+	-- shape this project keeps rediscovering. Stated so nobody fixes it.
+	local ownerId = kart:GetAttribute(Names.OWNER)
+	local owner = ownerId and Players:GetPlayerByUserId(ownerId)
+	if owner then
+		Progress.finished(owner, finishers)
+	end
 
 	-- The AI takes the kart over for whatever is left of the round, so
 	-- the people still racing keep a full field to fight through instead
@@ -334,6 +372,13 @@ function MatchService.start()
 	readyRemote = Instance.new("RemoteEvent")
 	readyRemote.Name = Match.READY_REMOTE
 	readyRemote.Parent = BloxKart
+
+	-- Server -> client only. Nothing is listened for on it: the client
+	-- has no business telling the server what it earned.
+	local reward = Instance.new("RemoteEvent")
+	reward.Name = Names.REWARD_REMOTE
+	reward.Parent = BloxKart
+	MatchService.reward = reward
 
 	finishRemote.OnServerEvent:Connect(function(player, totalTime)
 		if typeof(totalTime) ~= "number" or totalTime ~= totalTime or totalTime < 0 then
