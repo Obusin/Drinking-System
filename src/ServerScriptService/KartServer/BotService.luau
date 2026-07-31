@@ -752,6 +752,20 @@ local function drive(bot, dt: number)
 		c.touchThrottle *= 1 - math.clamp(caution * B.CautionLift, 0, B.CautionLiftMax)
 	end
 
+	-- PACE. How hard this bot is willing to push, rolled from its skill.
+	--
+	-- This is a limit on the DRIVER, not the kart — the same kind of
+	-- thing as lifting early for a corner. It does not touch grip, top
+	-- speed or turn rate, so a bot still cannot do anything you couldn't,
+	-- and catching one is still a matter of driving better rather than
+	-- waiting for a handicap to apply.
+	--
+	-- It exists because "beatable by being imperfect" only works if the
+	-- imperfections are big enough to see. A bot on the correct line at
+	-- permanent full throttle is uncatchable however many small mistakes
+	-- it makes, because none of them cost it anything on a straight.
+	c.touchThrottle *= bot.pace
+
 	-- A JUMP THE ROUTE CROSSES. Speed is what clears it, so every reason
 	-- to lift is overruled — including the corner-braking above, which
 	-- reads a ramp's approach as a bend and would take the pace off at
@@ -1110,6 +1124,64 @@ local function step(dt: number)
 		-- the same thing for everybody.
 		bot.sim:Hold(not racing)
 
+		--------------------------------------------------------------
+		-- IS THE HOLD ACTUALLY HOLDING?
+		--
+		-- Bots moving during the countdown has now survived two fixes,
+		-- both of which I reasoned my way to rather than measured. So
+		-- this stops reasoning and reports numbers: how far the kart
+		-- moved ACROSS the ground while held, plus every value that
+		-- could have caused it.
+		--
+		-- Sideways only. Gravity settling a kart onto the grid is
+		-- expected and would otherwise trip this every single round.
+		--
+		-- Reports facts and draws no conclusion, deliberately. The last
+		-- diagnostic in this file asserted "falling through the world,
+		-- not driving off it", was wrong, and cost a session.
+		--------------------------------------------------------------
+		if not racing then
+			if bot.heldAt then
+				local d = bot.sim.pos - bot.heldAt
+				d -= bot.sim.up * d:Dot(bot.sim.up)
+				bot.heldSlide = (bot.heldSlide or 0) + d.Magnitude
+			end
+			bot.heldAt = bot.sim.pos
+
+			if (bot.heldSlide or 0) > B.HeldSlideWarn and now - (bot.heldWarnAt or 0) > 3 then
+				bot.heldWarnAt = now
+				warn(
+					("[BotService] %s slid %.1f studs sideways while HELD in phase %s — speed %.2f, throttle %.2f, steer %.2f, grounded %s, boosting %s, burning %s"):format(
+						bot.name,
+						bot.heldSlide,
+						tostring(MatchService.phase()),
+						bot.sim.speed,
+						bot.controls.touchThrottle,
+						bot.controls.touchSteer,
+						tostring(bot.sim.grounded),
+						tostring(bot.sim.boosting),
+						tostring(bot.sim.burning)
+					)
+				)
+				bot.heldSlide = 0
+			end
+		else
+			bot.heldAt, bot.heldSlide = nil, 0
+		end
+
+		-- Let go of everything while held. drive() is the only thing that
+		-- writes these and it doesn't run outside Racing, so otherwise a
+		-- bot sits on the grid still holding last lap's full throttle.
+		-- Simulation zeroes the input itself when frozen, so this changes
+		-- no behaviour today — it removes a loaded gun. Every "held kart
+		-- moved anyway" bug so far has been something downstream deciding
+		-- the hold didn't apply to it.
+		if not racing then
+			bot.controls.touchThrottle = 0
+			bot.controls.touchSteer = 0
+			bot.controls.driftHeld = false
+		end
+
 
 		-- Fell off the world, or ended up somewhere the road isn't. No
 		-- character to re-seat, so it puts itself back on the racing line
@@ -1284,6 +1356,9 @@ function BotService.fill()
 			break
 		end
 
+		-- Rolled before the table so pace can be derived from it.
+		local skill = rng:NextNumber(B.SkillMin, B.SkillMax)
+
 		local bot = {
 			name = name,
 			racer = racer,
@@ -1292,7 +1367,12 @@ function BotService.fill()
 			controls = bindControls(newControls()),
 			-- One roll, and it scales everything. A low-skill bot is a
 			-- worse driver, not a slower one.
-			skill = rng:NextNumber(B.SkillMin, B.SkillMax),
+			skill = skill,
+			-- How hard it's willing to push, from its skill. A limit on
+			-- the driver's right foot, not on the kart — see the note in
+			-- drive(). The best bot on the grid is close to flat out; the
+			-- worst is visibly not trying as hard.
+			pace = B.PaceMin + (B.PaceMax - B.PaceMin) * skill,
 			-- A fixed bias plus wander, so two bots don't drive the same
 			-- line and sit inside each other down a straight.
 			lineBias = rng:NextNumber(-1, 1) * B.LineOffset,

@@ -81,6 +81,27 @@ return {
 	SkillMin = 0.45,
 	SkillMax = 0.92,
 
+	--== PACE — the "I can't even catch it" dial ========================
+	-- Throttle ceiling, interpolated from a bot's skill. The lowest-skill
+	-- bot gets PaceMin, the highest gets PaceMax.
+	--
+	-- This limits the DRIVER, not the kart. It's the same class of thing
+	-- as lifting early for a corner: grip, top speed and turn rate are
+	-- untouched, so a bot still can't do anything you couldn't, and
+	-- catching one is about driving better rather than waiting for a
+	-- handicap to kick in.
+	--
+	-- It's here because "beatable by being imperfect" only works if the
+	-- imperfections cost something. A bot on the right line at permanent
+	-- full throttle is uncatchable no matter how many small mistakes it
+	-- makes, because none of them cost it anything on a straight — which
+	-- is exactly how it played.
+	--
+	-- RAISE THESE FIRST if bots become too easy; this is the intended
+	-- difficulty knob and it's honest. Don't reach for grip.
+	PaceMin = 0.82,
+	PaceMax = 0.95,
+
 	-- Drivers. NOTHING TO SET UP: without a model of this name in
 	-- ServerStorage, Roblox builds a default R15 rig and that gets sat in
 	-- the seat instead.
@@ -405,6 +426,18 @@ return {
 	-- can do both. A bot in the lead defending is more interesting than
 	-- one that always lobs everything up the road.
 	ForwardChance = 0.65,
+
+	-- Studs a HELD kart may slide sideways before the server complains.
+	--
+	-- Bots moving during the countdown has survived two fixes that were
+	-- reasoned rather than measured, so this reports the numbers instead
+	-- — distance, phase, speed, throttle, steer, grounded, boosting,
+	-- burning — and leaves the conclusion to whoever reads it.
+	--
+	-- Sideways only: gravity settling a kart onto the grid is expected.
+	-- Small, because a held kart should slide nothing at all; a couple of
+	-- studs is already a bug. Always on, not behind Debug.
+	HeldSlideWarn = 2,
 
 	-- WHAT THE COLOURS MEAN
 	--
