@@ -163,7 +163,21 @@ local function launch(part: BasePart, vel: Vector3, lifetime: number)
 		-- Settled when it stops moving, or when this runs out — a throw
 		-- off the edge of the map would otherwise never settle.
 		stop = os.clock() + math.min(Config.Items.ThrowTime, lifetime),
+		-- For the trace below. A throw that never lands has to be able to
+		-- say where it started and how hard it left.
+		from = part.Position,
+		speed = vel.Magnitude,
 	})
+
+	if Config.Items.ThrowDebug then
+		print(
+			("[Throw] %s launched at %.0f studs/s from %s"):format(
+				part.Name,
+				vel.Magnitude,
+				tostring(part.Position)
+			)
+		)
+	end
 end
 
 -- PUT IT ON THE ROAD, don't just stop it where it is.
@@ -266,8 +280,29 @@ local function stepSettling()
 		local resting = part.AssemblyLinearVelocity.Magnitude < 3
 		if resting or now >= f.stop then
 			if groundOut(part) then
+				if Config.Items.ThrowDebug then
+					print(
+						("[Throw] %s LANDED at %s, %.0f studs from where it was thrown"):format(
+							part.Name,
+							tostring(part.Position),
+							(part.Position - f.from).Magnitude
+						)
+					)
+				end
 				table.remove(settling, i)
 			elseif now >= f.stop + Config.Items.SettleGrace then
+				-- Always warns, not just in debug. A thrown item that never
+				-- finds ground is the difference between the mechanic
+				-- working and not, and it leaves no other trace.
+				warn(
+					("[Throw] %s NEVER LANDED — gave up at %s after %.1fs, still moving at %.0f studs/s. Nothing was under it: the settle probe looks straight down %d studs and ignores karts, characters and trigger volumes."):format(
+						part.Name,
+						tostring(part.Position),
+						Config.Items.ThrowTime + Config.Items.SettleGrace,
+						part.AssemblyLinearVelocity.Magnitude,
+						Config.Items.SettleProbeDown
+					)
+				)
 				-- Never found anything to sit on: thrown off the map, or
 				-- over a hole. LEFT FALLING deliberately — its lifetime
 				-- will collect it. Anchoring here is what produced a
@@ -390,6 +425,12 @@ function RaceService.spawnHazard(ownerId: number, cf: CFrame, item, back: boolea
 		-- One number, same for everyone, matching the speed a racer is
 		-- realistically doing when they throw.
 		launch(hz, cf.LookVector * (reach + IT.ThrowLead) + cf.UpVector * IT.ThrowLift, item.Lifetime)
+	elseif Config.Items.ThrowDebug then
+		-- The other half of the trace. A backward drop is PLACED, never
+		-- launched, so it can never appear in the settle log — and a
+		-- forward throw arriving with back=true would look exactly like
+		-- "you can throw it but it never lands".
+		print(("[Throw] %s placed behind at %s (back=true, no arc)"):format(hz.Name, tostring(hz.Position)))
 	end
 
 	task.delay(item.Lifetime, function()

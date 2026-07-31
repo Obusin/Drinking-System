@@ -248,6 +248,15 @@ return {
 	-- bomb ends up stopped in mid-air over a gap.
 	SettleGrace = 3,
 
+	-- Traces every throw: where it launched, how hard, and where it
+	-- planted — or a warning naming where it gave up.
+	--
+	-- On because "the throw doesn't land" has survived two fixes made by
+	-- reading the code, and reading it again is not going to settle it.
+	-- The give-up warning fires regardless of this flag: an item that
+	-- never finds ground leaves no other trace at all.
+	ThrowDebug = true,
+
 	--== LANDING CUE ==================================================
 	-- A ring that expands and fades where a thrown hazard plants itself.
 	--
