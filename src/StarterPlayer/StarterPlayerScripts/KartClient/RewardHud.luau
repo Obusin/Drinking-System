@@ -96,14 +96,16 @@ end
 
 -- Rolls a number up rather than snapping to it. Most of why a results
 -- screen reads as a reward rather than as a receipt.
-local function countUp(label: TextLabel, to: number, prefix: string, suffix: string?)
+-- `fmt` turns the running value into text. Without it a time counted up
+-- as "20152" — correct hundredths, unreadable as a result.
+local function countUp(label: TextLabel, to: number, prefix: string, suffix: string?, fmt: ((number) -> string)?)
 	local from = 0
 	local t0 = os.clock()
 	local conn
 	conn = game:GetService("RunService").RenderStepped:Connect(function()
 		local a = math.clamp((os.clock() - t0) / R.CountUpTime, 0, 1)
 		local v = math.floor(from + (to - from) * Util.smoothstep(a) + 0.5)
-		label.Text = prefix .. tostring(v) .. (suffix or "")
+		label.Text = prefix .. (if fmt then fmt(v) else tostring(v)) .. (suffix or "")
 		if a >= 1 then
 			conn:Disconnect()
 		end
@@ -158,6 +160,7 @@ function RewardHud.preview(): { [string]: any }
 			-- score column a second, worse rendering of the column next
 			-- to it.
 			score = kart:GetAttribute(Standings.ATTRIBUTE) or 0,
+			time = kart:GetAttribute(Shared.FINISH_TIME),
 			isSelf = mine,
 			dnf = typeof(place) ~= "number",
 		}
@@ -199,8 +202,31 @@ function RewardHud.preview(): { [string]: any }
 	return {
 		standings = standings,
 		payout = { bolt = bolt, nitro = 0 },
-		record = if mine then { value = mine.score, isNew = myPlace == 1 } else nil,
+		record = if mine and mine.time
+			then { value = math.floor(mine.time * 100), isNew = myPlace == 1, isTime = true }
+			else nil,
 	}
+end
+
+-- A finish time, or what they managed instead.
+--
+-- The right-hand column used to show the raw progress score, which is a
+-- PACKED value — laps, checkpoints and distance folded into one number
+-- for sorting. On screen that reads as "2014000" for everybody who
+-- finished and "20152208.366531372" for whoever was mid-corner when the
+-- flag dropped. It sorted correctly and told the player nothing.
+--
+-- A race result is a time. A DNF has no time, so it says so.
+local function resultText(entry): string
+	if entry.dnf then
+		return "DNF"
+	end
+	local t = entry.time
+	if typeof(t) ~= "number" or t <= 0 then
+		return "—"
+	end
+	local mins = math.floor(t / 60)
+	return ("%d:%05.2f"):format(mins, t - mins * 60)
 end
 
 -- THE SERVER'S BOARD, turned into rows. Preferred over preview() now
@@ -222,6 +248,7 @@ function RewardHud.fromServer(list, xpGained): { [string]: any }
 			place = r.place or i,
 			name = r.name,
 			kart = "BLOXKART",
+			time = r.time,
 			score = r.score or 0,
 			isSelf = isMine,
 			dnf = r.place == nil,
@@ -244,7 +271,11 @@ function RewardHud.fromServer(list, xpGained): { [string]: any }
 		standings = standings,
 		payout = { bolt = bolt, nitro = 0 },
 		xpGained = xpGained,
-		record = if mine then { value = mine.score, isNew = myPlace == 1 } else nil,
+		-- The headline number is the finishing time in hundredths, so the
+		-- count-up reads as a clock rather than as a packed score.
+		record = if mine and mine.time
+			then { value = math.floor(mine.time * 100), isNew = myPlace == 1, isTime = true }
+			else nil,
 	}
 end
 
@@ -658,7 +689,7 @@ function RewardHud:Show(payload)
 		row.Place.Text = ("%d."):format(entry.place or i)
 		row.Who.Text = tostring(entry.name or "?")
 		row.Kart.Text = string.upper(tostring(entry.kart or ""))
-		row.Score.Text = tostring(entry.score or "")
+		row.Score.Text = resultText(entry)
 		if entry.dnf then
 			row.Kart.Text = "DID NOT FINISH"
 		end
@@ -747,7 +778,7 @@ function RewardHud:Show(payload)
 	self.recValue.Visible = rec ~= nil
 	self.recBest.Visible = rec ~= nil
 	if rec then
-		self.recTitle.Text = if rec.isNew then "NEW RECORD!" else "SCORE"
+		self.recTitle.Text = if rec.isNew then "NEW RECORD!" elseif rec.isTime then "YOUR TIME" else "SCORE"
 		self.recValue.Text = "0"
 		self.recBest.Text = if rec.best then ("Current record:  %d"):format(rec.best) else ""
 	end
@@ -777,7 +808,15 @@ function RewardHud:Show(payload)
 	self.gui.Enabled = true
 	self:_wipe(function()
 		if rec then
-			table.insert(self.tweens, countUp(self.recValue, rec.value or 0, ""))
+			local fmt = nil
+			if rec.isTime then
+				fmt = function(hundredths: number): string
+					local secs = hundredths / 100
+					local mins = math.floor(secs / 60)
+					return ("%d:%05.2f"):format(mins, secs - mins * 60)
+				end
+			end
+			table.insert(self.tweens, countUp(self.recValue, rec.value or 0, "", nil, fmt))
 		end
 		table.insert(self.tweens, countUp(self.payBolt, pay.bolt or 0, "+"))
 		if gained > 0 then

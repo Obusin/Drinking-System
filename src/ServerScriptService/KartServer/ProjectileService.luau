@@ -121,6 +121,34 @@ end
 --  Server-side because a lock decides who gets hit, and every client
 --  drawing a different target would be two different missiles.
 --=====================================================================
+-- IS THIS KART THE ONE THAT FIRED?
+--
+-- Identity was the whole test — `kart ~= p.from` — and a kart is not a
+-- stable identity. It is destroyed and rebuilt on retirement, and again
+-- on any character respawn, so a missile still in the air was fired by a
+-- model that no longer exists and the shooter's NEW kart matched
+-- nothing. That is "my own missile came back and hit me".
+--
+-- Owner is the durable answer: it survives the model being replaced. The
+-- instance check stays as well, for the instant before an owner
+-- attribute is stamped and for anything without one.
+local function isShooter(p, kart: Model): boolean
+	if kart == p.from then
+		return true
+	end
+	local owner = kart:GetAttribute(Names.OWNER)
+	if p.fromOwner and owner == p.fromOwner then
+		return true
+	end
+	-- Bots have no owner id. Their name is stamped on the kart and is
+	-- unique within a round, which is enough to keep a bot from shooting
+	-- itself after a respawn.
+	if p.fromName and kart:GetAttribute(Names.RACER_NAME) == p.fromName then
+		return true
+	end
+	return false
+end
+
 local function acquire(p)
 	if p.locked then
 		return
@@ -134,7 +162,7 @@ local function acquire(p)
 	for _, kart in CollectionService:GetTagged(Names.KART_TAG) do
 		local hb = kart.PrimaryPart
 		-- Never the shooter, and never a mis-tagged model with no hitbox.
-		if hb and kart ~= p.from then
+		if hb and not isShooter(p, kart) then
 			local toward = hb.Position - p.pos
 			local dist = toward.Magnitude
 			-- In FRONT of where it's travelling. Without this it locks
@@ -234,7 +262,7 @@ local function step(dt: number)
 		local blew = false
 		for _, kart in CollectionService:GetTagged(Names.KART_TAG) do
 			local hb = kart.PrimaryPart
-			if hb and kart ~= p.from and (hb.Position - p.pos).Magnitude <= p.item.HitRadius then
+			if hb and not isShooter(p, kart) and (hb.Position - p.pos).Magnitude <= p.item.HitRadius then
 				detonate(p, kart)
 				blew = true
 				break
@@ -355,6 +383,9 @@ function ProjectileService.fire(from: Model, owner: Player?, item, back: boolean
 		uid = nextUid,
 		item = item,
 		owner = owner,
+		-- Captured NOW, because `from` may not survive the flight.
+		fromOwner = from:GetAttribute(Names.OWNER),
+		fromName = from:GetAttribute(Names.RACER_NAME),
 		-- A bot has no Player, so the feed uses this instead.
 		ownerName = if owner then owner.DisplayName else ownerName,
 		from = from,
