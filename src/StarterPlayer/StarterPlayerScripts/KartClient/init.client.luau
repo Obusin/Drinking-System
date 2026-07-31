@@ -508,6 +508,14 @@ if feedRemote then
 	end)
 end
 
+-- Gamepad sticks HOLD a value rather than reporting movement, so they
+-- are stored here and integrated each frame. Touch is scaled to land in
+-- the same range as a mouse delta.
+local padLook = Vector2.zero
+local padMove = Vector2.zero
+local TOUCH_LOOK = 1.4
+local PAD_LOOK_RATE = 320 -- pixels-equivalent per second at full stick
+
 -- SPECTATOR INPUT. Plain UserInputService for the same reason as
 -- ready-up below: ContextActions are bound only while driving, and
 -- spectating is by definition what you do when you aren't.
@@ -537,22 +545,39 @@ UserInputService.InputEnded:Connect(function(input)
 end)
 
 UserInputService.InputChanged:Connect(function(input, processed)
-	if processed or not spectate:IsActive() then
+	if not spectate:IsActive() then
 		return
 	end
-	if input.UserInputType == Enum.UserInputType.MouseMovement then
-		-- Held right mouse rather than a locked cursor: this shares the
-		-- screen with the results board, and stealing the pointer would
-		-- make that unusable.
+	local kind = input.UserInputType
+
+	-- LOOK IS NOT GATED ON `processed`, deliberately.
+	--
+	-- Moving the pointer across the results board marks the event as
+	-- processed, and gating on it meant look died the moment the cursor
+	-- crossed the one piece of UI that is always on screen while
+	-- spectating. Nothing else competes for a look delta, so there is
+	-- nothing here to protect.
+	if kind == Enum.UserInputType.MouseMovement then
 		if spectate:IsLooking() then
 			spectate:Look(Vector2.new(input.Delta.X, input.Delta.Y))
 		end
-	elseif input.UserInputType == Enum.UserInputType.MouseWheel then
-		spectate:Zoom(input.Position.Z)
+	elseif kind == Enum.UserInputType.Touch then
+		-- Touch drag anywhere is a look. There is no right button on a
+		-- phone, so without this a mobile spectator could not turn the
+		-- camera at all — in either mode.
+		spectate:Look(Vector2.new(input.Delta.X, input.Delta.Y) * TOUCH_LOOK)
+	elseif kind == Enum.UserInputType.MouseWheel then
+		if not processed then
+			spectate:Zoom(input.Position.Z)
+		end
 	elseif input.KeyCode == Enum.KeyCode.Thumbstick2 then
-		-- Gamepad look, scaled to feel like the mouse rather than to
-		-- match its raw units.
-		spectate:Look(Vector2.new(input.Position.X, -input.Position.Y) * 12)
+		-- Gamepad look, scaled to feel like a mouse rather than to match
+		-- its raw units. Stored rather than applied: a stick HOLDS a
+		-- value, so it has to be integrated every frame, where a mouse
+		-- delta is already per-frame movement.
+		padLook = Vector2.new(input.Position.X, -input.Position.Y)
+	elseif input.KeyCode == Enum.KeyCode.Thumbstick1 then
+		padMove = Vector2.new(input.Position.X, input.Position.Y)
 	end
 end)
 
@@ -563,7 +588,13 @@ local function readSpectateMove(): Vector3
 	if not spectate:IsFree() then
 		return Vector3.zero
 	end
-	local v = Vector3.zero
+	-- Gamepad stick first: on a controller there are no WASD keys to
+	-- read, and a free cam you can only fly with a keyboard is a free cam
+	-- half the players cannot use.
+	local v = Vector3.new(padMove.X, 0, -padMove.Y)
+	if v.Magnitude < 0.15 then
+		v = Vector3.zero -- stick deadzone
+	end
 	if UserInputService:IsKeyDown(Enum.KeyCode.W) then
 		v += Vector3.new(0, 0, -1)
 	end
@@ -597,6 +628,11 @@ RunService.Heartbeat:Connect(function(dt)
 	-- the kart over, which is the exact instant this has to start.
 	local mine = sim and sim.model
 	local done = mine ~= nil and mine:GetAttribute(Shared.FINISH_PLACE) ~= nil
+	-- Stick look is applied here, per frame, because a held stick is a
+	-- rate and not a delta.
+	if spectate:IsActive() and padLook.Magnitude > 0.15 then
+		spectate:Look(padLook * PAD_LOOK_RATE * dt)
+	end
 	spectate:Update(dt, match:Phase(), done, readSpectateMove())
 	matchHud:SetSpectating(spectate:StatusText())
 	-- Outside step() on purpose: the pad has to keep fading after you

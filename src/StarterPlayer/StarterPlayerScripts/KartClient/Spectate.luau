@@ -167,6 +167,10 @@ function Spectate:_start()
 end
 
 function Spectate:_stop()
+	-- Pointer back first, whatever mode we were in. A camera that gives
+	-- itself up while still holding the mouse leaves the player unable to
+	-- click anything.
+	self:_setMouseLock(false)
 	-- Driving controls come back with the camera. Guarded on `active` so
 	-- a stop that isn't following a start can't bind them from nowhere.
 	if self.active then
@@ -196,11 +200,35 @@ function Spectate:Prev()
 	end
 end
 
+-- Free cam captures the mouse; follow mode does not.
+--
+-- The split matters. In free cam you are flying with WASD and looking at
+-- the same time, and holding a mouse button to do the looking is the one
+-- thing that makes a free cam unusable — so the pointer is captured and
+-- the mouse simply IS the look.
+--
+-- Follow mode leaves the cursor alone, because it shares the screen with
+-- the results board and capturing the pointer would make that
+-- unclickable. There, look stays on a held right button.
+function Spectate:_setMouseLock(on: boolean)
+	local ok = pcall(function()
+		UserInputService.MouseBehavior = if on then Enum.MouseBehavior.LockCenter else Enum.MouseBehavior.Default
+		UserInputService.MouseIconEnabled = not on
+	end)
+	if not ok then
+		-- Not fatal, and not worth a warning every frame: a device with no
+		-- mouse simply has nothing to lock, and touch or gamepad look
+		-- still work.
+		return
+	end
+end
+
 function Spectate:ToggleFree()
 	if not self.active then
 		return
 	end
 	self.free = not self.free
+	self:_setMouseLock(self.free)
 	if self.free then
 		local cam = workspace.CurrentCamera
 		self.freePos = cam and cam.CFrame.Position or self.freePos
@@ -233,8 +261,10 @@ function Spectate:SetLooking(on: boolean)
 	self.looking = on and self.active
 end
 
+-- In free cam the mouse is captured, so every movement is a look and no
+-- button is required. In follow mode it takes a held right button.
 function Spectate:IsLooking(): boolean
-	return self.active and self.looking
+	return self.active and (self.free or self.looking)
 end
 
 function Spectate:IsActive(): boolean
