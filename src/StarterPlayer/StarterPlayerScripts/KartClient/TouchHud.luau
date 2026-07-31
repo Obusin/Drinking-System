@@ -57,22 +57,23 @@ TouchHud.wanted = Device.touchLayout
 --=====================================================================
 --  DEFAULT CONTROLS
 --=====================================================================
-local function disableDefaultControls()
-	-- Wrapped: PlayerModule is Roblox's own script and its shape has
-	-- changed before. Losing our buttons is bad; throwing here would lose
-	-- the whole client script.
-	local ok, err = pcall(function()
-		local scripts = Players.LocalPlayer:WaitForChild("PlayerScripts", 10)
-		local module = scripts and scripts:WaitForChild("PlayerModule", 10)
-		if not module then
-			return
-		end
-		require(module):GetControls():Disable()
-	end)
-	if not ok then
-		warn("[TouchHud] could not disable the default controls: " .. tostring(err))
-	end
-end
+-- ROBLOX'S OWN CONTROLS ARE LEFT ALONE, DELIBERATELY.
+--
+-- This used to disable them and drive the seat from custom paddles plus
+-- an auto-throttle. Both were wrong for the same reason: a button can
+-- only say "all of it" or "none of it", so steering was full lock or
+-- straight, and throttle was pinned open unless you were braking.
+--
+-- Roblox's touch controller already drives a VehicleSeat with a proper
+-- analog stick — throttle, brake and steering, all proportional, all
+-- familiar to anyone who has driven anything else on the platform.
+-- Writing our own was strictly worse, and deleting it is the fix.
+--
+-- Simulation adds touchSteer/touchThrottle to what the seat reports, so
+-- the stick lands in exactly the same place our paddles did and nothing
+-- downstream changes.
+--
+-- What stays is the half a stick cannot do: drift, nitro, items, reset.
 
 --=====================================================================
 --  ACTIONS
@@ -81,15 +82,6 @@ end
 --  release; tap buttons are only ever called with true.
 --=====================================================================
 local ACTIONS: { [string]: (self: any, down: boolean) -> () } = {
-	SteerLeft = function(self, down)
-		self.steerLeft = down
-	end,
-	SteerRight = function(self, down)
-		self.steerRight = down
-	end,
-	Brake = function(self, down)
-		self.braking = down
-	end,
 	Drift = function(_, down)
 		Input.setDrift(down)
 	end,
@@ -121,9 +113,9 @@ local ACTIONS: { [string]: (self: any, down: boolean) -> () } = {
 local FONT = Util.font(H.FontName, H.FontWeight)
 
 function TouchHud.new()
-	-- Before anything else: the default stick has to stop driving the seat
-	-- or it fights our paddles for the same throttle/steer values.
-	disableDefaultControls()
+	-- Roblox's own touch controls are left running on purpose; see the
+	-- note above the actions. They drive the seat, and these buttons only
+	-- add what a stick cannot do.
 
 	local gui = Instance.new("ScreenGui")
 	gui.Name = "BloxKartTouch"
@@ -147,10 +139,6 @@ function TouchHud.new()
 		gui = gui,
 		root = root,
 		buttons = {},
-		steerLeft = false,
-		steerRight = false,
-		braking = false,
-		steer = 0,
 		alpha = 0,
 		active = false,
 	}, TouchHud)
@@ -246,8 +234,6 @@ function TouchHud:_releaseAll()
 			entry.press(false)
 		end
 	end
-	self.steerLeft, self.steerRight, self.braking = false, false, false
-	self.steer = 0
 	Input.touchSteer = 0
 	Input.touchThrottle = 0
 end
@@ -276,20 +262,13 @@ function TouchHud:Update(dt: number)
 		return
 	end
 
-	-- Both paddles held cancels out, which is the intuitive result and
-	-- also what stops a stuck paddle locking you into a circle.
-	local wantSteer = (if self.steerRight then 1 else 0) - (if self.steerLeft then 1 else 0)
-	local rate = if wantSteer == 0 then T.SteerReturn else T.SteerRamp
-	self.steer = Util.approach(self.steer, wantSteer, rate, dt)
-	Input.touchSteer = self.steer
-
-	-- Auto throttle: you're always accelerating unless you're braking.
-	-- See Config.Touch for why there's no accelerator button.
-	if T.AutoThrottle then
-		Input.touchThrottle = if self.braking then T.BrakeStrength else 1
-	else
-		Input.touchThrottle = if self.braking then T.BrakeStrength else 0
-	end
+	-- STEERING AND THROTTLE COME FROM THE SEAT NOW.
+	--
+	-- Roblox's touch controller writes SteerFloat and ThrottleFloat
+	-- directly, and Simulation already reads those. Adding anything here
+	-- would double up on the stick rather than help it.
+	Input.touchSteer = 0
+	Input.touchThrottle = 0
 end
 
 function TouchHud:Destroy()

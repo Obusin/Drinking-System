@@ -33,15 +33,11 @@ return {
 	-- device. "auto" = show it only on a touch device with no keyboard.
 	Mode = "auto", -- "auto" | "always" | "never"
 
-	AutoThrottle = true, -- see the header
-	BrakeStrength = -1, -- what the brake button feeds as throttle
 
 	-- How fast the steer value ramps to full when a paddle is held.
 	-- Instant would be correct for a keyboard, but a thumb lands on a
 	-- paddle over a few frames anyway and ramping stops the very first
 	-- frame of a tap counting as full lock.
-	SteerRamp = 14,
-	SteerReturn = 18, -- ramp back to centre on release. Faster than
 	-- SteerRamp, matching the asymmetry in Handling.
 
 	--== LOOK ==========================================================
@@ -71,35 +67,6 @@ return {
 	-- To move a button, edit its Position. To add one, add a row here and
 	-- a case in TouchHud's ACTIONS table — nothing else.
 	Buttons = {
-		{
-			Action = "SteerLeft",
-			Label = "◀",
-			Hold = true,
-			Size = Vector2.new(132, 132),
-			Position = UDim2.new(0, 22, 1, -22),
-			Anchor = Vector2.new(0, 1),
-			Round = 26,
-		},
-		{
-			Action = "SteerRight",
-			Label = "▶",
-			Hold = true,
-			Size = Vector2.new(132, 132),
-			Position = UDim2.new(0, 166, 1, -22),
-			Anchor = Vector2.new(0, 1),
-			Round = 26,
-		},
-		{
-			-- Above the left thumb: braking is a left-hand decision, made
-			-- while still steering.
-			Action = "Brake",
-			Label = "BRAKE",
-			Hold = true,
-			Size = Vector2.new(112, 74),
-			Position = UDim2.new(0, 22, 1, -166),
-			Anchor = Vector2.new(0, 1),
-			Round = 18,
-		},
 		{
 			-- The big one, under the right thumb where it rests.
 			Action = "Drift",
