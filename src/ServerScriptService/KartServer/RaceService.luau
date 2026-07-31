@@ -179,17 +179,28 @@ end
 -- So settling now means "find the ground beneath it and sit on it".
 -- Probing down rather than trusting where it stopped is also what makes
 -- a hazard sit flush on a ramp instead of floating over the slope.
-local function groundOut(part: BasePart)
+-- Returns FALSE if there is nothing under it yet, and the caller must
+-- then leave it falling rather than anchoring it.
+--
+-- That return value is the actual fix. This used to anchor
+-- unconditionally and only reposition the part IF the probe happened to
+-- hit — so a probe that found nothing froze the hazard exactly where it
+-- was, which for a bomb still in flight is in the air. "Doesn't stick to
+-- its landing point" is that: it never reached a landing point, and it
+-- was stopped anyway.
+local function groundOut(part: BasePart): boolean
 	local from = part.Position + Vector3.yAxis * Config.Items.SettleProbeUp
 	local hit = workspace:Raycast(from, Vector3.yAxis * -Config.Items.SettleProbeDown, WorldFilter.rayParams)
-	if hit then
-		-- Sat ON the surface: half the part's height above the contact
-		-- point, keeping its yaw so a thrown model doesn't snap around.
-		local _, y, _ = part.CFrame:ToEulerAnglesYXZ()
-		part.CFrame = CFrame.new(hit.Position + hit.Normal * (part.Size.Y * 0.5)) * CFrame.Angles(0, y, 0)
+	if not hit then
+		return false
 	end
+	-- Sat ON the surface: half the part's height above the contact point,
+	-- keeping its yaw so a thrown model doesn't snap around on landing.
+	local _, y, _ = part.CFrame:ToEulerAnglesYXZ()
+	part.CFrame = CFrame.new(hit.Position + hit.Normal * (part.Size.Y * 0.5)) * CFrame.Angles(0, y, 0)
 	part.Anchored = true
 	part.CanCollide = false
+	return true
 end
 
 -- Freeze anything that has come to rest, so a hazard doesn't get nudged
@@ -203,9 +214,21 @@ local function stepSettling()
 			table.remove(settling, i)
 			continue
 		end
-		if now >= f.stop or part.AssemblyLinearVelocity.Magnitude < 3 then
-			groundOut(part)
-			table.remove(settling, i)
+		-- NOT AIRBORNE. Velocity alone is not "landed" — a lob passes
+		-- through a slow moment at the top of its arc, and freezing it
+		-- there is a bomb hanging in the sky. So the part must also have
+		-- ground close beneath it, which is what groundOut reports.
+		local resting = part.AssemblyLinearVelocity.Magnitude < 3
+		if resting or now >= f.stop then
+			if groundOut(part) then
+				table.remove(settling, i)
+			elseif now >= f.stop + Config.Items.SettleGrace then
+				-- Never found anything to sit on: thrown off the map, or
+				-- over a hole. LEFT FALLING deliberately — its lifetime
+				-- will collect it. Anchoring here is what produced a
+				-- hazard stopped in mid-air over a gap.
+				table.remove(settling, i)
+			end
 		end
 	end
 end
@@ -594,37 +617,6 @@ function RaceService.start()
 	end)
 
 	RunService.Heartbeat:Connect(stepSettling)
-
-	----------------------------------------------------------------
-	-- TEST ONLY — a bottomless supply for one named player.
-	--
-	-- Granted through the ORDINARY pickup remote, deliberately. The
-	-- client caps at MaxHeld and treats it like any other pickup, so
-	-- nothing downstream needs to know this player is special, and
-	-- turning it off leaves no trace behind.
-	--
-	-- Racing only, and it warns every time it starts. A permanent
-	-- missile supply is not something anyone should discover in a live
-	-- server, and a quiet debug switch is one that gets left on.
-	----------------------------------------------------------------
-	if IT.DebugInfiniteFor ~= "" then
-		warn(
-			("[RaceService] TEST MODE: %s is being given a %s every %.1fs (Items.DebugInfiniteFor). Set it to \"\" before this goes anywhere near players."):format(
-				IT.DebugInfiniteFor,
-				IT.DebugInfiniteItem,
-				IT.DebugInfiniteRate
-			)
-		)
-		task.spawn(function()
-			while true do
-				task.wait(IT.DebugInfiniteRate)
-				local player = Players:FindFirstChild(IT.DebugInfiniteFor)
-				if player and player:IsA("Player") and Match.isDriving(MatchService.phase()) then
-					itemRemote:FireClient(player, IT.DebugInfiniteItem)
-				end
-			end
-		end)
-	end
 
 	Players.PlayerRemoving:Connect(function(player)
 		local kart = KartService.kartFor(player)

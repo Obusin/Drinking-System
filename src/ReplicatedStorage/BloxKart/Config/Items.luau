@@ -96,21 +96,6 @@ return {
 	-- owns where a missile goes.
 	ProjectileSpin = 420,
 
-	--== TEST ONLY =====================================================
-	-- Tops this player up with an item on a loop, so a thing can be
-	-- tested without driving into boxes for it.
-	--
-	-- "" disables it. It warns loudly at startup while it is set, because
-	-- a permanent missile supply is not something to discover in a live
-	-- server, and this is exactly the kind of switch that gets left on.
-	--
-	-- It grants through the ordinary pickup path, so the client caps it
-	-- at MaxHeld like any other item and nothing special-cases the
-	-- player after the grant.
-	DebugInfiniteFor = "Obus1n",
-	DebugInfiniteItem = "Missile",
-	DebugInfiniteRate = 1.5, -- seconds between top-ups
-
 	-- WHICH WAY THE ROCKET POINTS.
 	--
 	-- Worked out from the model itself: a missile is long and thin, so
@@ -253,6 +238,15 @@ return {
 	SettleProbeUp = 5,
 	SettleProbeDown = 300, -- generous: a throw off a high ledge should
 	-- still find the road below rather than hang in the sky
+
+	-- Extra seconds to keep FALLING after the throw timer expires, when
+	-- the probe still can't see ground.
+	--
+	-- A hazard is only ever anchored once something is found to sit on.
+	-- If nothing is, it is left falling and its lifetime collects it —
+	-- because anchoring a thing that never landed is precisely how a
+	-- bomb ends up stopped in mid-air over a gap.
+	SettleGrace = 3,
 
 	ThrowTime = 4, -- give up waiting for it to settle after this, so an
 	-- item thrown off the edge of the map doesn't stay unanchored forever
