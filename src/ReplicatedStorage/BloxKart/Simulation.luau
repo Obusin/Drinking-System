@@ -730,12 +730,57 @@ function Simulation:Step(dt: number, input): { [string]: any }
 	-- begins inside geometry returns nothing, so a single frame of
 	-- penetration would otherwise let the kart move through walls freely
 	-- from then on. Drifting into a wall is the usual way in.
+	--
+	-- DIRECTION COMES FROM THE NEAREST FACE, NOT THE PART'S CENTRE.
+	--
+	-- "Away from part.Position" is fine for a crate and nonsense for
+	-- anything big. A road slab or a track-surface zone can have its
+	-- centre a hundred studs away, so the push became a fixed sideways
+	-- shove that moving could never resolve — the kart just kept going
+	-- that way at Depenetrate studs a second, forever.
+	--
+	-- That was measured, not guessed: four held bots each slid exactly
+	-- 159.1 studs with speed 0.00, and identical distances are the
+	-- signature of a push whose magnitude is `Depenetrate * dt`
+	-- regardless of direction.
+	--
+	-- Now: if our centre isn't actually inside the part, there's nothing
+	-- to push out of — the bounds query is conservative and reports
+	-- boxes that merely touch, which is the sweep's job, not this. If it
+	-- IS inside, leave along the shortest axis, which is the real
+	-- minimum-translation direction for a box.
+	--
+	-- Standing inside a flat volume now flattens to nothing, because the
+	-- shortest way out of one is straight up, and the surface-plane
+	-- projection below removes exactly that. Which is correct: a zone you
+	-- are driving through should never push you sideways.
 	local overlaps = workspace:GetPartBoundsInBox(sweepFrame(), castSize, self.overlapParams)
 	for _, part in overlaps do
-		local away = self.pos - part.Position
+		local inside = part.CFrame:PointToObjectSpace(self.pos)
+		local half = part.Size * 0.5
+		local dx, dy, dz = half.X - math.abs(inside.X), half.Y - math.abs(inside.Y), half.Z - math.abs(inside.Z)
+
+		-- Not actually within the solid; the sweep handles contact.
+		if dx <= 0 or dy <= 0 or dz <= 0 then
+			continue
+		end
+
+		local away
+		if dx <= dy and dx <= dz then
+			away = part.CFrame.RightVector * math.sign(inside.X)
+		elseif dy <= dz then
+			away = part.CFrame.UpVector * math.sign(inside.Y)
+		else
+			away = part.CFrame.LookVector * math.sign(inside.Z)
+		end
+
 		away -= self.up * away:Dot(self.up) -- stay in the surface plane
 		if away.Magnitude > 1e-3 then
-			self.pos += away.Unit * H.Depenetrate * dt
+			-- Never overshoot the penetration we're actually resolving. A
+			-- fixed rate can travel further in one frame than the depth it
+			-- is clearing, which is how a nudge turns into a launch.
+			local depth = math.min(dx, dy, dz)
+			self.pos += away.Unit * math.min(H.Depenetrate * dt, depth)
 		end
 	end
 
