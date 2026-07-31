@@ -132,6 +132,29 @@ failing — it was these working as written. Both now scale with how hard
 the bot is working, because people hold a straight and get untidy in
 corners, not the reverse.
 
+### `travel ⊥ up` means a tilted `up` is a climb gravity cannot see.
+The single most confusing bug so far, and it follows directly from the
+surface-relative design.
+
+`travel` is always perpendicular to `up`. While `up` is a ramp's normal,
+`travel * speed` points **uphill in world terms** — and that climb lives
+entirely outside `vertVel`, which is the only thing gravity acts on. A
+30° ramp at 100 studs/s produced a 50 studs/s rise with nothing opposing
+it.
+
+It never levelled either: the airborne branch settles `up` toward
+whatever a 40-stud probe finds beneath, and just after a ramp that probe
+still finds the ramp. **The tilt was self-sustaining.**
+
+Fix: leaving the ground converts to a ballistic state — world velocity
+preserved exactly, re-expressed as level speed plus a vertical rate.
+No-op on flat ground by construction. Loops excluded by surface angle,
+since there surface-relative *is* the truth.
+
+**Surface-relative gravity is worth it, but it has one sharp edge:**
+anything that leaves the surface must have its motion handed back to the
+world frame, or it keeps obeying a frame it is no longer in.
+
 ### A kart in the air had an engine. Nothing checked `grounded`.
 The speed calculation never asked whether the kart was touching
 anything, so full throttle accelerated it in **mid-air** toward
@@ -323,6 +346,27 @@ announcements, and the ready-skip (which compared ready-count against
 
 **Test for it:** anywhere the code says "the player who owns this kart",
 ask what happens when there isn't one.
+
+**Third instance: client-only presentation.** The shield bubble is
+authored art welded to the kart, and the only thing that ever hid it was
+`Effects` — a client module that looks at *your* kart and nothing else.
+So every other kart in the race wore a permanent shield. Bots made it
+obvious, but remote players had it too.
+
+**Rule:** anything a client draws for itself must have a default the
+world already satisfies. Hide it at build; let the owner turn it on.
+"Correct only because a client fixes it up" is wrong for everyone the
+client isn't looking at.
+
+### A tag answers one question. Being kart-shaped is not being a racer.
+The `Kart` tag was doing double duty, and a spare kart parked in
+Workspace was consequently a missile target, an obstacle for bot
+avoidance, and a competitor padding the field that item odds weight by.
+
+Split it: `KartFactory` — the only place a kart is ever built — stamps
+`Names.RACER`, and `Standings.allKarts` requires it. Four separate
+consumers were reading the raw tag directly, which is root cause #1
+again.
 
 The worst instance: **bots could not finish a race.** Finishing was
 reachable through exactly one door — the client's `FINISH_REMOTE` — and a
