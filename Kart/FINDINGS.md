@@ -217,6 +217,24 @@ wasn't driving anywhere — it was being argued over.
 I flip-flopped on this twice before stating the rule properly. The rule
 is what matters, not the flag.
 
+### Writing the CFrame of a part you don't own creates a freeze loop.
+`RemoteKarts` smoothed every kart the client didn't own — including other
+**players**, whose karts are unanchored and network-owned by their
+driver, and which Roblox already interpolates for free.
+
+The loop: the local write lands *after* the incoming replication update,
+so next frame reads back **its own value**, concludes nothing changed,
+and never advances the target. The kart sits still forever — while its
+driver races normally on their own screen, because their own kart is
+excluded from the smoothing.
+
+**Symptom: everyone sees everyone else parked, and each player is moving
+fine locally.** That's this, running on every client at once.
+
+**The rule:** only ever smooth **anchored, server-written** parts. An
+unanchored network-owned part is already interpolated; touching it
+replaces something that works with something that doesn't.
+
 ### Anchored CFrame writes don't interpolate. Client-side rendering is the fix.
 An anchored part's CFrame replicates as a plain property update, roughly
 20 Hz — about 6 studs per step at racing speed, which reads as
