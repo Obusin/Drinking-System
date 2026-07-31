@@ -95,9 +95,6 @@ local haptics = Haptics.new()
 -- Outlives any kart: the soundtrack shouldn't restart because you
 -- respawned.
 local music = Music.new()
--- Also outlives the kart: you spectate precisely when you no longer
--- have one to drive.
-local spectate = Spectate.new()
 -- Mobile only, and nil everywhere else — every call site is guarded, so
 -- desktop carries no touch code at all rather than an inert copy of it.
 local touch = if TouchHud.wanted() then TouchHud.new() else nil
@@ -108,6 +105,10 @@ local heartbeat: RBXScriptConnection? = nil
 local function getHumanoid(): Humanoid?
 	return humanoid
 end
+
+-- Also outlives the kart: you spectate precisely when you no longer
+-- have one to drive.
+local spectate = Spectate.new(getHumanoid)
 
 --=====================================================================
 --  TEARDOWN

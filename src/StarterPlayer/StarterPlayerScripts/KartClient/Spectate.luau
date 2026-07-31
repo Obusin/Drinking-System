@@ -40,6 +40,7 @@ local Config = require(BloxKart:WaitForChild("Config"))
 local Names = require(BloxKart:WaitForChild("Names"))
 local Shared = require(BloxKart:WaitForChild("Match"))
 local Standings = require(BloxKart:WaitForChild("Standings"))
+local Input = require(script.Parent.Input)
 
 local SP = Config.Spectate
 local P = Shared.Phase
@@ -47,8 +48,12 @@ local P = Shared.Phase
 local Spectate = {}
 Spectate.__index = Spectate
 
-function Spectate.new()
+-- `humanoidGetter` is handed straight back to Input.bind when spectating
+-- ends, because that is what it wants and this module has no other use
+-- for it.
+function Spectate.new(humanoidGetter)
 	return setmetatable({
+		humanoidGetter = humanoidGetter,
 		active = false,
 		free = false,
 		-- The kart itself, never an index. See the header.
@@ -129,6 +134,24 @@ end
 --=====================================================================
 function Spectate:_start()
 	self.active = true
+
+	-- RELEASE THE DRIVING CONTROLS.
+	--
+	-- This is what made switching and free look "not work", and neither
+	-- was a bug in this module: the driving bindings were still live.
+	-- ContextActionService sinks what it binds, so every key spectating
+	-- wanted was already taken —
+	--
+	--   E            exit           swallowed "next racer"
+	--   MouseButton2 free-look      swallowed the orbit
+	--   R1 / L1      drift          swallowed the gamepad cycle
+	--   ButtonY      exit           swallowed the free-cam toggle
+	--
+	-- and each arrived at our handler with gameProcessedEvent already
+	-- true. Rebinding spectating onto different keys would have worked
+	-- and been wrong: you are not driving, so the driving controls have
+	-- no business being bound at all. The AI has your kart.
+	Input.unbind()
 	local cam = workspace.CurrentCamera
 	if cam then
 		self.saved = cam.CameraType
@@ -141,6 +164,11 @@ function Spectate:_start()
 end
 
 function Spectate:_stop()
+	-- Driving controls come back with the camera. Guarded on `active` so
+	-- a stop that isn't following a start can't bind them from nowhere.
+	if self.active then
+		Input.bind(self.humanoidGetter)
+	end
 	self.active = false
 	self.free = false
 	self.looking = false
