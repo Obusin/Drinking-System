@@ -1400,8 +1400,18 @@ local function step(dt: number)
 		-- Progress, so bots appear in the standings and the missile's
 		-- route entry. Written directly: the server owns these karts, so
 		-- there's no report to relay.
+		-- A FINISHED KART'S SCORE IS FROZEN.
+		--
+		-- Its race is over and where it finished is the truth. Once the
+		-- AI takes a kart over it carries on driving, and letting it keep
+		-- writing progress meant a player who crossed the line FIRST had
+		-- their standing overwritten by whatever the AI had managed since
+		-- — which is how finishing first showed up as last.
+		--
+		-- Frozen rather than cleared, so it still ranks ahead of everyone
+		-- who hasn't finished. That is what finishing first means.
 		local nodes = #Route.nodes()
-		if nodes > 0 then
+		if nodes > 0 and not bot.kart:GetAttribute(Match.FINISH_PLACE) then
 			bot.kart:SetAttribute(Standings.ATTRIBUTE, Standings.score(bot.laps, math.floor(bot.u or 0), 0))
 		end
 		-- And its steering, so Rider turns the wheel and the front tyres.
@@ -1576,7 +1586,10 @@ function BotService.takeOver(kart: Model, name: string): boolean
 	-- It inherits the race in progress rather than starting a fresh one:
 	-- the position, lap and checkpoint it had when its driver finished
 	-- are still true, and resetting them would drop it to last.
-	bot.laps = Route.passedFrom(kart:GetAttribute(Standings.ATTRIBUTE))
+	-- lapsFrom, NOT Route.passedFrom. Both decode the same packed score
+	-- and they return different fields — passedFrom gives checkpoints,
+	-- which as a lap count is nonsense.
+	bot.laps = Standings.lapsFrom(kart:GetAttribute(Standings.ATTRIBUTE))
 	bot.u = Route.nearestU(bot.sim.pos)
 	bot.nextIdx = math.floor(bot.u) + 1
 	bot.safeU = bot.u

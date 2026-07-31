@@ -451,12 +451,47 @@ function RaceService.start()
 			return -- NaN or garbage
 		end
 		local kart = KartService.kartFor(player)
-		if kart then
-			-- TODO: validate the jump against the last known score before
-			-- trusting it. Cheap to add here, impossible to add later if
-			-- everything reads the attribute directly instead.
-			kart:SetAttribute(Standings.ATTRIBUTE, score)
+		if not kart then
+			return
 		end
+
+		-- A FINISHED RACER'S PROGRESS IS FROZEN.
+		--
+		-- Where they finished is the truth and nothing after the flag can
+		-- improve on it — but plenty can make it worse. Respawning resets
+		-- the client's own lap tracking, so the very next report is a
+		-- score from the start of the race, and writing that dropped a
+		-- player who crossed the line FIRST to last in the order.
+		--
+		-- Sitting still does it too, more slowly, once the AI takes the
+		-- kart over and the client is no longer the thing driving it.
+		--
+		-- Frozen rather than ignored outright: the attribute keeps the
+		-- score they finished on, so they still rank ahead of everyone
+		-- who hasn't finished. That is what finishing first means.
+		if kart:GetAttribute(Match.FINISH_PLACE) then
+			return
+		end
+
+		-- Never BACKWARDS, either.
+		--
+		-- Progress in a race only goes one way. A respawn, a rejoin, or a
+		-- client that lost its place has no business lowering a score that
+		-- was already earned, and the only thing a lower number can ever
+		-- be is wrong.
+		--
+		-- This is also most of the validation the TODO below wanted: a
+		-- forged score can still be too HIGH, but the whole class of
+		-- accidental self-demotion is gone.
+		local had = kart:GetAttribute(Standings.ATTRIBUTE)
+		if typeof(had) == "number" and score < had then
+			return
+		end
+
+		-- TODO: validate the jump UPWARD against the last known score
+		-- before trusting it. Cheap to add here, impossible to add later
+		-- if everything reads the attribute directly instead.
+		kart:SetAttribute(Standings.ATTRIBUTE, score)
 	end)
 
 	----------------------------------------------------------------

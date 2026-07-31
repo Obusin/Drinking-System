@@ -59,6 +59,18 @@ function Standings.score(laps: number, checkpoints: number, distance: number): n
 	return laps * 1e6 + checkpoints * 1e3 + math.clamp(distance, 0, 999)
 end
 
+-- Laps out of a packed score. The counterpart to Route.passedFrom,
+-- which returns CHECKPOINTS out of the same number — they are one field
+-- apart and trivially confusable, and confusing them is how a kart that
+-- had finished three laps was handed to the AI believing it had done
+-- however many checkpoints it was carrying.
+function Standings.lapsFrom(score: number?): number
+	if typeof(score) ~= "number" then
+		return 0
+	end
+	return math.floor(score / 1e6)
+end
+
 -- Every kart in the world with a progress attribute, best first.
 -- Returns { { kart = Model, score = number, player = Player? } }
 function Standings.order(karts: { Model }): { { kart: Model, score: number } }

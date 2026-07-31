@@ -24,6 +24,9 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local BloxKart = ReplicatedStorage:WaitForChild("BloxKart")
 local Config = require(BloxKart:WaitForChild("Config"))
 local Match = require(BloxKart:WaitForChild("Match"))
+-- For the progress attribute, which has to be cleared with the finish
+-- attributes or a new round starts holding the last one's scores.
+local Standings = require(BloxKart:WaitForChild("Standings"))
 local Util = require(BloxKart:WaitForChild("Util"))
 local KartService = require(script.Parent.KartService)
 
@@ -126,6 +129,16 @@ local function clearFinishes()
 	for _, kart in KartService.allKarts() do
 		kart:SetAttribute(Match.FINISH_PLACE, nil)
 		kart:SetAttribute(Match.FINISH_TIME, nil)
+		-- AND THE PROGRESS SCORE, which used to be left behind.
+		--
+		-- It was harmless while progress reports overwrote whatever was
+		-- there. It stopped being harmless the moment those reports
+		-- started refusing to move a score BACKWARDS: last round's score
+		-- would sit on the kart, every fresh report from the new race
+		-- would be lower and therefore rejected, and the standings would
+		-- be frozen on the previous round for the rest of the server's
+		-- life.
+		kart:SetAttribute(Standings.ATTRIBUTE, nil)
 	end
 	finishers = 0
 end
