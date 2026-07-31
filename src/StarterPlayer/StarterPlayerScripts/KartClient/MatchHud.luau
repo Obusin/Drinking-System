@@ -12,6 +12,7 @@
 	place, and it's the only time the middle isn't track.
 --]]
 
+local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
@@ -21,8 +22,6 @@ local Config = require(BloxKart:WaitForChild("Config"))
 local Util = require(BloxKart:WaitForChild("Util"))
 local Names = require(BloxKart:WaitForChild("Names"))
 local Shared = require(BloxKart:WaitForChild("Match"))
--- For allKarts: real entrants, not everything kart-shaped.
-local Standings = require(BloxKart:WaitForChild("Standings"))
 
 local M = Config.Match
 local H = Config.Hud
@@ -147,14 +146,6 @@ local function nameFor(kart: Model): string
 	if player then
 		return player.DisplayName
 	end
-	-- Bots. They have no UserId and no presence on the client at all, so
-	-- the server writes the name onto the kart. Without this every bot on
-	-- the podium showed as the literal word "Racer", which stopped being
-	-- cosmetic the moment they could actually win.
-	local named = kart:GetAttribute(Names.RACER_NAME)
-	if typeof(named) == "string" and named ~= "" then
-		return named
-	end
 	return "Racer"
 end
 
@@ -185,10 +176,7 @@ end
 -- nothing extra to keep in sync and a late joiner sees the board too.
 function MatchHud:ShowResults()
 	local finished = {}
-	-- Only real entrants. A kart-shaped model left in Workspace has no
-	-- finish attribute so it never showed on the board, but reading the
-	-- raw tag here meant one question answered two ways.
-	for _, kart in Standings.allKarts() do
+	for _, kart in CollectionService:GetTagged(Names.KART_TAG) do
 		local place = kart:GetAttribute(Shared.FINISH_PLACE)
 		if typeof(place) == "number" then
 			table.insert(finished, {

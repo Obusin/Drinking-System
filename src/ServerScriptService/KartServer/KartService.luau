@@ -193,18 +193,6 @@ local function createKart(name: string, slot: number, player: any?): Model
 	)
 	local kart = KartFactory.build(KartFactory.colorFor(slot), wanted)
 	kart.Name = name
-	-- Who is driving, as text, for anything that has to SHOW it.
-	--
-	-- The results board resolved names through GetPlayerByUserId and fell
-	-- back to the literal string "Racer" when that returned nothing —
-	-- which was every bot. Now that bots can finish, a four-bot podium
-	-- read as four anonymous Racers.
-	--
-	-- An attribute rather than a lookup because the answer has to survive
-	-- on the client, where the bot's identity doesn't otherwise exist.
-	if player then
-		kart:SetAttribute(Names.RACER_NAME, player.Name)
-	end
 	kart:PivotTo(Placement.cframeFor(pad, slot))
 	kart.Parent = workspace
 	bindOwnership(kart, isBot(player))
@@ -388,14 +376,22 @@ function KartService.start()
 	log("starting")
 	setupCollisionGroup()
 
-	-- Kart on the pad first, players second. This runs unconditionally,
-	-- so there is always something to drive even if the player wiring
-	-- breaks.
-	local ok, err = pcall(function()
-		unclaimed = createKart("Kart", 0)
-	end)
-	if not ok then
-		warn("[KartService] could not build the start-line kart: " .. tostring(err))
+	-- TEST MODE ONLY. This is the spare kart that sits on the pad waiting
+	-- to be walked into.
+	--
+	-- It used to be built unconditionally — the comment said "so there is
+	-- always something to drive even if the player wiring breaks", which
+	-- made sense before players were seated automatically. Now it just
+	-- leaves a kart nobody drives parked on the spawn for the whole
+	-- round: it takes a grid colour, it sits in the middle of the start
+	-- line, and anything that looks for karts finds it.
+	if RIG.TestMode then
+		local ok, err = pcall(function()
+			unclaimed = createKart("Kart", 0)
+		end)
+		if not ok then
+			warn("[KartService] could not build the start-line kart: " .. tostring(err))
+		end
 	end
 
 	if RIG.TestMode then
@@ -420,6 +416,8 @@ function KartService.start()
 	-- Collected first, then respawned: spawnKartFor mutates `karts`, and
 	-- mutating a table mid-iteration is undefined in Luau.
 	RunService.Heartbeat:Connect(function()
+		-- Only ever non-nil in TestMode now, so this rebuild can't
+		-- resurrect the spare kart in a normal round.
 		if unclaimed and isLost(unclaimed) then
 			unclaimed:Destroy()
 			unclaimed = createKart("Kart", 0)

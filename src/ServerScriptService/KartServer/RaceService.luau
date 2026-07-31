@@ -346,9 +346,7 @@ function RaceService.start()
 		local kart = KartService.kartFor(player)
 		local place, field = 0, 0
 		if kart then
-			-- allKarts, not the raw tag: item odds are weighted by position,
-			-- and a spare kart parked in Workspace used to pad the field.
-			local order = Standings.order(Standings.allKarts())
+			local order = Standings.order(CollectionService:GetTagged(Names.KART_TAG))
 			place, field = Standings.placeOf(order, kart)
 		end
 		local item = Items.roll(rng, place, field)

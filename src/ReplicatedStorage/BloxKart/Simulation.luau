@@ -342,13 +342,10 @@ function Simulation:Step(dt: number, input): { [string]: any }
 	local now = os.clock()
 	local frozen = self.held or now < self.frozenUntil
 
-	-- A held kart is pinned, not merely uncontrollable. Gravity is left
-	-- alone so karts still settle onto the grid.
-	--
-	-- This zeroing is NOT what stops a live boost, though it used to
-	-- claim it was. Speed is re-targeted further down and a burn or pad
-	-- ignores throttle entirely, so it accelerated straight back out of
-	-- the hold. See the `if frozen` guard next to the burn stage.
+	-- A held kart is pinned, not merely uncontrollable: zeroing speed
+	-- each frame stops a boost that was live when the hold began from
+	-- carrying it off the line. Gravity is left alone so karts still
+	-- settle onto the grid.
 	if self.held then
 		self.speed = 0
 		self.slip = 0
@@ -507,33 +504,6 @@ function Simulation:Step(dt: number, input): { [string]: any }
 	local stage = N.Stages[self.burnStage]
 	self.burning = stage ~= nil
 
-	-- A HELD KART IS NOT DRIVEN BY ANYTHING, INCLUDING ITS OWN BOOST.
-	--
-	-- Zeroing speed at the top of Step was not enough, and the comment up
-	-- there claiming it stopped a live boost was simply wrong. Speed gets
-	-- re-targeted below: a burn or a boost pad sets `target` regardless
-	-- of throttle, so the very next line accelerated the kart straight
-	-- back out of the hold. A held kart with nitro lit drove away from
-	-- the grid at boost speed.
-	--
-	-- It showed up once bots started spending nitro: a bot that crossed
-	-- the line mid-burn kept driving through the results screen and the
-	-- intermission, which reads as "the bots move before the race
-	-- starts". ResetForRound clears all of this, but that only runs when
-	-- the grid is set — everything between the flag and the next grid was
-	-- uncovered.
-	--
-	-- Suppressed rather than cleared: the hold is temporary and a boost
-	-- interrupted by a phase change shouldn't be silently confiscated.
-	if frozen then
-		boosting = false
-		stage = nil
-		-- Published too, or Effects and Audio keep showing flames and
-		-- engine note on a kart that is standing still on the grid.
-		self.boosting = false
-		self.burning = false
-	end
-
 	----------------------------------------------------------------
 	-- 2. SPEED  — a lerp toward a target. No engine, no torque.
 	----------------------------------------------------------------
@@ -563,31 +533,6 @@ function Simulation:Step(dt: number, input): { [string]: any }
 	else
 		target, rate = 0, H.CoastRate
 	end
-	-- NO WHEELS, NO ENGINE — AND NO BRAKES EITHER.
-	--
-	-- Nothing above ever asked whether the kart was touching anything, so
-	-- a kart at full throttle accelerated in mid-air, all the way toward
-	-- MaxSpeed. Off a long jump that is free speed for holding a button,
-	-- and it made bots visibly fly: the ramp logic pins throttle at 1 to
-	-- clear a gap, which then kept accelerating them for the whole
-	-- flight instead of only up the ramp.
-	--
-	-- Speed is HELD, not decayed. Coasting to zero would be just as
-	-- invented in the opposite direction — there's no drag worth
-	-- modelling here, and a kart that sheds speed in the air makes every
-	-- jump feel like a punishment. You keep exactly what you launched
-	-- with.
-	--
-	-- Boost and nitro are exempt on purpose: those are thrust, not
-	-- traction, and a burn cut short by a ramp would feel broken.
-	--
-	-- `grounded` is last frame's value here — it's recomputed further
-	-- down in section 6. One frame of lag on a jump is not worth
-	-- restructuring Step for.
-	if not self.grounded and not boosting and not stage and H.AirKeepsSpeed then
-		target, rate = self.speed, 0
-	end
-
 	self.speed = Util.approach(self.speed, target, rate, dt)
 
 	if drifting then
@@ -755,57 +700,12 @@ function Simulation:Step(dt: number, input): { [string]: any }
 	-- begins inside geometry returns nothing, so a single frame of
 	-- penetration would otherwise let the kart move through walls freely
 	-- from then on. Drifting into a wall is the usual way in.
-	--
-	-- DIRECTION COMES FROM THE NEAREST FACE, NOT THE PART'S CENTRE.
-	--
-	-- "Away from part.Position" is fine for a crate and nonsense for
-	-- anything big. A road slab or a track-surface zone can have its
-	-- centre a hundred studs away, so the push became a fixed sideways
-	-- shove that moving could never resolve — the kart just kept going
-	-- that way at Depenetrate studs a second, forever.
-	--
-	-- That was measured, not guessed: four held bots each slid exactly
-	-- 159.1 studs with speed 0.00, and identical distances are the
-	-- signature of a push whose magnitude is `Depenetrate * dt`
-	-- regardless of direction.
-	--
-	-- Now: if our centre isn't actually inside the part, there's nothing
-	-- to push out of — the bounds query is conservative and reports
-	-- boxes that merely touch, which is the sweep's job, not this. If it
-	-- IS inside, leave along the shortest axis, which is the real
-	-- minimum-translation direction for a box.
-	--
-	-- Standing inside a flat volume now flattens to nothing, because the
-	-- shortest way out of one is straight up, and the surface-plane
-	-- projection below removes exactly that. Which is correct: a zone you
-	-- are driving through should never push you sideways.
 	local overlaps = workspace:GetPartBoundsInBox(sweepFrame(), castSize, self.overlapParams)
 	for _, part in overlaps do
-		local inside = part.CFrame:PointToObjectSpace(self.pos)
-		local half = part.Size * 0.5
-		local dx, dy, dz = half.X - math.abs(inside.X), half.Y - math.abs(inside.Y), half.Z - math.abs(inside.Z)
-
-		-- Not actually within the solid; the sweep handles contact.
-		if dx <= 0 or dy <= 0 or dz <= 0 then
-			continue
-		end
-
-		local away
-		if dx <= dy and dx <= dz then
-			away = part.CFrame.RightVector * math.sign(inside.X)
-		elseif dy <= dz then
-			away = part.CFrame.UpVector * math.sign(inside.Y)
-		else
-			away = part.CFrame.LookVector * math.sign(inside.Z)
-		end
-
+		local away = self.pos - part.Position
 		away -= self.up * away:Dot(self.up) -- stay in the surface plane
 		if away.Magnitude > 1e-3 then
-			-- Never overshoot the penetration we're actually resolving. A
-			-- fixed rate can travel further in one frame than the depth it
-			-- is clearing, which is how a nudge turns into a launch.
-			local depth = math.min(dx, dy, dz)
-			self.pos += away.Unit * math.min(H.Depenetrate * dt, depth)
+			self.pos += away.Unit * H.Depenetrate * dt
 		end
 	end
 
@@ -932,55 +832,6 @@ function Simulation:Step(dt: number, input): { [string]: any }
 			self.vertVel = 0
 			self.grounded = true
 			self.normal = surfaceNormal
-		end
-	end
-
-	----------------------------------------------------------------
-	-- 6a. LAUNCH — hand the ramp's climb over to gravity.
-	--
-	-- `travel` is always perpendicular to `up`, so while `up` is the
-	-- ramp's normal, `travel * speed` points UPHILL IN WORLD TERMS. That
-	-- climb lives entirely outside vertVel, and gravity only ever touches
-	-- vertVel — so nothing was pulling it back down. On a 30 degree ramp
-	-- at 100 studs/s the kart rose at 50 studs/s indefinitely.
-	--
-	-- It didn't level out either: the airborne branch below settles `up`
-	-- toward whatever a 40-stud probe finds beneath, and just after a
-	-- ramp that probe still finds the ramp. So the tilt was self-
-	-- sustaining, and the kart flew.
-	--
-	-- This was survivable while an airborne kart bled speed — which is
-	-- exactly what the old throttle-off-in-the-air behaviour did by
-	-- accident. Holding speed in the air (correctly) removed the accident
-	-- and exposed this.
-	--
-	-- So at the moment of leaving the ground, convert to a ballistic
-	-- state: keep the world velocity EXACTLY, but re-express it as level
-	-- ground speed plus a vertical rate that gravity can act on. Total
-	-- velocity is unchanged, so nothing is added or taken away — it just
-	-- becomes an arc instead of a climb.
-	--
-	-- On flat ground this is a no-op by construction (up is already world
-	-- up, travel is already level), so ordinary hops are untouched.
-	----------------------------------------------------------------
-	if H.BallisticLaunch and self.wasGrounded and not self.grounded then
-		-- Not on a loop. There, surface-relative IS the truth and levelling
-		-- to world up would drop the kart off the ceiling — the whole
-		-- reason the probe below exists.
-		local under = workspace:Raycast(self.pos, -self.up * H.AirSurfaceProbe, self.rayParams)
-		local onLoop = under ~= nil and under.Normal:Dot(Vector3.yAxis) < H.LaunchLevelDot
-
-		if not onLoop then
-			local v = self.travel * self.speed + self.up * self.vertVel
-			local flat = Vector3.new(v.X, 0, v.Z)
-
-			self.up = Vector3.yAxis
-			self.vertVel = v.Y
-			self.speed = flat.Magnitude
-			if flat.Magnitude > 1e-3 then
-				self.travel = flat.Unit
-			end
-			self.forward, self.up = Util.orthonormal(self.forward, self.up)
 		end
 	end
 

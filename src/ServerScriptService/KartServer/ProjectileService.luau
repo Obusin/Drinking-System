@@ -58,8 +58,6 @@ local Match = require(BloxKart:WaitForChild("Match"))
 local Route = require(BloxKart:WaitForChild("Route"))
 local Triggers = require(BloxKart:WaitForChild("Triggers"))
 local Ballistics = require(BloxKart:WaitForChild("Ballistics"))
--- For allKarts: the one place that knows a kart from a kart-shaped model.
-local Standings = require(BloxKart:WaitForChild("Standings"))
 local Config = require(BloxKart:WaitForChild("Config"))
 local MatchService = require(script.Parent.MatchService)
 local RaceService = require(script.Parent.RaceService)
@@ -133,10 +131,7 @@ local function acquire(p)
 	end
 
 	local best, bestDist = nil, item.AcquireRange
-	-- allKarts, not the raw tag: the tag means "kart-shaped", and a spare
-	-- parked on the spawn pad answers to it. Missiles were locking onto a
-	-- kart nobody was driving.
-	for _, kart in Standings.allKarts() do
+	for _, kart in CollectionService:GetTagged(Names.KART_TAG) do
 		local hb = kart.PrimaryPart
 		-- Never the shooter, and never a mis-tagged model with no hitbox.
 		if hb and kart ~= p.from then
@@ -237,7 +232,7 @@ local function step(dt: number)
 		-- Proximity to ANY kart but the shooter's, not just the target, so
 		-- a missile fired at nobody is still dangerous.
 		local blew = false
-		for _, kart in Standings.allKarts() do
+		for _, kart in CollectionService:GetTagged(Names.KART_TAG) do
 			local hb = kart.PrimaryPart
 			if hb and kart ~= p.from and (hb.Position - p.pos).Magnitude <= p.item.HitRadius then
 				detonate(p, kart)

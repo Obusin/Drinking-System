@@ -15,7 +15,10 @@ return {
 	-- like. Changing this changes handling; changing the art does not.
 	HitboxSize = Vector3.new(4, 2.4, 7),
 
-	VisualName = "KartVisual", -- optional Model in ServerStorage
+	-- The Model in ServerStorage everyone drives. This IS the kart now —
+	-- it went live for all players rather than staying an override on one
+	-- account.
+	VisualName = "Kart",
 
 	-- Per-player art, for trying a new model on one account without
 	-- giving it to everybody. Roblox username -> Model name in
@@ -25,10 +28,11 @@ return {
 	-- to HitboxSize whatever the art is, so a bespoke kart can never be
 	-- a faster kart. That is the whole reason this is safe to ship.
 	--
-	-- Empty this table when the new model goes live for everyone.
-	VisualByPlayer = {
-		Obus1n = "Kart",
-	},
+	-- EMPTY, deliberately. The kart that used to be listed here is now
+	-- VisualName above, so an entry would only override the thing it was
+	-- promoted into — and a leftover name here is exactly how a player
+	-- ends up in a model nobody else can see.
+	VisualByPlayer = {},
 
 	-- IN STUDIO ONLY, everyone gets this regardless of name. Set "" to
 	-- turn it off.

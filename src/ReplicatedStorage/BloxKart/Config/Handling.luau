@@ -9,7 +9,20 @@
 
 return {
 	--== SPEED =========================================================
-	MaxSpeed = 120, -- forward top speed
+	-- THE ONE DIAL FOR OVERALL PACE. Was 120, which made a straight over
+	-- before you could read the corner at the end of it — and made bots
+	-- uncatchable, since a bot on the correct line at full throttle is
+	-- only beatable if there is time to catch it.
+	--
+	-- Nothing else about the handling changed. This is a top speed, not a
+	-- physics change: acceleration shape, grip, turn rates and drift all
+	-- behave exactly as before, and everything measured as a FRACTION of
+	-- top speed (turn rate falloff, the accel curve, bot corner speeds)
+	-- rescales with it automatically.
+	--
+	-- Raise it back toward 120 if the track starts feeling slow; that is
+	-- the whole knob.
+	MaxSpeed = 95, -- forward top speed
 	ReverseSpeed = 32, -- reverse top speed
 	Accel = 3.4, -- base approach rate to target speed
 
@@ -69,31 +82,6 @@ return {
 	-- genuinely slides wide before the rotation reels it back in
 	MaxSlip = 32, -- degrees travel may lag the nose. Hard cap, so the
 	-- kart can never end up driving sideways or backwards
-
-	-- A kart in the air keeps the speed it launched with — no engine, no
-	-- brakes, no coasting.
-	--
-	-- Nothing used to check this, so full throttle accelerated you in
-	-- mid-air toward MaxSpeed. That's free speed for holding a button,
-	-- and it's what made bots fly off ramps once their jump logic started
-	-- pinning the throttle to clear a gap.
-	--
-	-- Held rather than decayed deliberately: coasting to zero in the air
-	-- would be equally invented, and makes every jump feel like a
-	-- punishment. Boost and nitro still apply while airborne — those are
-	-- thrust, not traction.
-	--
-	-- OFF. Turned on during a session chasing bots flying off ramps, and
-	-- turned back off because the physics was not the problem — the karts
-	-- were driving correctly before any of it, and the actual complaint
-	-- was bots ignoring the match phase.
-	--
-	-- The observation still looks true on paper: nothing checks whether
-	-- the kart is touching anything, so full throttle does accelerate you
-	-- in mid-air. If that ever becomes a real complaint, this is the
-	-- switch. It is off because it changes how every jump in the game
-	-- feels, and nobody asked for that.
-	AirKeepsSpeed = false,
 
 	TurnRate = 2.5, -- rad/s at full lock, low speed
 	TurnRateTop = 1.6, -- rad/s at full lock, top speed
@@ -196,49 +184,6 @@ return {
 	-- being wrong the other way means falling off a loop. Anything under
 	-- the arc of a jump is fine.
 	AirSurfaceProbe = 40,
-
-	-- Leaving the ground converts the ramp's climb into a proper arc.
-	--
-	-- `travel` is perpendicular to `up`, so on a ramp `travel * speed`
-	-- points uphill in world terms — a climb that lives outside vertVel,
-	-- and gravity only touches vertVel. Nothing pulled it back down: on a
-	-- 30 degree ramp at 100 studs/s the kart rose at 50 studs/s and kept
-	-- rising, because the airborne probe below kept finding the ramp it
-	-- had just left and held `up` tilted.
-	--
-	-- The conversion preserves world velocity exactly. It doesn't slow
-	-- anything down; it re-expresses the same motion as level speed plus
-	-- a vertical rate, so gravity has something to work on. A jump does
-	-- cost a little forward speed now, which is what launching upward
-	-- actually costs.
-	--
-	-- ON, and this time on evidence rather than on reasoning.
-	--
-	-- It was written from theory, turned off because the theory hadn't
-	-- been demonstrated, and is back because the server measured it:
-	--
-	--   RISING at 22.9 studs/s — 22.9 from travel (up 11.4 deg off
-	--   vertical), 0.0 from vertVel 0.0
-	--
-	-- Three separate bots, same shape: every stud of the climb came from
-	-- `travel`, and vertVel — the only term gravity touches — was exactly
-	-- zero. That is the whole bug in one line. `travel` is perpendicular
-	-- to `up`, so while `up` is a ramp's normal, `travel * speed` points
-	-- uphill in world terms, and nothing pulls it back.
-	--
-	-- WHY IT LOOKED NEW. It has always been true. Bots only started
-	-- exercising it once they were quick enough to reach ramps at 120+
-	-- studs/s — the steering rewrite made them fast, and the fast ones
-	-- launch. It reads as a regression and is really an old hole finally
-	-- being driven into.
-	BallisticLaunch = true,
-
-	-- How level a surface has to be for a launch off it to count as a
-	-- jump rather than as riding a loop. Dot of the surface normal with
-	-- world up: 0.5 is a 60 degree slope. Anything steeper is treated as
-	-- track you're still attached to, and levelling there would drop you
-	-- off the ceiling.
-	LaunchLevelDot = 0.5,
 
 	StickTime = 0.16, -- grace period after losing contact before world
 	-- gravity takes back over. Bridges seams and stair nosings.

@@ -49,58 +49,24 @@ return {
 	IdleSteerRate = 1.1, -- wags per second
 	IdleSteerAmount = 1, -- 1 is lock to lock
 
-	-- How often the bot simulation advances, in fixed steps per second.
+	-- Every frame, and it has to be.
 	--
-	-- The old comment here justified 60 by physics running on unanchored
-	-- bot karts. That reasoning is dead: bot karts are ANCHORED now (one
-	-- authority — see FINDINGS §3), so nothing else is integrating them
-	-- and this rate answers only to itself.
+	-- Their karts are unanchored so motion replicates smoothly, which
+	-- means physics runs on them at 60Hz. Writing their CFrame at 30
+	-- meant physics extrapolated them along their velocity for a frame
+	-- and then got snapped back by the next write — visible as a flicker.
+	-- Matching the physics rate makes each correction tiny.
 	--
-	-- BE CLEAR ABOUT WHAT THIS DOES AND DOESN'T BUY. It is NOT what makes
-	-- bots look smooth. Their position replicates to clients at roughly
-	-- 20Hz whatever this says, and what you actually see is RemoteKarts
-	-- interpolating between those updates at your own frame rate. Raising
-	-- this improves integration accuracy — slightly tighter cornering,
-	-- slightly less overshoot — and costs raycasts linearly, because
-	-- every step probes the ground, the ledge ahead and the road edges.
-	--
-	-- 75 is a ~25% raycast increase over 60. Comfortable for a field of
-	-- four; watch the server frame time before pushing it much past this
-	-- with a full grid of eight.
-	StepRate = 75,
-
-	-- Ceiling on how many fixed steps one frame may run. Without it a
-	-- hitch banks work that the next frame tries to pay off, making that
-	-- frame slow, which banks more — the classic spiral. 4 is generous:
-	-- at 75Hz on a 60Hz server the normal case is 1 or 2.
-	MaxSubSteps = 4,
+	-- The controller is frame-rate independent, so lowering this doesn't
+	-- change how bots DRIVE. It trades smoothness for server cost, and
+	-- smoothness is the thing you notice.
+	StepRate = 60,
 
 	--== SKILL =========================================================
 	-- Rolled per bot at spawn, and scales everything below. Kept away
 	-- from 1 at the top: a perfect bot is a boring one.
 	SkillMin = 0.45,
 	SkillMax = 0.92,
-
-	--== PACE — the "I can't even catch it" dial ========================
-	-- Throttle ceiling, interpolated from a bot's skill. The lowest-skill
-	-- bot gets PaceMin, the highest gets PaceMax.
-	--
-	-- This limits the DRIVER, not the kart. It's the same class of thing
-	-- as lifting early for a corner: grip, top speed and turn rate are
-	-- untouched, so a bot still can't do anything you couldn't, and
-	-- catching one is about driving better rather than waiting for a
-	-- handicap to kick in.
-	--
-	-- It's here because "beatable by being imperfect" only works if the
-	-- imperfections cost something. A bot on the right line at permanent
-	-- full throttle is uncatchable no matter how many small mistakes it
-	-- makes, because none of them cost it anything on a straight — which
-	-- is exactly how it played.
-	--
-	-- RAISE THESE FIRST if bots become too easy; this is the intended
-	-- difficulty knob and it's honest. Don't reach for grip.
-	PaceMin = 0.82,
-	PaceMax = 0.95,
 
 	-- Drivers. NOTHING TO SET UP: without a model of this name in
 	-- ServerStorage, Roblox builds a default R15 rig and that gets sat in
@@ -320,6 +286,19 @@ return {
 	AvoidRadius = 26, -- studs, and only counts karts AHEAD
 	AvoidStrength = 11, -- studs of offset at closest range
 
+	-- Studs a bot may drift from its grid slot before the server puts it
+	-- back, while the match is NOT racing.
+	--
+	-- Hold() only stops a kart being driven; it does not stop a kart
+	-- being moved by something else, and something else was moving them —
+	-- bots wandered off the grid through the warm-up and the countdown.
+	-- Rather than chase every possible nudge, the match asserts where a
+	-- bot belongs between rounds.
+	--
+	-- Big enough that a kart settling onto the pad under gravity is left
+	-- alone; small enough that leaving the slot is corrected immediately.
+	GridHoldTolerance = 3,
+
 	-- Studs of road to leave between the bot's chosen line and the edge.
 	--
 	-- LineOffset, the wander and AvoidStrength can add up to nearly thirty
@@ -356,36 +335,9 @@ return {
 	-- The racing line settles it: the line is where the designer says to
 	-- drive, so if the ROUTE carries on across the gap and there is road
 	-- on the far side, this is a jump. Line up, stay on the power.
-	-- OFF. Every gap is treated as a ledge, so bots lift and steer for the
-	-- centre near one — which is exactly how they behaved before any of
-	-- this existed, and it did not fly.
-	--
-	-- READ THIS BEFORE TURNING IT ON. Committing to a jump only works if
-	-- Handling.BallisticLaunch is also on, and the two were shipped
-	-- separately, which is what caused the flying.
-	--
-	-- Here is the interaction. `travel` is perpendicular to `up`, so while
-	-- `up` is a ramp's normal, `travel * speed` points uphill IN WORLD
-	-- TERMS — a climb that lives outside vertVel, which is the only thing
-	-- gravity touches. A kart that keeps or gains speed while airborne on
-	-- a tilted `up` therefore climbs, and keeps climbing.
-	--
-	-- Lifting off the throttle near a gap hides that, because a
-	-- decelerating kart's climb decays. That is not a fix, it is a
-	-- coincidence — but it is the coincidence the game shipped on, and it
-	-- looks correct.
-	--
-	-- So: both off (bots lift, nothing flies, bots may fall short of a
-	-- real ramp), or both on (bots commit, launches arc properly). Never
-	-- this one alone.
-	TreatGapsAsJumps = false,
-
 	JumpSpan = 1.2, -- node units past the aim point to look for landing
-	-- and then simply DON'T LIFT. There is no jump throttle any more: it
-	-- used to raise the throttle to 1, overriding corner braking and pace,
-	-- so bots hit ramps harder than they would otherwise have driven them
-	-- and launched. The problem was only ever a bot BRAKING for a ramp,
-	-- and not applying the ledge cap is the whole fix.
+	JumpThrottle = 1, -- and commit. Overrides corner braking, which reads
+	-- a ramp's approach as a bend
 
 	--== NOT FIGHTING THE LINE =========================================
 	-- LineDeadband is GONE too, and for a subtler reason than the others.
@@ -453,32 +405,6 @@ return {
 	-- can do both. A bot in the lead defending is more interesting than
 	-- one that always lobs everything up the road.
 	ForwardChance = 0.65,
-
-	-- Studs a HELD kart may slide sideways before the server complains.
-	--
-	-- Bots moving during the countdown has survived two fixes that were
-	-- reasoned rather than measured, so this reports the numbers instead
-	-- — distance, phase, speed, throttle, steer, grounded, boosting,
-	-- burning — and leaves the conclusion to whoever reads it.
-	--
-	-- Sideways only: gravity settling a kart onto the grid is expected.
-	-- Small, because a held kart should slide nothing at all; a couple of
-	-- studs is already a bug. Always on, not behind Debug.
-	HeldSlideWarn = 2,
-
-	-- Studs/second of upward motion before the server reports WHY.
-	--
-	-- A kart can rise two ways and they need opposite fixes. vertVel is a
-	-- real velocity that gravity subtracts from every step, so it always
-	-- arcs over. A tilted `up` is different: `travel` is perpendicular to
-	-- `up`, so if up isn't vertical then `travel * speed` has an upward
-	-- component that gravity NEVER touches, and the kart climbs forever.
-	--
-	-- The warning splits the rise between the two and prints how far off
-	-- vertical `up` is, which is the whole question.
-	--
-	-- Above a normal hop (HopSpeed is 18) so ordinary drifting is quiet.
-	RiseWarn = 22,
 
 	-- WHAT THE COLOURS MEAN
 	--

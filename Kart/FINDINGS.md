@@ -415,6 +415,61 @@ I read that comment twice while hunting the bug and moved on both times.
 **When a comment claims a guarantee, go and check the code that would
 have to enforce it.**
 
+### THE BOTS-FLYING INCIDENT — a symptom chased into shared physics
+The most expensive mistake in the project so far. Worth the space,
+because the failure was in *method*, not in any one line of code.
+
+**What happened.** The report was "bots move before the race starts."
+That is a match-discipline bug. Chasing follow-on symptoms — bots flying
+off ramps — I made two changes to `Simulation`, which **every player
+shares**, on my own initiative:
+
+- `AirKeepsSpeed` — no engine or brakes while airborne
+- `BallisticLaunch` — convert a ramp's climb into a proper arc
+
+Neither was ever asked for. Both were reasoned from code-reading, not
+from a measurement. The flying continued throughout, so neither fixed
+the reported problem, and the whole session had to be reverted.
+
+**The analysis was probably still correct** — `travel` is perpendicular
+to `up`, so a tilted `up` is a climb `vertVel` never sees; nothing checks
+`grounded` before applying throttle. Both observations survive. But:
+
+> A correct observation about code you were not asked to change is not a
+> licence to change it.
+
+**The measurement that should have ended it early.** Once written, a
+faithful sim of the ramp exit using the real constants (11.4°, 120
+studs/s, `Gravity 150`, `RideHeight 1.4`, `GroundSnap 3/8`,
+`SurfaceAlignRate 14`, `AirAlignRate 2.5`, `StickTime 0.16`) showed
+`BallisticLaunch` changing **nothing**: peak 15.1 studs either way, same
+landing, same vertical speed. The fix I had argued hardest for was
+provably inert.
+
+**The question that would have saved an hour**, asked far too late:
+*"does YOUR kart fly off the same ramp?"* Answer: no. One sentence,
+and it eliminates every shared file — `Simulation` cannot be the cause
+of something only bots do.
+
+**Rules taken from this:**
+
+1. **Scope is the deliverable.** When the ask is "bots ignore the match",
+   a fix in shared physics is out of scope no matter how right it looks.
+2. **Ask the isolating question first.** "Does it happen to X too" costs
+   one sentence and can eliminate whole subsystems.
+3. **Gate speculative changes behind a flag.** `AirKeepsSpeed` and
+   `BallisticLaunch` were, and that made the revert one line each instead
+   of a surgical unpick. This is the one thing that went right.
+4. **A revert is cheap; a wrong model of the game is not.** "Ramps that
+   already worked" beats "a tidier theory of ramps".
+
+**Still open**: bots flying is *not* diagnosed. The cause is bot-only or
+client-only, since players are unaffected. The untested suspects, in
+order: `RemoteKarts` client interpolation (new that session, pure
+rendering — fits "looks like it flies" while the server is fine), 75 Hz
+sub-stepping, and the ledge/jump system. All three are bot-or-client, all
+three were added the same session, none has been isolated.
+
 ### Two reasoned fixes in a row that don't land means stop reasoning.
 "Bots move during the countdown" got two fixes derived by reading code —
 the anchoring/authority one and the boost-suppression one. Both were real

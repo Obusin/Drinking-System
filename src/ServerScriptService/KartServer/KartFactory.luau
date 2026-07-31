@@ -20,9 +20,6 @@ local PlaceholderVisual = require(script.Parent.PlaceholderVisual)
 local SteeringWheel = require(script.Parent.SteeringWheel)
 
 local RIG = Config.Rig
--- Only for ShieldName: the bubble has to be hidden at build, and the one
--- place that names it is the effects config the client reads.
-local FX = Config.Effects
 local log = Util.logger("KartFactory", RIG.Debug)
 
 local KartFactory = {}
@@ -145,31 +142,6 @@ function KartFactory.build(color: Color3?, visualName: string?): Model
 		end
 	end
 
-	-- THE SHIELD BUBBLE STARTS INVISIBLE.
-	--
-	-- It's authored art welded to the kart, so it arrives at whatever
-	-- transparency it was saved with — visible. The only thing that ever
-	-- hid it was the client's Effects module, which runs for YOUR kart
-	-- and nothing else. So every other kart in the race wore a permanent
-	-- shield: bots most obviously, but remote players too.
-	--
-	-- Hidden at build, so "off" is the default state of the world rather
-	-- than something a client has to remember to impose. Whoever owns the
-	-- simulation turns it on — Effects for a player, BotService for a bot.
-	local bubble = visual:FindFirstChild(FX.ShieldName, true)
-	if bubble then
-		for _, part in { bubble, table.unpack(bubble:GetDescendants()) } do
-			if part:IsA("BasePart") then
-				part.Transparency = 1
-				-- Never solid. It's decoration, and a bubble that collides
-				-- turns the kart into a beach ball.
-				part.CanCollide = false
-				part.CanQuery = false
-				part.CanTouch = false
-			end
-		end
-	end
-
 	-- If the supplied art already has a steering wheel, that becomes the
 	-- hub and we skip building one. Its subtree must NOT be welded to
 	-- the hitbox or the Motor6D couldn't turn it.
@@ -281,18 +253,32 @@ function KartFactory.build(color: Color3?, visualName: string?): Model
 		end
 	end
 
-	-- MARKED AS A REAL ENTRANT, not merely as kart-shaped.
+	-- THE SHIELD BUBBLE STARTS INVISIBLE.
 	--
-	-- The tag alone was doing both jobs, and it can't. Anything tagged
-	-- Kart with a PrimaryPart counted as a racer, so a kart left sitting
-	-- in Workspace — an authored one being worked on, a spare on the
-	-- spawn pad — became a missile target, an obstacle bots steered
-	-- around, and a competitor in the standings. Nobody was driving it.
+	-- It's authored art welded into the kart, so it arrives at whatever
+	-- transparency it was saved with — visible. The only thing that ever
+	-- hid it was the client's Effects module, and that looks at YOUR kart
+	-- and nothing else. So every other kart in the race wore a permanent
+	-- shield: bots most obviously, but remote players too.
 	--
-	-- Set here rather than in KartService because this is the only place
-	-- a kart is ever built, so the marker cannot drift apart from the
-	-- tag. A model that didn't come through this function is scenery.
-	kart:SetAttribute(Names.RACER, true)
+	-- Hidden here so "off" is the default state of the world rather than
+	-- something a client has to remember to impose. Whoever owns the
+	-- simulation turns it on — Effects for a player, BotService for a bot.
+	--
+	-- Also forced non-solid: it's decoration, and a bubble that collides
+	-- turns the kart into a beach ball.
+	local bubble = kart:FindFirstChild(Config.Effects.ShieldName, true)
+	if bubble then
+		for _, part in { bubble, table.unpack(bubble:GetDescendants()) } do
+			if part:IsA("BasePart") then
+				part.Transparency = 1
+				part.CanCollide = false
+				part.CanQuery = false
+				part.CanTouch = false
+			end
+		end
+	end
+
 	CollectionService:AddTag(kart, KartFactory.TAG)
 	return kart
 end

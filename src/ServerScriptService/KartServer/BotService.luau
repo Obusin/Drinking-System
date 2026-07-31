@@ -76,8 +76,8 @@ local warnedNoRig = false
 -- Show or hide a kart's shield bubble.
 --
 -- Server-side twin of what Effects does for the local player. Effects
--- fades; this snaps, because a bot's shield going up is something you
--- see from across the track rather than something you're looking at.
+-- fades it; this snaps, because a bot's shield going up is something you
+-- notice from across the track rather than something you are looking at.
 local function setShieldVisible(kart: Model, on: boolean)
 	local bubble = kart:FindFirstChild(Config.Effects.ShieldName, true)
 	if not bubble then
@@ -497,36 +497,18 @@ local function drive(bot, dt: number)
 	-- turn a jump you'd have cleared into a fall. It was braking for the
 	-- ramp.
 	--
-	-- WHAT SEPARATES A RAMP FROM A CLIFF: whether the gap is ON THE
-	-- RACING LINE.
-	--
-	-- The first version asked whether the route had ground somewhere
-	-- further along, which is very nearly always true — the route runs
-	-- down the middle of the road, so of course there's tarmac under it
-	-- up ahead. Practically every gap therefore classified as a jump and
-	-- the bot floored it, which is why they flew off ledges.
-	--
-	-- The question is not "is there road ahead somewhere". It's "does the
-	-- LINE ITSELF go over nothing here". The line is where the designer
-	-- says to drive, so a hole underneath it is a hole they put there on
-	-- purpose. A hole under our own aim point while the line beside it is
-	-- perfectly solid means only that we have wandered off the road, and
-	-- flooring it is the worst available response.
+	-- The racing line settles it. The line is by definition where the
+	-- designer says to drive, so if the ROUTE carries on across the gap
+	-- and there's road on the far side, this is a jump: line up, stay on
+	-- the throttle, commit. Only a gap the route does NOT cross is a
+	-- bot about to drive off the map.
 	local ledge, jump = false, false
 	local nose = sim.pos + sim.forward * (B.LedgeLook + speed * B.LedgeLookPerSpeed)
 	if not (Route.hasGround(aim, sim.up) and Route.hasGround(nose, sim.up)) then
-		local centre = Route.pointAt(aheadU)
-		local lineOverAir = centre ~= nil and not Route.hasGround(centre, sim.up)
-
-		if lineOverAir and B.TreatGapsAsJumps then
-			-- The route is airborne here. Only commit if there's somewhere
-			-- to land, or a bot happily accelerates into a chasm the
-			-- designer built as a hazard rather than as a jump.
-			local beyond = Route.pointAt(aheadU + B.JumpSpan)
-			jump = beyond ~= nil and Route.hasGround(beyond, sim.up)
-			ledge = not jump
+		local beyond = Route.pointAt(aheadU + B.JumpSpan)
+		if beyond and Route.hasGround(beyond, sim.up) then
+			jump = true
 		else
-			-- Solid road on the line, nothing under us. We're the problem.
 			ledge = true
 		end
 	end
@@ -788,36 +770,12 @@ local function drive(bot, dt: number)
 		c.touchThrottle *= 1 - math.clamp(caution * B.CautionLift, 0, B.CautionLiftMax)
 	end
 
-	-- PACE. How hard this bot is willing to push, rolled from its skill.
-	--
-	-- This is a limit on the DRIVER, not the kart — the same kind of
-	-- thing as lifting early for a corner. It does not touch grip, top
-	-- speed or turn rate, so a bot still cannot do anything you couldn't,
-	-- and catching one is still a matter of driving better rather than
-	-- waiting for a handicap to apply.
-	--
-	-- It exists because "beatable by being imperfect" only works if the
-	-- imperfections are big enough to see. A bot on the correct line at
-	-- permanent full throttle is uncatchable however many small mistakes
-	-- it makes, because none of them cost it anything on a straight.
-	c.touchThrottle *= bot.pace
-
 	-- A JUMP THE ROUTE CROSSES. Speed is what clears it, so every reason
 	-- to lift is overruled — including the corner-braking above, which
 	-- reads a ramp's approach as a bend and would take the pace off at
 	-- exactly the wrong moment.
-	-- A jump means DON'T LIFT. It does not mean floor it.
-	--
-	-- This used to raise the throttle to JumpThrottle, which overrode
-	-- corner braking, pace and everything else — so bots hit ramps harder
-	-- than they would have driven them, and launched. That was never the
-	-- job. The problem being solved was a bot BRAKING for a ramp, and all
-	-- that needs is for the ledge cap below not to apply.
-	--
-	-- So a jump now simply falls through: the bot arrives at whatever
-	-- speed its normal driving produced, exactly as a player would.
 	if bot.jumping then
-		-- Nothing. Deliberately.
+		c.touchThrottle = math.max(c.touchThrottle, B.JumpThrottle)
 	elseif (bot.ledgeFor or 0) > 0 then
 		-- Off the edge of the world beats every other consideration.
 		-- Allowed below MinCornerSpeed, which nothing else is: that floor
@@ -882,22 +840,6 @@ local function drive(bot, dt: number)
 			drifting = bot.u >= bot.driftPlan.entry and speed >= H.DriftExitSpeed
 		end
 	end
-	-- DON'T START A DRIFT AT THE EDGE OF ANYTHING.
-	--
-	-- Entering a drift means pressing drift, and in this game pressing
-	-- drift is a HOP — it sets vertVel and leaves the ground on purpose.
-	-- That's the mechanic, and it's fine in the middle of a corner. Do it
-	-- on a ramp lip or at the edge of a drop and the bot launches itself,
-	-- which is most of what "the bot still jumps" looks like.
-	--
-	-- Only initiation is blocked. A drift already in progress is left
-	-- alone: yanking a bot out of one mid-corner would spit it straight
-	-- off the outside of the bend, which is the thing being avoided.
-	local edgy = (bot.ledgeFor or 0) > 0 or bot.jumping or not sim.grounded
-	if edgy and not c.driftHeld then
-		drifting = false
-	end
-
 	if drifting and not c.driftHeld then
 		c._driftPress = true -- the hop, exactly as a keypress would
 	end
@@ -1187,104 +1129,33 @@ local function step(dt: number)
 		bot.sim:Hold(not racing)
 
 		--------------------------------------------------------------
-		-- IS THE HOLD ACTUALLY HOLDING?
+		-- AND ACTUALLY PINNED THERE.
 		--
-		-- Bots moving during the countdown has now survived two fixes,
-		-- both of which I reasoned my way to rather than measured. So
-		-- this stops reasoning and reports numbers: how far the kart
-		-- moved ACROSS the ground while held, plus every value that
-		-- could have caused it.
+		-- Hold() stops the kart being DRIVEN, and that is all it claims
+		-- to do. It does not stop the kart being moved by anything else,
+		-- and something else was moving them: bots drifted off the grid
+		-- through the warm-up and the countdown, which is unfair before a
+		-- race and looks broken during one.
 		--
-		-- Sideways only. Gravity settling a kart onto the grid is
-		-- expected and would otherwise trip this every single round.
+		-- Rather than hunt every possible nudge through the simulation,
+		-- this asserts the thing we actually want. The grid CFrame is
+		-- already published per kart for exactly this purpose, so a bot
+		-- that has wandered off its slot is simply put back on it.
 		--
-		-- Reports facts and draws no conclusion, deliberately. The last
-		-- diagnostic in this file asserted "falling through the world,
-		-- not driving off it", was wrong, and cost a session.
+		-- Tolerance, not a per-frame reset: a kart settling onto the pad
+		-- under gravity moves a little and should be left alone. Only a
+		-- bot that has genuinely left its slot gets corrected, so this is
+		-- silent in the normal case.
+		--
+		-- Deliberately NOT a physics change. Nothing in Simulation is
+		-- touched; this is the match telling a kart where it belongs
+		-- between rounds, which is the match's job.
 		--------------------------------------------------------------
 		if not racing then
-			if bot.heldAt then
-				local d = bot.sim.pos - bot.heldAt
-				d -= bot.sim.up * d:Dot(bot.sim.up)
-				bot.heldSlide = (bot.heldSlide or 0) + d.Magnitude
+			local grid = bot.kart:GetAttribute(Match.GRID_CF)
+			if typeof(grid) == "CFrame" and (bot.sim.pos - grid.Position).Magnitude > B.GridHoldTolerance then
+				bot.sim:RespawnAt(grid)
 			end
-			bot.heldAt = bot.sim.pos
-
-			if (bot.heldSlide or 0) > B.HeldSlideWarn and now - (bot.heldWarnAt or 0) > 3 then
-				bot.heldWarnAt = now
-				warn(
-					("[BotService] %s slid %.1f studs sideways while HELD in phase %s — speed %.2f, throttle %.2f, steer %.2f, grounded %s, boosting %s, burning %s"):format(
-						bot.name,
-						bot.heldSlide,
-						tostring(MatchService.phase()),
-						bot.sim.speed,
-						bot.controls.touchThrottle,
-						bot.controls.touchSteer,
-						tostring(bot.sim.grounded),
-						tostring(bot.sim.boosting),
-						tostring(bot.sim.burning)
-					)
-				)
-				bot.heldSlide = 0
-			end
-		else
-			bot.heldAt, bot.heldSlide = nil, 0
-		end
-
-		--------------------------------------------------------------
-		-- WHY IS IT GOING UP?
-		--
-		-- There are exactly two ways a kart can rise, and they need
-		-- completely different fixes, so the useful thing to report is
-		-- which one it is:
-		--
-		--   vertVel      a real upward velocity. Gravity subtracts from
-		--                this every step, so it always arcs over. If a
-		--                kart rises on THIS, it will come back down.
-		--
-		--   tilted up    `travel` is perpendicular to `up`, so if `up`
-		--                is not world-up then `travel * speed` has a
-		--                world-vertical component. Gravity never touches
-		--                that term. A kart rising on THIS climbs forever
-		--                and never drops.
-		--
-		-- Both look identical from a chase camera. The numbers don't.
-		--------------------------------------------------------------
-		local sim = bot.sim
-		local fromTravel = (sim.travel * sim.speed).Y
-		local fromVert = (sim.up * sim.vertVel).Y
-		-- AIRBORNE ONLY. The first version fired on grounded karts and was
-		-- useless: a kart on an 11 degree ramp at 120 studs/s climbs 23
-		-- studs/s, which is not a bug, it is a ramp. Every line it printed
-		-- was that.
-		if not sim.grounded and fromTravel + fromVert > B.RiseWarn and now - (bot.riseWarnAt or 0) > 2 then
-			bot.riseWarnAt = now
-			warn(
-				("[BotService] %s is RISING at %.1f studs/s — %.1f from travel (up is %.1f deg off vertical), %.1f from vertVel %.1f. grounded %s, speed %.1f, spinning %s"):format(
-					bot.name,
-					fromTravel + fromVert,
-					fromTravel,
-					math.deg(math.acos(math.clamp(sim.up.Y, -1, 1))),
-					fromVert,
-					sim.vertVel,
-					tostring(sim.grounded),
-					sim.speed,
-					tostring(os.clock() < (sim.spinUntil or 0))
-				)
-			)
-		end
-
-		-- Let go of everything while held. drive() is the only thing that
-		-- writes these and it doesn't run outside Racing, so otherwise a
-		-- bot sits on the grid still holding last lap's full throttle.
-		-- Simulation zeroes the input itself when frozen, so this changes
-		-- no behaviour today — it removes a loaded gun. Every "held kart
-		-- moved anyway" bug so far has been something downstream deciding
-		-- the hold didn't apply to it.
-		if not racing then
-			bot.controls.touchThrottle = 0
-			bot.controls.touchSteer = 0
-			bot.controls.driftHeld = false
 		end
 
 
@@ -1335,23 +1206,6 @@ local function step(dt: number)
 					-- it fade. Without this a single incident makes a bot
 					-- crawl that corner for the rest of the server's life.
 					BotService.decayCaution(bot)
-
-					-- CROSSING THE LINE. Bots could not do this at all
-					-- until now: finishing was reachable only through the
-					-- client remote, and a bot has no client. However fast
-					-- one drove it never took a place and never ended the
-					-- round — they weren't losing races, they were not
-					-- entered in them.
-					--
-					-- Reported once. FINISH_PLACE is the guard, and
-					-- MatchService checks it too, so a bot that keeps
-					-- driving after the flag can't claim a second place.
-					if bot.laps >= Config.Race.TotalLaps and not bot.kart:GetAttribute(Match.FINISH_PLACE) then
-						local since = MatchService.racingSince()
-						if since then
-							MatchService.botFinished(bot.kart, bot.name, workspace:GetServerTimeNow() - since)
-						end
-					end
 				end
 				bot.lastU = bot.u
 			end
@@ -1388,17 +1242,16 @@ local function step(dt: number)
 		bot.kart:SetAttribute(Names.STEER, bot.sim.steer)
 		bot.kart:SetAttribute(Names.DRIFT, bot.sim.driftAngle)
 
-		-- The shield bubble, which nothing else would ever show.
+		-- The shield bubble, which nothing else would ever show for a bot.
 		--
-		-- Effects drives it for a player, and Effects is a client module
-		-- that only ever looks at the local kart. A bot has no client, so
-		-- its bubble is whatever KartFactory left it as — now hidden,
-		-- which made bots permanently unshielded-looking instead of
-		-- permanently shielded-looking. Neither is the truth.
+		-- Effects drives it for a player and only ever looks at the local
+		-- kart. A bot has no client at all, so its bubble stays however
+		-- KartFactory left it — hidden. This is the other half: the server
+		-- owns a bot's simulation, so the server shows the shield.
 		--
-		-- Toggled on change rather than written every step: this walks the
-		-- model, and doing that 75 times a second per bot to set a value
-		-- that is already correct is waste.
+		-- Toggled on change, not written every step: this walks the model,
+		-- and doing that per step per bot to set a value already correct
+		-- is pure waste.
 		local shielded = bot.sim:HasShield()
 		if shielded ~= bot.shieldShown then
 			bot.shieldShown = shielded
@@ -1478,9 +1331,6 @@ function BotService.fill()
 			break
 		end
 
-		-- Rolled before the table so pace can be derived from it.
-		local skill = rng:NextNumber(B.SkillMin, B.SkillMax)
-
 		local bot = {
 			name = name,
 			racer = racer,
@@ -1489,12 +1339,7 @@ function BotService.fill()
 			controls = bindControls(newControls()),
 			-- One roll, and it scales everything. A low-skill bot is a
 			-- worse driver, not a slower one.
-			skill = skill,
-			-- How hard it's willing to push, from its skill. A limit on
-			-- the driver's right foot, not on the kart — see the note in
-			-- drive(). The best bot on the grid is close to flat out; the
-			-- worst is visibly not trying as hard.
-			pace = B.PaceMin + (B.PaceMax - B.PaceMin) * skill,
+			skill = rng:NextNumber(B.SkillMin, B.SkillMax),
 			-- A fixed bias plus wander, so two bots don't drive the same
 			-- line and sit inside each other down a straight.
 			lineBias = rng:NextNumber(-1, 1) * B.LineOffset,
@@ -1827,34 +1672,20 @@ function BotService.start()
 	end)
 	task.defer(BotService.fill)
 
-	-- FIXED TIMESTEP, with sub-stepping.
-	--
-	-- The old loop could only ever fire ONCE per Heartbeat, so any
-	-- StepRate above the server's 60Hz silently did nothing — 75 and 60
-	-- ran identically, and the config was quietly lying. It also passed
-	-- the accumulated time as dt and zeroed the accumulator, which is a
-	-- variable timestep dressed up as a fixed one.
-	--
-	-- Now the integrator always advances by exactly `interval`, however
-	-- many of those fit in the frame. Below 60 it skips frames as before;
-	-- above 60 it genuinely sub-steps.
+	-- Stepped at StepRate rather than every frame. The controller is
+	-- frame-rate independent by construction, so this changes nothing
+	-- about how they drive — it halves the server's raycast load, which
+	-- is the real limit on how many bots a race can hold.
 	local accum = 0
 	local interval = 1 / math.max(B.StepRate, 1)
 
 	RunService.Heartbeat:Connect(function(dt)
-		-- Clamped BEFORE accumulating. A hitch — a big spawn, someone
-		-- joining — must not bank a second of work that the next frame
-		-- then tries to pay off all at once, which makes the next frame
-		-- slow and banks more still. Dropping the excess costs a little
-		-- simulated time; not dropping it costs the server.
-		accum += math.min(dt, interval * B.MaxSubSteps)
-
-		local n = 0
-		while accum >= interval and n < B.MaxSubSteps do
-			step(interval)
-			accum -= interval
-			n += 1
+		accum += dt
+		if accum < interval then
+			return
 		end
+		step(accum)
+		accum = 0
 	end)
 end
 
