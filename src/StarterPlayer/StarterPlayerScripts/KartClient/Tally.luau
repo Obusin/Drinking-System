@@ -43,7 +43,7 @@ local Tally = {}
 Tally.__index = Tally
 
 function Tally.new()
-	local self = setmetatable({ n = {}, sent = {}, remote = nil, finalised = false }, Tally)
+	local self = setmetatable({ n = {}, sent = {}, unacked = {}, remote = nil, finalised = false }, Tally)
 	task.spawn(function()
 		self.remote = BloxKart:WaitForChild(Names.STATS_REMOTE, 20)
 	end)
@@ -54,11 +54,42 @@ end
 function Tally:Reset()
 	table.clear(self.n)
 	table.clear(self.sent)
+	table.clear(self.unacked)
 	self.finalised = false
 end
 
 function Tally:Add(metric: string, by: number?)
 	self.n[metric] = (self.n[metric] or 0) + (by or 1)
+end
+
+--=====================================================================
+--  WHAT THE PANEL SHOWS
+--
+--  NOT PREDICTION. The client is the thing that counts drifts, laps and
+--  items, so it is not guessing at a number the server owns — it is
+--  showing the part of its own count that has not been reported yet.
+--  Confirmed plus in-flight, and the two cannot disagree because they
+--  come from the same source.
+--
+--  That distinction matters: a predicted value can be WRONG and has to
+--  be reconciled, with a bar that visibly snaps when it is. This one
+--  cannot be wrong, so nothing ever snaps.
+--
+--  `unacked` is the piece that stops it going BACKWARDS. Between
+--  sending a delta and the server's next push, the amount has left
+--  `pending` but has not yet appeared in the server's figure. Held here
+--  until a push arrives, so the total is continuous across the gap.
+--=====================================================================
+function Tally:Pending(metric: string): number
+	local total = math.floor(self.n[metric] or 0)
+	local sent = self.sent[metric] or 0
+	return (total - sent) + (self.unacked[metric] or 0)
+end
+
+-- Called when a server snapshot arrives: everything sent before it is
+-- assumed to be in that figure now.
+function Tally:Acked()
+	table.clear(self.unacked)
 end
 
 --=====================================================================
@@ -189,6 +220,9 @@ function Tally:Flush()
 			delta = delta or {}
 			delta[metric] = whole
 			self.sent[metric] = already + whole
+			-- Still shown until the server's next push accounts for it,
+			-- or the bar dips by exactly this much in the meantime.
+			self.unacked[metric] = (self.unacked[metric] or 0) + whole
 		end
 	end
 

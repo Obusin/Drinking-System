@@ -84,7 +84,7 @@ end
 --=====================================================================
 --  BUILD
 --=====================================================================
-function QuestHud.new()
+function QuestHud.new(tally)
 	local gui = Instance.new("ScreenGui")
 	gui.Name = "BloxKartQuests"
 	gui.ResetOnSpawn = false
@@ -196,6 +196,10 @@ function QuestHud.new()
 
 	local self = setmetatable({
 		gui = gui,
+		-- Read for the in-flight part of each bar. Optional: with no
+		-- tally the panel simply shows the server's figure, which is
+		-- correct, just later.
+		tally = tally,
 		open = open,
 		openBadge = openBadge,
 		root = root,
@@ -226,6 +230,10 @@ function QuestHud.new()
 		end
 		self.remote = remote
 		remote.OnClientEvent:Connect(function(snap)
+			-- Everything sent before this push is accounted for in it.
+			if self.tally then
+				self.tally:Acked()
+			end
 			self:Apply(snap)
 		end)
 		-- Asked for rather than waited on. The server pushes on join, but
@@ -370,9 +378,24 @@ function QuestHud:_draw()
 		local row = self:_row(i)
 		row.Visible = true
 		row.What.Text = quest.text
-		row.Count.Text = ("%d / %d"):format(quest.have, quest.target)
 
-		local frac = if quest.target > 0 then quest.have / quest.target else 0
+		-- CONFIRMED PLUS IN-FLIGHT. The client counts most of these
+		-- itself, so this is not a prediction that might be wrong — it is
+		-- the part of its own count the server has not been told about
+		-- yet. Server-counted metrics (wins, hits, podiums) have no
+		-- pending part and simply show the server's figure.
+		--
+		-- DISPLAY ONLY. `done` and `claimed` still come from the server
+		-- and nothing else: a bar that runs ahead is honest, a claim
+		-- button that appears before the server agrees is a button that
+		-- does not work.
+		local shown = quest.have
+		if self.tally and quest.metric then
+			shown = math.min(quest.have + self.tally:Pending(quest.metric), quest.target)
+		end
+		row.Count.Text = ("%d / %d"):format(shown, quest.target)
+
+		local frac = if quest.target > 0 then shown / quest.target else 0
 		row.Bar.Fill.Size = UDim2.fromScale(math.clamp(frac, 0, 1), 1)
 
 		if quest.claimed then
@@ -427,6 +450,11 @@ function QuestHud:Update()
 	if not self.isOpen or not self.snapshot then
 		return
 	end
+
+	-- Redrawn while open so the in-flight part of each bar keeps moving
+	-- between pushes. Only while OPEN — a closed panel is not worth a
+	-- redraw, and this is the one thing here that runs per frame.
+	self:_draw()
 	local data = self.snapshot[self.active]
 	if not data then
 		self.header.Text = ""

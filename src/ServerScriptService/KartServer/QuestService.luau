@@ -255,6 +255,10 @@ function QuestService.snapshot(player: Player)
 					slot = i,
 					id = quest.id,
 					text = quest.text,
+					-- Sent so the client can add what it has counted but
+					-- not yet reported. Not a secret: the client is the
+					-- thing producing most of these numbers.
+					metric = quest.metric,
 					target = quest.target,
 					have = have,
 					done = have >= quest.target,

@@ -92,9 +92,11 @@ local rewardHud = RewardHud.new()
 local transition = Transition.new()
 local xpHud = XpHud.new()
 local tally = Tally.new()
-local TALLY_FLUSH = 4 -- seconds between partial stat sends
+-- Longer now that the panel shows in-flight progress itself: the
+-- flush is for the SERVER's benefit, not the display's.
+local TALLY_FLUSH = 8 -- seconds between partial stat sends
 local flushAt = TALLY_FLUSH
-local questHud = QuestHud.new()
+local questHud = QuestHud.new(tally)
 -- Bound directly rather than through Input: this is UI, it must work
 -- while spectating and out of a kart, and Input's bindings are released
 -- the moment you stop driving.
