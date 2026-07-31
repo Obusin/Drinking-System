@@ -26,6 +26,11 @@ and this project has already lost its entire source tree to a Studio
 sync once. Anything required to boot the game belongs on disk and in
 git.
 
+**Excluded from `scripts/check.sh`.** ProfileStore raises a handful of
+generic type-inference complaints that are harmless and not ours to fix,
+and letting them into the output trains everyone to ignore it — a check
+nobody reads is worse than no check.
+
 **Do not edit vendored code.** If something needs changing, wrap it in
 `KartServer/` instead. A local patch here is invisible at update time
 and will be silently reverted.
