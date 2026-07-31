@@ -59,6 +59,9 @@ function Spectate.new(humanoidGetter)
 		-- The kart itself, never an index. See the header.
 		target = nil :: Model?,
 		pos = nil :: Vector3?,
+		-- The point the camera aims at, smoothed separately from where
+		-- the camera IS. See Update for why both are needed.
+		focus = nil :: Vector3?,
 		yaw = 0,
 		pitch = math.rad(-12),
 		dist = SP.Distance,
@@ -111,7 +114,7 @@ function Spectate:_cycle(step: number)
 		end
 	end
 	self.target = list[(at + step - 1) % #list + 1]
-	self.pos = nil -- cut rather than sweep across the map
+	self.pos, self.focus = nil, nil -- cut rather than sweep across the map
 end
 
 -- Prefer somebody still in the race; fall back to anyone at all so the
@@ -121,12 +124,12 @@ function Spectate:_pickBest()
 	for _, kart in list do
 		if racing(kart) then
 			self.target = kart
-			self.pos = nil
+			self.pos, self.focus = nil, nil
 			return
 		end
 	end
 	self.target = list[1]
-	self.pos = nil
+	self.pos, self.focus = nil, nil
 end
 
 --=====================================================================
@@ -173,7 +176,7 @@ function Spectate:_stop()
 	self.free = false
 	self.looking = false
 	self.target = nil
-	self.pos = nil
+	self.pos, self.focus = nil, nil
 	local cam = workspace.CurrentCamera
 	if cam and self.saved then
 		cam.CameraType = self.saved
@@ -202,7 +205,9 @@ function Spectate:ToggleFree()
 		local cam = workspace.CurrentCamera
 		self.freePos = cam and cam.CFrame.Position or self.freePos
 	else
-		self.pos = nil -- re-acquire the subject cleanly
+		-- Both, or coming back from free cam aims at a stale point and
+		-- sweeps onto the subject instead of cutting to it.
+		self.pos, self.focus = nil, nil
 	end
 end
 
@@ -299,12 +304,27 @@ function Spectate:Update(dt: number, phase: string?, finished: boolean, move: Ve
 	flat = if flat.Magnitude > 1e-3 then flat.Unit else Vector3.new(0, 0, -1)
 	local heading = math.atan2(-flat.X, -flat.Z)
 
+	-- SMOOTH THE AIM POINT TOO, not just the camera position.
+	--
+	-- A bot's kart is anchored and server-written, so it arrives in
+	-- replication steps — RemoteKarts eases those out of the kart's own
+	-- CFrame, but only for as long as it can see them. Aiming the camera
+	-- straight at the raw position put every remaining step into the
+	-- ROTATION, which is exactly where the eye notices it: the camera
+	-- body was gliding while the subject twitched inside the frame.
+	--
+	-- Smoothing the focus faster than the position is deliberate. The
+	-- aim has to stay locked on the kart or it lags behind through a
+	-- corner and the subject slides toward the edge of frame; the body
+	-- can afford to be lazy because nothing is being measured against it.
+	local wantFocus = base.Position + Vector3.yAxis * SP.LookHeight
+	self.focus = if self.focus then self.focus:Lerp(wantFocus, math.min(SP.FocusFollow * dt, 1)) else wantFocus
+
 	local offset = CFrame.fromEulerAnglesYXZ(self.pitch, heading + self.yaw, 0)
-	local focus = base.Position + Vector3.yAxis * SP.LookHeight
-	local want3 = focus - offset.LookVector * self.dist
+	local want3 = self.focus - offset.LookVector * self.dist
 
 	self.pos = if self.pos then self.pos:Lerp(want3, math.min(SP.Follow * dt, 1)) else want3
-	cam.CFrame = CFrame.lookAt(self.pos, focus)
+	cam.CFrame = CFrame.lookAt(self.pos, self.focus)
 end
 
 -- For the HUD. Nil when not spectating.

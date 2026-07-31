@@ -20,6 +20,17 @@ return {
 	-- steps into judder. Switching subject cuts rather than sweeps.
 	Follow = 6,
 
+	-- How fast the AIM point chases the kart, separately from the camera
+	-- body. Faster on purpose: the aim has to stay locked on or the
+	-- subject slides toward the edge of frame through a corner, whereas
+	-- the body can afford to lag because nothing is measured against it.
+	--
+	-- This is what takes the shake out of watching a bot. Their karts are
+	-- anchored and server-written, so they arrive in replication steps,
+	-- and aiming at the raw position puts every one of those steps into
+	-- the camera's ROTATION — which is precisely where the eye sees it.
+	FocusFollow = 14,
+
 	--== LOOK ==========================================================
 	-- Radians per pixel of mouse movement.
 	LookSensitivity = 0.006,
