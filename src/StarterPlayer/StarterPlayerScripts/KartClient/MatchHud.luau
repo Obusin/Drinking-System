@@ -231,6 +231,15 @@ function MatchHud:HideResults()
 	self.board.Visible = false
 end
 
+-- RewardHud draws the same finishing order, larger. When it is up this
+-- board stays down rather than showing through it.
+function MatchHud:SuppressResults(on: boolean)
+	self.suppressed = on
+	if on then
+		self.board.Visible = false
+	end
+end
+
 --=====================================================================
 --  FRAME
 --=====================================================================
@@ -269,7 +278,7 @@ function MatchHud:Update(match)
 	-- Built once per entry into Results, not per frame: the board is a
 	-- dozen instances and rebuilding it at 60fps for ten seconds would
 	-- be pure waste.
-	if phase == P.Results then
+	if phase == P.Results and not self.suppressed then
 		if not self.board.Visible then
 			self:ShowResults()
 		end

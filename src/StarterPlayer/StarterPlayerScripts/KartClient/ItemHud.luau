@@ -16,34 +16,9 @@ local H = Config.Hud
 local ItemHud = {}
 ItemHud.__index = ItemHud
 
---=====================================================================
---  ASSET DIAGNOSTIC
---
---  An ImageLabel with a bad id renders nothing and says nothing, which
---  is indistinguishable from a layout bug. This says which id failed.
---
---  By far the usual cause: the number Roblox shows you after an upload
---  is the DECAL asset, and rbxassetid://<decalId> does not render in an
---  ImageLabel — you need the underlying IMAGE id. Get it from the
---  Creator Dashboard, or insert the asset in Studio and read back the
---  Image property.
---=====================================================================
-local warned = {}
-
+-- Bad image ids fail silently; Util.verifyImage says which one did.
 local function verify(label: ImageLabel, id: string)
-	if id == "" or warned[id] then
-		return
-	end
-	warned[id] = true
-	task.delay(3, function()
-		if label.Parent and label.Image == id and not label.IsLoaded then
-			warn(
-				("[ItemHud] image failed to load: %s — if that's a Decal id it won't render; use the Image id instead."):format(
-					id
-				)
-			)
-		end
-	end)
+	Util.verifyImage(label, id, "ItemHud")
 end
 
 local FONT = Util.font(H.FontName, H.FontWeight)

@@ -29,5 +29,6 @@ return {
 	Haptics = require(script.Haptics), -- controller rumble
 	Music = require(script.Music), -- background playlists
 	Spectate = require(script.Spectate), -- watching after you finish
+	Rewards = require(script.Rewards), -- end-of-race results and payout
 	Hud = require(script.Hud), -- shared on-screen styling
 }

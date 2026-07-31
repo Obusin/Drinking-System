@@ -1473,6 +1473,14 @@ local function makeBot(name: string, racer: any, kart: Model, hitbox: BasePart, 
 	-- Rolled before the table, so cruise can be derived from it.
 	local skill = rng:NextNumber(B.SkillMin, B.SkillMax)
 
+	-- A bot's name has to reach the client, because every screen that
+	-- lists racers needs it — results, spectator, the reward panel. It
+	-- was only ever on the rig, which is server-side furniture, so those
+	-- screens all showed a bot as "Racer" or as the model's name.
+	-- KartService already stamps this for players; this is the other
+	-- half of the same answer.
+	kart:SetAttribute(Names.RACER_NAME, name)
+
 	local bot = {
 		name = name,
 		racer = racer,

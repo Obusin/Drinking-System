@@ -112,4 +112,38 @@ function Util.logger(tag: string, enabled: boolean)
 	end
 end
 
+--=====================================================================
+--  IMAGE DIAGNOSTIC
+--
+--  An ImageLabel with a bad id renders nothing and says nothing, which
+--  is indistinguishable from a layout bug.
+--
+--  By far the usual cause: the number Roblox shows you after an upload
+--  is the DECAL asset, and rbxassetid://<decalId> does not render in an
+--  ImageLabel — you need the underlying IMAGE id. Get it from the
+--  Creator Dashboard, or insert the asset in Studio and read back the
+--  Image property.
+--
+--  Lives here rather than in each HUD because it was already written
+--  twice, and the second copy is how the two answers start to drift.
+--=====================================================================
+local warnedImages = {}
+
+function Util.verifyImage(label: ImageLabel, id: string, tag: string)
+	if id == "" or warnedImages[id] then
+		return
+	end
+	warnedImages[id] = true
+	task.delay(3, function()
+		if label.Parent and label.Image == id and not label.IsLoaded then
+			warn(
+				("[%s] image failed to load: %s — if that's a Decal id it won't render; use the Image id instead."):format(
+					tag,
+					id
+				)
+			)
+		end
+	end)
+end
+
 return Util

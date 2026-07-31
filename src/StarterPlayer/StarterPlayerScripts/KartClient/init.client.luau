@@ -49,6 +49,7 @@ local Boosters = require(script.Boosters)
 local Race = require(script.Race)
 local Match = require(script.Match)
 local MatchHud = require(script.MatchHud)
+local RewardHud = require(script.RewardHud)
 local RaceHud = require(script.RaceHud)
 local ControlsHud = require(script.ControlsHud)
 local SpeedHud = require(script.SpeedHud)
@@ -83,6 +84,7 @@ local race = Race.new()
 -- anyone has spawned.
 local match = Match.new()
 local matchHud = MatchHud.new()
+local rewardHud = RewardHud.new()
 local hud = RaceHud.new()
 local controls = ControlsHud.new()
 local speedo = SpeedHud.new()
@@ -616,7 +618,25 @@ local function readSpectateMove(): Vector3
 	return if v.Magnitude > 1e-3 then v.Unit else v
 end
 
+-- The reward panel owns the Results phase, and MatchHud's plain board
+-- stands down while it is up. Two boards describing the same finish is
+-- the same question answered in two places, and the reason the simple
+-- one survives at all is that it is the fallback if the panel is ever
+-- suppressed.
+local shownForPhase = false
+
 RunService.Heartbeat:Connect(function(dt)
+	local phase = match:Phase()
+	if phase == Shared.Phase.Results then
+		if not shownForPhase then
+			shownForPhase = true
+			rewardHud:Show(RewardHud.preview())
+		end
+	elseif shownForPhase then
+		shownForPhase = false
+		rewardHud:Hide()
+	end
+
 	matchHud:Update(match)
 	feedHud:Update()
 	-- Here rather than in step() because the soundtrack has to play in
@@ -635,6 +655,7 @@ RunService.Heartbeat:Connect(function(dt)
 	end
 	spectate:Update(dt, match:Phase(), done, readSpectateMove())
 	matchHud:SetSpectating(spectate:StatusText())
+	matchHud:SuppressResults(rewardHud:IsShowing())
 	-- Outside step() on purpose: the pad has to keep fading after you
 	-- leave the kart, and step() returns early once there's no simulation.
 	if touch then
