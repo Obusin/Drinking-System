@@ -88,15 +88,29 @@ function KartFactory.build(color: Color3?, visualName: string?): Model
 
 	-- Visual: yours if you supplied one, otherwise the placeholder.
 	local wanted = visualName or RIG.VisualName
-	local template = ServerStorage:FindFirstChild(wanted)
+	-- RECURSIVE, because art gets filed. The rocket was found only after
+	-- this same lookup was widened; a kart tidied into a folder would
+	-- otherwise fall silently back to the placeholder.
+	local template = if wanted ~= "" then ServerStorage:FindFirstChild(wanted, true) else nil
 	local visual: Model
 	if template and template:IsA("Model") then
 		visual = template:Clone()
 		visual.Name = "Visual"
-		log("using ServerStorage.%s as the kart visual", wanted)
+		log("using %s as the kart visual", template:GetFullName())
 	else
-		if visualName then
-			warn(("[KartFactory] no Model named %q in ServerStorage — using the placeholder."):format(wanted))
+		-- WARNS EVEN FOR THE DEFAULT, which it used to skip.
+		--
+		-- The old guard was `if visualName then`, so a missing model was
+		-- only reported when someone had asked for a SPECIFIC one. The
+		-- configured default going missing — which is everyone, every
+		-- kart — fell back to the placeholder in silence. "Why is
+		-- everybody in the old kart" had no answer anywhere in Output.
+		if wanted ~= "" then
+			warn(
+				("[KartFactory] no Model named %q anywhere in ServerStorage — every kart falls back to the placeholder. Check Rig.VisualName matches the model's name exactly."):format(
+					wanted
+				)
+			)
 		end
 		visual = PlaceholderVisual.build()
 	end

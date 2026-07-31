@@ -248,6 +248,24 @@ return {
 	-- bomb ends up stopped in mid-air over a gap.
 	SettleGrace = 3,
 
+	--== LANDING CUE ==================================================
+	-- A ring that expands and fades where a thrown hazard plants itself.
+	--
+	-- Throwing had no confirmation at all: you lob a bomb a hundred studs
+	-- up the road while doing ninety, and the only way to know it worked
+	-- was eventually driving over it. A throw that lands felt identical
+	-- to a throw that vanished.
+	--
+	-- Everyone sees it, deliberately — a bomb landing in front of the
+	-- pack is worth seeing from behind as well.
+	--
+	-- Takes the hazard's own colour, so oil and mines read differently
+	-- without needing separate art. LandRingTime 0 turns it off.
+	LandRingTime = 0.45,
+	LandRingStart = 3,
+	LandRingEnd = 16,
+	LandRingTransparency = 0.35,
+
 	ThrowTime = 4, -- give up waiting for it to settle after this, so an
 	-- item thrown off the edge of the map doesn't stay unanchored forever
 

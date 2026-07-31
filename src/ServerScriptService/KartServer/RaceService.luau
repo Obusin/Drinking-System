@@ -16,6 +16,8 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerStorage = game:GetService("ServerStorage")
 local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local Debris = game:GetService("Debris")
 
 local BloxKart = ReplicatedStorage:WaitForChild("BloxKart")
 local Standings = require(BloxKart:WaitForChild("Standings"))
@@ -179,6 +181,47 @@ end
 -- So settling now means "find the ground beneath it and sit on it".
 -- Probing down rather than trusting where it stopped is also what makes
 -- a hazard sit flush on a ramp instead of floating over the slope.
+-- A ring that expands and fades where a hazard planted itself.
+--
+-- Throwing had no landing cue at all. You lob a bomb a hundred-odd studs
+-- up the road while doing ninety, and the only confirmation was
+-- eventually driving over it — so a throw felt like it went nowhere even
+-- when it worked perfectly.
+--
+-- Server-spawned so everyone sees it, which is the point: a throw
+-- landing in front of the pack is worth seeing from behind too.
+--
+-- No asset needed. It's a flat neon ring, so it reads at a glance and
+-- can't be a missing-image square.
+local function landingRing(at: Vector3, normal: Vector3, colour: Color3)
+	local IT = Config.Items
+	if IT.LandRingTime <= 0 then
+		return
+	end
+	local ring = Instance.new("Part")
+	ring.Name = "LandRing"
+	ring.Shape = Enum.PartType.Cylinder
+	ring.Size = Vector3.new(0.2, IT.LandRingStart, IT.LandRingStart)
+	-- Cylinders point along X, so it's turned to lie flat on the surface.
+	ring.CFrame = CFrame.lookAt(at + normal * 0.1, at + normal) * CFrame.Angles(0, math.rad(90), 0)
+	ring.Anchored = true
+	ring.CanCollide = false
+	ring.CanQuery = false
+	ring.CanTouch = false
+	ring.CastShadow = false
+	ring.Material = Enum.Material.Neon
+	ring.Color = colour
+	ring.Transparency = IT.LandRingTransparency
+	ring.Parent = workspace
+
+	local grow = TweenService:Create(ring, TweenInfo.new(IT.LandRingTime, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Size = Vector3.new(0.2, IT.LandRingEnd, IT.LandRingEnd),
+		Transparency = 1,
+	})
+	grow:Play()
+	Debris:AddItem(ring, IT.LandRingTime + 0.1)
+end
+
 -- Returns FALSE if there is nothing under it yet, and the caller must
 -- then leave it falling rather than anchoring it.
 --
@@ -200,6 +243,8 @@ local function groundOut(part: BasePart): boolean
 	part.CFrame = CFrame.new(hit.Position + hit.Normal * (part.Size.Y * 0.5)) * CFrame.Angles(0, y, 0)
 	part.Anchored = true
 	part.CanCollide = false
+	-- Says "it landed HERE", to everybody.
+	landingRing(hit.Position, hit.Normal, part.Color)
 	return true
 end
 
