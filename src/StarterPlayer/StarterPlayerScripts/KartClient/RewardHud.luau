@@ -501,6 +501,7 @@ function RewardHud.new()
 	-- Continue
 	----------------------------------------------------------------
 	local go = Instance.new("TextButton")
+	go.Name = "Continue"
 	go.BackgroundColor3 = R.AccentColor
 	go.BorderSizePixel = 0
 	go.AnchorPoint = Vector2.new(1, 1)
@@ -512,6 +513,31 @@ function RewardHud.new()
 	go.Text = "DRIVE!  ▶"
 	go.AutoButtonColor = true
 	go.Parent = gui
+
+	-- WATCH THE REST OF IT.
+	--
+	-- Spectating already starts on its own the moment you finish — the
+	-- camera is following somebody behind this panel right now. What was
+	-- missing was any way to know that, or to get to it: the only way
+	-- out of the board was a button labelled DRIVE, which is not what
+	-- happens when you press it during a results screen.
+	--
+	-- Quieter than CONTINUE on purpose. It is the second thing most
+	-- people want, and the first thing the people still racing are
+	-- waiting for you to notice.
+	local watch = Instance.new("TextButton")
+	watch.Name = "Spectate"
+	watch.BackgroundColor3 = Color3.fromRGB(42, 42, 48)
+	watch.BorderSizePixel = 0
+	watch.AnchorPoint = Vector2.new(1, 1)
+	watch.Position = UDim2.new(1, -346, 1, 0)
+	watch.Size = UDim2.fromOffset(260, 84)
+	watch.FontFace = FONT
+	watch.TextSize = 28
+	watch.TextColor3 = R.TextColor
+	watch.Text = "◉  SPECTATE"
+	watch.AutoButtonColor = true
+	watch.Parent = gui
 
 	local self = setmetatable({
 		gui = gui,
@@ -544,11 +570,15 @@ function RewardHud.new()
 		payNitro = payNitro,
 		note = note,
 		go = go,
+		watch = watch,
 		tweens = {},
 		showing = false,
 	}, RewardHud)
 
 	go.Activated:Connect(function()
+		self:Hide()
+	end)
+	watch.Activated:Connect(function()
 		self:Hide()
 	end)
 

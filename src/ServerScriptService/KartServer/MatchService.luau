@@ -86,10 +86,20 @@ end
 
 -- Racers with a person behind them. The field can be mostly bots, and
 -- anything asking "is everyone ready" means everyone who can answer.
+-- PEOPLE WHO CAN RACE, which is not the same as people holding a kart.
+--
+-- A finisher is retired a few seconds after crossing the line: kart
+-- destroyed, avatar despawned. Counting karts therefore reported ZERO
+-- humans the moment a solo player finished, the round fell back to
+-- Waiting, and the only thing that hands avatars back runs on the way
+-- OUT of Intermission — which Waiting could never reach without a
+-- human. The player sat at "0 / 1" with nothing able to spawn them.
+--
+-- Someone between lives is still someone.
 local function humanRacers(): number
 	local n = 0
 	for _, player in Players:GetPlayers() do
-		if KartService.kartFor(player) then
+		if KartService.kartFor(player) or KartService.awaitingRevive(player) then
 			n += 1
 		end
 	end
@@ -196,6 +206,13 @@ local function enter(next: string, duration: number?)
 	end
 	-- Marked at the grid and diffed at the flag, so "+N XP this race" is
 	-- one subtraction rather than a second running total to keep in step.
+	-- Anyone retired last round gets their avatar back as soon as there
+	-- is a lobby to stand in. Doing this only at the grid meant a round
+	-- that ended abnormally left them with nothing until one started.
+	if next == P.Waiting or next == P.Intermission then
+		KartService.reviveRetired()
+	end
+
 	if next == P.Grid then
 		-- Every row written from here on is traceable to this race.
 		-- Server time plus the round number, so it is unique across

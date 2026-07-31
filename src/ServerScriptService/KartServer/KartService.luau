@@ -525,6 +525,15 @@ end
 -- before places are assigned, so the reloaded character has time to
 -- spawn its kart through the normal CharacterAdded path rather than a
 -- second one written specially for this.
+-- Is this player waiting for their avatar back?
+--
+-- A retired player has no kart and no character, so anything counting
+-- "people who can race" by looking for a kart concludes they are not
+-- here. They are — they are between lives.
+function KartService.awaitingRevive(player: Player): boolean
+	return retired[player] == true
+end
+
 function KartService.reviveRetired()
 	for player in retired do
 		retired[player] = nil
