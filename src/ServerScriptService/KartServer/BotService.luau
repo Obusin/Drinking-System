@@ -919,6 +919,10 @@ function BotService.seatRig(bot)
 
 	for _, d in rig:GetDescendants() do
 		if d:IsA("BasePart") then
+			-- ANCHORED RIGS CANNOT SIT. A rig posed in ServerStorage is
+			-- almost always anchored, and Sit fails silently on one — no
+			-- error, no occupant, no hands on the wheel.
+			d.Anchored = false
 			-- Same group as the kart, so drivers never knock each other
 			-- about as two karts pass.
 			d.CollisionGroup = Config.Rig.CollisionGroup
@@ -927,18 +931,30 @@ function BotService.seatRig(bot)
 			-- catching on scenery drags the whole kart to a stop — and
 			-- limbs are CanCollide by default.
 			d.CanCollide = false
-			d.Massless = true
 		end
 	end
 
 	rig.Parent = workspace
-	rig:PivotTo(seat.CFrame)
-	task.defer(function()
-		if seat and seat.Parent and humanoid.Parent then
-			seat:Sit(humanoid)
+	-- Placed ON the seat before sitting, and sat immediately rather than
+	-- deferred: a deferred Sit gives an unanchored rig a frame to fall,
+	-- and Sit on something already falling can miss.
+	rig:PivotTo(seat.CFrame + seat.CFrame.UpVector * 1.5)
+	seat:Sit(humanoid)
+	bot.rig = rig
+
+	-- Verified, because every way this fails is silent. An anchored rig,
+	-- a missing HumanoidRootPart, a humanoid that can't enter the Seated
+	-- state — all of them produce a kart with nobody in it and no error.
+	task.delay(0.5, function()
+		if rig.Parent and seat.Parent and seat.Occupant ~= humanoid then
+			warn(
+				("[BotService] %s did not stay seated. Check the %q model: it needs a HumanoidRootPart, and it must not be anchored."):format(
+					bot.name,
+					B.RigName
+				)
+			)
 		end
 	end)
-	bot.rig = rig
 end
 
 function BotService.revive(bot)

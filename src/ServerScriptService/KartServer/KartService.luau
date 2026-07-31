@@ -169,7 +169,15 @@ local function createKart(name: string, slot: number, player: any?): Model
 	end
 
 	local wanted = visualFor(player)
-	log("%s -> visual %s", if player then player.Name else "start-line kart", wanted or RIG.VisualName)
+	-- Printed for every kart, so "the bot isn't in the same kart as me"
+	-- is a thing you read rather than infer. Two lines, same name = same
+	-- art; different names = the lookup, not the model.
+	log(
+		"%s -> visual %q%s",
+		if player then player.Name else "start-line kart",
+		wanted or RIG.VisualName,
+		if isBot(player) then " (bot)" else ""
+	)
 	local kart = KartFactory.build(KartFactory.colorFor(slot), wanted)
 	kart.Name = name
 	kart:PivotTo(Placement.cframeFor(pad, slot))

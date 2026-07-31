@@ -348,10 +348,22 @@ local function updateKart(kart: Model, dt: number)
 	-- The driver's client writes its real steer onto its own kart; that
 	-- doesn't replicate, so remote karts fall through to SteerFloat, which
 	-- is right for anyone on a keyboard.
+	-- The published steer wins, occupant or not.
+	--
+	-- This used to be gated on someone sitting there, which quietly tied
+	-- two unrelated things together: a bot whose rig failed to seat also
+	-- had a dead steering wheel, so one missing model looked like two
+	-- separate bugs. A kart that says which way it's steering should show
+	-- it regardless of who is or isn't aboard.
+	--
+	-- SteerFloat is the fallback and genuinely does need an occupant —
+	-- it's the seat reading a driver's input.
 	local own = kart:GetAttribute(Names.STEER)
 	local targetSteer = 0
-	if occupant then
-		targetSteer = if typeof(own) == "number" then own else seat.SteerFloat
+	if typeof(own) == "number" then
+		targetSteer = own
+	elseif occupant then
+		targetSteer = seat.SteerFloat
 	end
 	s.steer = Util.approach(s.steer, targetSteer, R.WheelSmoothing, dt)
 
