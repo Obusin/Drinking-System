@@ -40,6 +40,7 @@ local Simulation = require(ReplicatedStorage.BloxKart.Simulation)
 local Input = require(script.Input)
 local Effects = require(script.Effects)
 local Audio = require(script.Audio)
+local Haptics = require(script.Haptics)
 local CameraRig = require(script.CameraRig)
 local Boosters = require(script.Boosters)
 local Race = require(script.Race)
@@ -58,6 +59,7 @@ local Rider = require(script.Rider)
 local RemoteKarts = require(script.RemoteKarts)
 
 local H = Config.Hud
+local HAP = Config.Haptics
 
 local player = Players.LocalPlayer
 
@@ -81,6 +83,9 @@ local speedo = SpeedHud.new()
 local itemHud = ItemHud.new()
 local feedHud = FeedHud.new()
 local respawn = Respawn.new()
+-- Made once rather than per kart: it holds motor state, not kart state,
+-- and rebuilding it on every respawn would drop a rumble mid-decay.
+local haptics = Haptics.new()
 -- Mobile only, and nil everywhere else — every call site is guarded, so
 -- desktop carries no touch code at all rather than an inert copy of it.
 local touch = if TouchHud.wanted() then TouchHud.new() else nil
@@ -124,6 +129,9 @@ local function teardown()
 		camera = nil
 	end
 	speedo:SetActive(false)
+	-- Motors off. A pad still rumbling after the kart it belonged to has
+	-- gone is the one haptics bug players actually report.
+	haptics:Stop()
 	if touch then
 		touch:SetActive(false)
 	end
@@ -178,6 +186,7 @@ local function step(dt: number)
 
 	-- Dispatch. Simulation doesn't know these modules exist.
 	if events.driftStarted then
+		haptics:Punch(HAP.DriftPunch)
 		effects:SetTrails(true, 0) -- ribbon starts immediately, grey until tier 1
 		-- Deliberately NO note here. It shared the asset with the tank-fill
 		-- cue, so every drift opened with what sounded like a slot filling
@@ -192,6 +201,11 @@ local function step(dt: number)
 	end
 	if events.driftEnded then
 		effects:SetTrails(false, 0)
+	end
+	-- Touching down. Distinct from itemEvents.landed further below, which
+	-- is the item roulette settling — same word, unrelated event.
+	if events.landed then
+		haptics:Punch(HAP.LandPunch)
 	end
 	if events.boostFired then
 		effects:Boost(events.boostFired)
@@ -209,6 +223,7 @@ local function step(dt: number)
 		effects:Boost(events.nitroStage)
 		audio:Boost(events.nitroStage)
 		camera:BoostPunch(events.nitroStage)
+		haptics:Punch(HAP.BoostPunch)
 	end
 
 	-- Speed pads. Checked after the step so the overlap test uses the
@@ -233,6 +248,7 @@ local function step(dt: number)
 		hud:SetAlert(nil, nil, dt)
 		effects:Update(dt, sim)
 		audio:Update(dt, sim)
+		haptics:Update(dt, sim)
 		camera:Update(dt, sim, Input)
 		speedo:Update(dt, sim)
 		return
@@ -294,6 +310,7 @@ local function step(dt: number)
 	end
 	if itemEvents.hit then
 		camera:BoostPunch(1)
+		haptics:Punch(HAP.HitPunch)
 		-- The thump of being spun, plus an item layer over it when there
 		-- is one. `item` is only present on hits relayed by the server —
 		-- a hazard you drove into names itself through `note` instead.
@@ -310,6 +327,7 @@ local function step(dt: number)
 		audio:PlayTierNote(0)
 	end
 	if itemEvents.blocked then
+		haptics:Punch(HAP.BlockedPunch)
 		-- A shield ate it. Different cue, or players can't tell the shield
 		-- did anything and it feels like the hit just missed.
 		audio:PlayTierNote(3)
@@ -330,6 +348,7 @@ local function step(dt: number)
 
 	effects:Update(dt, sim)
 	audio:Update(dt, sim)
+	haptics:Update(dt, sim)
 	camera:Update(dt, sim, Input)
 	speedo:Update(dt, sim)
 end
@@ -392,6 +411,17 @@ end
 --=====================================================================
 -- Before anything queries the world: other racers must be excluded
 -- from our collision and ground checks from the very first frame.
+-- A pad plugged in mid-session should just start working. Refresh()
+-- re-asks what the controller supports; without this, rumble is decided
+-- once at join and a player who connects a pad later never gets any.
+UserInputService.GamepadConnected:Connect(function()
+	haptics:Refresh()
+end)
+UserInputService.GamepadDisconnected:Connect(function()
+	haptics:Stop()
+	haptics:Refresh()
+end)
+
 WorldFilter.start()
 
 -- Started BEFORE the character handling below, which yields on

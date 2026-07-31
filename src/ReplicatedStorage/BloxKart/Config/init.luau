@@ -26,5 +26,6 @@ return {
 	Rider = require(script.Rider), -- steering wheel and hand IK
 	Input = require(script.Input), -- key bindings
 	Touch = require(script.Touch), -- mobile on-screen controls
+	Haptics = require(script.Haptics), -- controller rumble
 	Hud = require(script.Hud), -- shared on-screen styling
 }
