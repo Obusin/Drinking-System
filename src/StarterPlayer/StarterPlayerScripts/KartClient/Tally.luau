@@ -8,14 +8,20 @@
 
 	SO THE CLIENT REPORTS, AND THE SERVER CLAMPS.
 	--------------------------------------------
-	One batch at the flag rather than an event at a time. Three reasons,
-	and the last is the one that matters:
+	DELTAS, on a slow timer and again at the flag. Not one batch per
+	event, and not one batch per race either — a single batch at the end
+	meant a quest bar sat frozen for a whole race and then jumped, which
+	reads exactly like quests being unwired.
 
-	  1. One remote call per race instead of hundreds per minute.
-	  2. A race is the natural unit — every cap is "per race" and every
-	     quest counts things across races.
-	  3. It bounds the lie. A per-event remote can be fired forever; a
-	     per-race batch can be inflated only to the cap, once per race.
+	Each send carries only what has happened since the last one, so
+	sending five times a race totals the same as sending once.
+
+	  1. A handful of remote calls per race rather than hundreds a
+	     minute.
+	  2. Progress that visibly moves while you play, which is the entire
+	     point of showing it.
+	  3. It still bounds the lie: the server clamps the CUMULATIVE total
+	     per race, so more frequent sends buy an exploiter nothing.
 
 	None of that makes it TRUSTED. `Config.Level.StatCaps` is a bound on
 	how wrong it can be, not a proof that it is right, and it holds only
@@ -37,7 +43,7 @@ local Tally = {}
 Tally.__index = Tally
 
 function Tally.new()
-	local self = setmetatable({ n = {}, remote = nil, sent = false }, Tally)
+	local self = setmetatable({ n = {}, sent = {}, remote = nil, finalised = false }, Tally)
 	task.spawn(function()
 		self.remote = BloxKart:WaitForChild(Names.STATS_REMOTE, 20)
 	end)
@@ -47,7 +53,8 @@ end
 
 function Tally:Reset()
 	table.clear(self.n)
-	self.sent = false
+	table.clear(self.sent)
+	self.finalised = false
 end
 
 function Tally:Add(metric: string, by: number?)
@@ -163,23 +170,50 @@ end
 --  SEND
 --=====================================================================
 
--- Once per race. `sent` guards it because the flag can be reported more
--- than once — a finish, then the round ending — and a second send would
--- count the whole race twice.
-function Tally:Send()
-	if self.sent or not self.remote then
+-- Sends what has changed since the last send. Safe to call as often as
+-- you like: what has already gone up is remembered, so a metric is
+-- never reported twice.
+function Tally:Flush()
+	if not self.remote then
 		return
 	end
-	self.sent = true
 
-	-- Derived at the flag rather than tracked all race: both of these
-	-- are questions about the race as a whole, and asking once is
-	-- cheaper and impossible to get out of step.
-	if (self.n.respawns or 0) == 0 then
-		self:Add("cleanRaces")
+	local delta = nil
+	for metric, total in self.n do
+		local already = self.sent[metric] or 0
+		-- Whole units only. Durations accumulate in fractions of a
+		-- second and the server floors anyway; carrying the remainder
+		-- here is what stops a 0.4s-per-frame drift never adding up.
+		local whole = math.floor(total) - already
+		if whole > 0 then
+			delta = delta or {}
+			delta[metric] = whole
+			self.sent[metric] = already + whole
+		end
 	end
 
-	self.remote:FireServer(self.n)
+	if delta then
+		self.remote:FireServer(delta)
+	end
+end
+
+-- The flag. Adds the things that are only true of a whole race, then
+-- flushes the remainder.
+--
+-- `finalised` guards the once-per-race parts, because the end of a race
+-- can be reported more than once — a finish, then the round ending —
+-- and a second pass would count them twice.
+function Tally:Send()
+	if not self.finalised then
+		self.finalised = true
+		-- Derived at the flag rather than tracked all race: this is a
+		-- question about the race as a whole, and asking once is cheaper
+		-- and impossible to get out of step.
+		if (self.n.respawns or 0) == 0 then
+			self:Add("cleanRaces")
+		end
+	end
+	self:Flush()
 end
 
 return Tally

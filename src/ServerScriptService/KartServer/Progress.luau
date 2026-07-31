@@ -146,6 +146,7 @@ function Progress.award(player: Player?, amount: number, reason: string)
 	end
 
 	Ledger.record(player, "xp", amount, e.xp, reason, Progress.matchId)
+	Progress.touch(player)
 	if bolt > 0 then
 		Ledger.record(player, "bolt", bolt, e.bolt, "levelup", Progress.matchId)
 	end
@@ -346,16 +347,39 @@ local function capFor(metric: string): number?
 	return nil
 end
 
+-- What each player has already been credited for THIS race, so the cap
+-- is a per-race total rather than a per-call one.
+--
+-- WITHOUT THIS, MORE FREQUENT SENDS WOULD BUY AN EXPLOITER MORE. The
+-- client reports deltas several times a race now; clamping each call
+-- independently would let five sends deliver five times the cap, which
+-- turns a bound into a suggestion.
+local applied: { [number]: any } = {}
+
 function Progress.report(player: Player?, batch)
 	if not player or typeof(batch) ~= "table" then
 		return
 	end
+
+	local bucket = applied[player.UserId]
+	if not bucket or bucket.match ~= Progress.matchId then
+		bucket = { match = Progress.matchId, n = {} }
+		applied[player.UserId] = bucket
+	end
+
 	for metric, raw in batch do
 		if typeof(metric) == "string" then
 			local cap = capFor(metric)
 			local n = tonumber(raw)
 			if cap and n and n > 0 then
-				Progress.count(player, metric, math.min(math.floor(n), cap))
+				local already = bucket.n[metric] or 0
+				-- Whatever is left of this race's allowance, and no more.
+				local room = cap - already
+				if room > 0 then
+					local take = math.min(math.floor(n), room)
+					bucket.n[metric] = already + take
+					Progress.count(player, metric, take)
+				end
 			end
 		end
 	end
@@ -403,6 +427,7 @@ end
 Players.PlayerRemoving:Connect(function(player)
 	session[player.UserId] = nil
 	marks[player.UserId] = nil
+	applied[player.UserId] = nil
 end)
 
 -- Merge anything earned while the profile was still loading.

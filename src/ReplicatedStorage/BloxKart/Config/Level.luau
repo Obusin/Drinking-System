@@ -165,6 +165,14 @@ return {
 	-- it, so it has to be able to get your attention back.
 	QuestBadgeColor = Color3.fromRGB(120, 230, 130),
 
+	-- The layer switcher inside the panel. One frame, three tabs, and
+	-- the rows below swap — rather than three stacked lists, which was
+	-- the same information in three times the height.
+	QuestTabHeight = 28,
+	QuestTabActive = Color3.fromRGB(255, 196, 62),
+	QuestTabIdle = Color3.fromRGB(48, 48, 54),
+	QuestRows = 5, -- the widest layer; the pool is shared across tabs
+
 	--== FEED ==========================================================
 	-- The kill-feed line is "<attacker> [icon] <victim>". The icon
 	-- carries the verb, which is why there is no word for it: an icon

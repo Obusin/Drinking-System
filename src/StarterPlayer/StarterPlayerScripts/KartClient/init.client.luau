@@ -92,6 +92,8 @@ local rewardHud = RewardHud.new()
 local transition = Transition.new()
 local xpHud = XpHud.new()
 local tally = Tally.new()
+local TALLY_FLUSH = 4 -- seconds between partial stat sends
+local flushAt = TALLY_FLUSH
 local questHud = QuestHud.new()
 -- Bound directly rather than through Input: this is UI, it must work
 -- while spectating and out of a kart, and Input's bindings are released
@@ -237,6 +239,15 @@ local function step(dt: number)
 		-- drift's cue; `tankFilled` below owns this sound alone.
 	end
 	tally:Sample(dt, sim)
+	-- Flushed on a slow timer as well as at the flag. Deltas, so this
+	-- costs nothing but a few remote calls and is the difference between
+	-- a bar that moves while you play and one that jumps once at the
+	-- end.
+	flushAt -= dt
+	if flushAt <= 0 then
+		flushAt = TALLY_FLUSH
+		tally:Flush()
+	end
 	tally:Drive(events)
 	if events.tierChanged then
 		-- Colour only. The note belongs to `tankFilled` below — drift tiers
