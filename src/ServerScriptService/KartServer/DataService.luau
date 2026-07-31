@@ -32,7 +32,28 @@ local RunService = game:GetService("RunService")
 
 local BloxKart = ReplicatedStorage:WaitForChild("BloxKart")
 local Config = require(BloxKart:WaitForChild("Config"))
-local ProfileStore = require(script.Parent.Parent.Packages.ProfileStore)
+-- REQUIRED DEFENSIVELY, and this is not superstition.
+--
+-- The first attempt at this took the entire server down: ProfileStore
+-- arrived from the toolbox with Sandboxed = true, a sandboxed module
+-- cannot start without the RunServerScript capability, and the error
+-- propagated out of this require, out of KartServer's require of this
+-- module, and out of init.server — so a dependency for a feature that
+-- was TURNED OFF stopped the whole game from booting.
+--
+-- A vendored module failing to load must disable the thing that needed
+-- it and nothing else. Persistence is optional; racing is not.
+local ProfileStore = nil
+do
+	local ok, result = pcall(function()
+		return require(script.Parent.Parent.Packages.ProfileStore)
+	end)
+	if ok then
+		ProfileStore = result
+	else
+		warn("[DataService] ProfileStore failed to load — persistence is off. " .. tostring(result))
+	end
+end
 
 local D = Config.Data
 
@@ -223,6 +244,10 @@ function DataService.start()
 	if not D.Enabled then
 		warn("[DataService] disabled — nothing persists. Config.Data.Enabled to turn it on.")
 		return
+	end
+
+	if not ProfileStore then
+		return -- already warned at require time
 	end
 
 	local ok, result = pcall(function()
