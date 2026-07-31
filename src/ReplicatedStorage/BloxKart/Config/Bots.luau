@@ -95,13 +95,44 @@ return {
 	--
 	-- Scaled by speed, because at 120 studs/s a fixed 20-stud lookahead
 	-- is a sixth of a second of warning.
+	--
+	-- THIS WAS THE REMAINING SWERVE, and it is not a matter of taste.
+	--
+	-- Pure pursuit is stable only while the lookahead is comfortably
+	-- LONGER than the distance the kart travels during its own control
+	-- lag. Add up the lag: 0.19s of reaction, ~1/9s of SteerSlew, ~1/7s
+	-- of the Simulation's SteerSmoothing — about 0.44s, which at 100
+	-- studs/s is 44 studs of road. The old lookahead at that speed was
+	-- 18 + 0.28*100 = 46 studs. Forty-six against forty-four: it sat
+	-- exactly on the stability boundary, so it swerved down a straight
+	-- and no gain anywhere else could have stopped it.
+	--
+	-- Measured, released 5 studs off a straight at 100 studs/s:
+	--   lookahead  30 -> half-amplitude 50 studs, never settles
+	--   lookahead  46 -> half-amplitude 30 studs, never settles  (old)
+	--   lookahead  60 -> half-amplitude 16 studs, never settles
+	--   lookahead  80 -> settles
+	--   lookahead 108 -> settles                                 (now)
+	--
+	-- A long lookahead used to be unaffordable because chasing a distant
+	-- point cuts every apex. FeedForward is what pays for it: the corner
+	-- is handled by knowing its curvature, so the pursuit term is free to
+	-- look far enough ahead to be stable. The two changes only work
+	-- together.
 	LookaheadBase = 18,
-	LookaheadPerSpeed = 0.28, -- extra studs per stud/s of speed
+	LookaheadPerSpeed = 0.9, -- extra studs per stud/s of speed
 
-	-- How much a corner SHORTENS the lookahead, 0..1. Minor now: chasing
-	-- a point up the road always cuts the apex, and FeedForward is what
-	-- actually fixes that. This only makes the cut smaller.
-	LookaheadTighten = 0.7,
+	-- And a hard floor under all of it, in case the numbers above are
+	-- edited without the lag being reconsidered. Total control lag in
+	-- seconds, times the margin, times speed.
+	ControlLag = 0.45, -- reaction + SteerSlew + Handling.SteerSmoothing
+	LookaheadLagMargin = 2, -- below ~1.5 it starts to hunt again
+
+	-- How much a corner SHORTENS the lookahead, 0..1. Kept small now:
+	-- FeedForward is what actually stops apex-cutting, and shortening the
+	-- lookahead is exactly how the swerve above was created. It can never
+	-- reach below the lag floor.
+	LookaheadTighten = 0.25,
 
 	--== THE STEERING CONTROLLER =======================================
 	-- Everything here works in CURVATURE (1/studs) and is converted to a
@@ -188,10 +219,21 @@ return {
 	-- zero reaction time starts turning before a corner is visible.
 	ReactionTime = 0.19,
 
-	-- Won't bother correcting an error smaller than this. People don't
-	-- micro-adjust every frame; they let a small error sit, notice it,
-	-- then fix it. That cycle is most of what "driven" looks like.
-	SteerDeadzone = 0.07,
+	-- SteerDeadzone is GONE. It held the last steering input until the
+	-- computed one differed by 0.07, which is hysteresis inside a
+	-- feedback loop — a limit-cycle generator, and worse once the
+	-- lookahead grew.
+	--
+	-- With a 108-stud lookahead the correct input for being five studs
+	-- off the line is about 0.049, which is BELOW the 0.108 threshold a
+	-- typical bot ended up with. So the correction was thrown away every
+	-- frame and the bot drove parallel to the racing line forever,
+	-- perfectly steadily, never coming back. Measured: settles 5.00 studs
+	-- off with the deadzone, 0.00 without it.
+	--
+	-- The "doesn't micro-adjust" feel it was there for now comes from
+	-- SteerSlew and SteerNoise, which shape the input without ever
+	-- discarding information.
 
 	-- Slow wandering error on top. Not noise per frame — that reads as a
 	-- broken servo — but a drifting bias that has to be corrected for.
@@ -268,15 +310,32 @@ return {
 	LedgeHold = 0.4, -- seconds to stay in the correction after the ground
 	-- comes back, so a bot skimming an edge doesn't flicker
 
-	--== NOT FIGHTING THE LINE =========================================
-	-- Fraction of the available road width that counts as "close enough".
+	-- JUMPS. A gap is not automatically a mistake — tracks are built with
+	-- ramps you're meant to take flat out, and the first version of the
+	-- ledge check lifted to LedgeThrottle on the approach to every one of
+	-- them. That is the single input guaranteed to turn a jump you'd have
+	-- cleared into a fall. The bots were braking for the ramp.
 	--
-	-- Being a few studs off the middle of a wide road is not an error and
-	-- a driver would not correct it. Correcting it sixty times a second
-	-- is most of what reads as a machine driving, and it's measured in
-	-- studs of road rather than studs of error so a wide straight is
-	-- forgiving and a narrow bridge isn't.
-	LineDeadband = 0.35,
+	-- The racing line settles it: the line is where the designer says to
+	-- drive, so if the ROUTE carries on across the gap and there is road
+	-- on the far side, this is a jump. Line up, stay on the power.
+	JumpSpan = 1.2, -- node units past the aim point to look for landing
+	JumpThrottle = 1, -- and commit. Overrides corner braking, which reads
+	-- a ramp's approach as a bend
+
+	--== NOT FIGHTING THE LINE =========================================
+	-- LineDeadband is GONE too, and for a subtler reason than the others.
+	--
+	-- It zeroed the pursuit term when the aim point was nearly straight
+	-- ahead. But in pure pursuit that quantity is not cross-track error —
+	-- it mixes position and heading, and it goes to zero whenever the
+	-- kart is POINTING at the target, including while running parallel to
+	-- the line several studs off it. Deadbanding it therefore told the
+	-- bot to ignore exactly the situation it most needed to fix, and
+	-- measurably parked bots five studs wide of their own racing line.
+	--
+	-- Not being fussy about small errors is a real goal and it belongs on
+	-- the input, not in the geometry. SteerSlew and SteerNoise do it.
 
 	--== LEARNING FROM GOING OFF =======================================
 	-- One number per checkpoint, up when the bot leaves the track there,

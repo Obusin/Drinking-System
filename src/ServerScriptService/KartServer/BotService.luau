@@ -408,7 +408,9 @@ local function drive(bot, dt: number)
 		roomR *= 1 - pull
 	end
 
-	local room = math.min(roomL, roomR) -- for the cross-track deadband below
+	-- The narrower side, used only to judge whether the bot is still
+	-- meaningfully ON the road when recording a safe position.
+	local room = math.min(roomL, roomR)
 	offset = math.clamp(offset, -roomL, roomR)
 
 	----------------------------------------------------------------
@@ -423,6 +425,20 @@ local function drive(bot, dt: number)
 	-- bot steers at it and cuts the corner. Every shortcut it takes is
 	-- this number being too big for the bend it's in.
 	local lookahead = (B.LookaheadBase + speed * B.LookaheadPerSpeed) * (1 - bend * B.LookaheadTighten)
+
+	-- FLOOR IT AT TWICE THE CONTROL LAG DISTANCE.
+	--
+	-- Pure pursuit is stable only while the lookahead is comfortably
+	-- longer than the road covered during the controller's own lag —
+	-- reaction, plus SteerSlew, plus the Simulation's steering smoothing,
+	-- about 0.45s. At 100 studs/s that is 45 studs, and the lookahead
+	-- used to work out at 46. Sitting on the boundary is what made bots
+	-- swerve down a straight, and it could not have been tuned out
+	-- anywhere else.
+	--
+	-- Applied AFTER the corner shortening above, because shortening it
+	-- for a bend is precisely how you fall back under the limit.
+	lookahead = math.max(lookahead, speed * B.ControlLag * B.LookaheadLagMargin)
 	local aheadU = bot.u + lookahead / Route.segmentLength(bot.u)
 	local aim = Route.pointAt(aheadU)
 	if not aim then
@@ -455,19 +471,48 @@ local function drive(bot, dt: number)
 	-- turns in looks like a driver catching a mistake. One that only
 	-- brakes goes off the edge slowly.
 	----------------------------------------------------------------
-	local ledge = false
-	if not Route.hasGround(aim, sim.up) then
-		ledge = true
-	else
-		local nose = sim.pos + sim.forward * (B.LedgeLook + speed * B.LedgeLookPerSpeed)
-		ledge = not Route.hasGround(nose, sim.up)
+	--
+	-- A GAP IS NOT AUTOMATICALLY A MISTAKE. Tracks are built with jumps
+	-- you're meant to take flat out, and the first version of this
+	-- treated any missing floor as an emergency: it lifted to
+	-- LedgeThrottle on the approach, which is the one input guaranteed to
+	-- turn a jump you'd have cleared into a fall. It was braking for the
+	-- ramp.
+	--
+	-- The racing line settles it. The line is by definition where the
+	-- designer says to drive, so if the ROUTE carries on across the gap
+	-- and there's road on the far side, this is a jump: line up, stay on
+	-- the throttle, commit. Only a gap the route does NOT cross is a
+	-- bot about to drive off the map.
+	local ledge, jump = false, false
+	local nose = sim.pos + sim.forward * (B.LedgeLook + speed * B.LedgeLookPerSpeed)
+	if not (Route.hasGround(aim, sim.up) and Route.hasGround(nose, sim.up)) then
+		local beyond = Route.pointAt(aheadU + B.JumpSpan)
+		if beyond and Route.hasGround(beyond, sim.up) then
+			jump = true
+		else
+			ledge = true
+		end
 	end
 
-	if ledge then
+	-- Already in the air: whatever is or isn't under the nose, there is
+	-- nothing to be done about it now, and lifting mid-flight only
+	-- shortens the landing.
+	if not sim.grounded then
+		ledge = false
+	end
+
+	if ledge or jump then
+		-- Both want the same line — the centre, where the road is and
+		-- where a jump is surveyed from. They differ entirely on throttle.
 		local centre = Route.pointAt(aheadU)
 		if centre then
 			aim = centre
 		end
+	end
+
+	bot.jumping = jump
+	if ledge then
 		bot.ledgeFor = B.LedgeHold
 	else
 		-- Held briefly after the ground comes back, or a bot skimming an
@@ -526,18 +571,14 @@ local function drive(bot, dt: number)
 	local kappaAim = 0
 	local L = flat.Magnitude
 	if L > 1e-3 and right.Magnitude > 0 then
-		local y = flat:Dot(right)
-		-- Deadband in studs of road, not of steering. Being a little off
-		-- the middle of a wide road is not an error, and a driver would
-		-- not correct it. Correcting it every frame is most of what looks
-		-- like a machine.
-		local slack = room * B.LineDeadband
-		if math.abs(y) <= slack then
-			y = 0
-		else
-			y -= math.sign(y) * slack
-		end
-		kappaAim = 2 * y / (L * L)
+		-- No deadband on this. It is tempting — "don't fuss about being
+		-- slightly off" — but this quantity is not cross-track error. It
+		-- mixes position and heading, and it falls to zero whenever the
+		-- kart is POINTING at the target, which includes running parallel
+		-- to the line several studs wide of it. Deadbanding it suppressed
+		-- the correction in exactly the case that needed one, and left
+		-- bots driving permanently off their own racing line.
+		kappaAim = 2 * flat:Dot(right) / (L * L)
 	end
 
 	local kappaWant = kappaPath * B.FeedForward + kappaAim * B.PursuitGain
@@ -669,13 +710,19 @@ local function drive(bot, dt: number)
 	local busy = B.NoiseOnStraight + (1 - B.NoiseOnStraight) * effort
 	seen += math.sin(bot.noiseAt * 1.7) * math.cos(bot.noiseAt * 0.6) * B.SteerNoise * (2 - bot.skill) * busy
 
-	-- DEADZONE. People don't micro-adjust every frame — they let a small
-	-- error sit, notice it, then fix it. Holding the last input until the
-	-- error is worth acting on produces exactly that rhythm, and it's
-	-- most of what separates "driven" from "tracked".
-	if math.abs(seen - bot.heldSteer) > B.SteerDeadzone * (2 - bot.skill) then
-		bot.heldSteer = seen
-	end
+	-- The deadzone that used to sit here is gone. Holding the last input
+	-- until the new one differed enough is hysteresis inside a feedback
+	-- loop, which generates a limit cycle on its own — and once the
+	-- lookahead grew it became worse than that. The correct input for
+	-- being five studs off the line at a 108-stud lookahead is about
+	-- 0.049, under the 0.108 threshold a typical bot had, so the
+	-- correction was discarded every frame and the bot drove parallel to
+	-- the line forever without ever rejoining it.
+	--
+	-- SteerSlew below already stops a bot flicking to full lock, which is
+	-- the realism this was reaching for, and it shapes the input instead
+	-- of throwing it away.
+	bot.heldSteer = seen
 
 	-- Slewed, not snapped. A bot that can flick to full lock in one frame
 	-- corners in a way no player can, which reads as cheating even though
@@ -705,11 +752,17 @@ local function drive(bot, dt: number)
 		c.touchThrottle *= 1 - math.clamp(caution * B.CautionLift, 0, B.CautionLiftMax)
 	end
 
-	-- Off the edge of the world beats every other consideration. Allowed
-	-- below MinCornerSpeed, which nothing else is: that floor exists so
-	-- bots don't crawl round corners, and it must not stop one from
-	-- slowing for a drop.
-	if (bot.ledgeFor or 0) > 0 then
+	-- A JUMP THE ROUTE CROSSES. Speed is what clears it, so every reason
+	-- to lift is overruled — including the corner-braking above, which
+	-- reads a ramp's approach as a bend and would take the pace off at
+	-- exactly the wrong moment.
+	if bot.jumping then
+		c.touchThrottle = math.max(c.touchThrottle, B.JumpThrottle)
+	elseif (bot.ledgeFor or 0) > 0 then
+		-- Off the edge of the world beats every other consideration.
+		-- Allowed below MinCornerSpeed, which nothing else is: that floor
+		-- exists so bots don't crawl round corners, and it must not stop
+		-- one slowing for a drop.
 		c.touchThrottle = math.min(c.touchThrottle, B.LedgeThrottle)
 	end
 
@@ -1254,6 +1307,9 @@ function BotService.fill()
 			-- rather than read per frame, or a bot skimming an edge
 			-- flickers between two lines and commits to neither.
 			ledgeFor = 0,
+			-- True while the route carries on across a gap ahead: a ramp,
+			-- not a cliff. Overrides every reason to lift.
+			jumping = false,
 			-- checkpoint index -> how much this bot has learned to distrust
 			-- that stretch. Per bot: it's a driver learning a circuit, not
 			-- a fact about the circuit.
