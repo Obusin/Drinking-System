@@ -132,6 +132,28 @@ failing — it was these working as written. Both now scale with how hard
 the bot is working, because people hold a straight and get untidy in
 corners, not the reverse.
 
+### Depenetration must use the nearest FACE, not the part's centre.
+`pos - part.Position` is fine for a crate and meaningless for anything
+large. A road slab or a track-surface zone can have its centre a hundred
+studs away, so the push becomes a fixed sideways shove that moving can
+never resolve — the kart keeps going that way at `Depenetrate` studs a
+second, forever.
+
+Correct version: transform the centre into the part's object space, and
+if it's genuinely inside, leave along the **shortest axis** — the real
+minimum-translation vector for a box. If the centre isn't inside the
+solid, skip entirely; the bounds query is conservative and reports boxes
+that merely touch, which is the sweep's job.
+
+Also clamp the step to the depth actually being resolved. A fixed rate
+can travel further in one frame than the penetration it's clearing,
+which is how a nudge becomes a launch.
+
+**Identical numbers across different actors are a signature.** Four bots
+each sliding *exactly* 159.1 studs was the clue that cracked it: a push
+of `dir.Unit * rate * dt` has the same magnitude whichever way it points,
+so anything measuring distance sees the same total for everyone.
+
 ### Two proportional terms with nothing watching the RATE always overshoot.
 They cross the line rather than arriving at it. Lowering the gains
 doesn't fix it — same fight, slower.
@@ -329,6 +351,18 @@ lines further down, where a nitro burn or boost pad sets the target
 I read that comment twice while hunting the bug and moved on both times.
 **When a comment claims a guarantee, go and check the code that would
 have to enforce it.**
+
+### Two reasoned fixes in a row that don't land means stop reasoning.
+"Bots move during the countdown" got two fixes derived by reading code —
+the anchoring/authority one and the boost-suppression one. Both were real
+bugs. Neither was *this* bug.
+
+The third attempt shipped a diagnostic instead: distance moved sideways
+while held, plus every value that could cause it (phase, speed, throttle,
+steer, grounded, boosting, burning). It named the cause on the first run.
+
+**The rule: after the second miss, stop inferring and go measure.** The
+diagnostic cost less than either failed fix.
 
 ### Diagnostics beat guessing, but a diagnostic can lie.
 The revive warning asserted "falling through the world, **not** driving
