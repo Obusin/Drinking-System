@@ -861,6 +861,22 @@ local function drive(bot, dt: number)
 			drifting = bot.u >= bot.driftPlan.entry and speed >= H.DriftExitSpeed
 		end
 	end
+	-- DON'T START A DRIFT AT THE EDGE OF ANYTHING.
+	--
+	-- Entering a drift means pressing drift, and in this game pressing
+	-- drift is a HOP — it sets vertVel and leaves the ground on purpose.
+	-- That's the mechanic, and it's fine in the middle of a corner. Do it
+	-- on a ramp lip or at the edge of a drop and the bot launches itself,
+	-- which is most of what "the bot still jumps" looks like.
+	--
+	-- Only initiation is blocked. A drift already in progress is left
+	-- alone: yanking a bot out of one mid-corner would spit it straight
+	-- off the outside of the bend, which is the thing being avoided.
+	local edgy = (bot.ledgeFor or 0) > 0 or bot.jumping or not sim.grounded
+	if edgy and not c.driftHeld then
+		drifting = false
+	end
+
 	if drifting and not c.driftHeld then
 		c._driftPress = true -- the hop, exactly as a keypress would
 	end

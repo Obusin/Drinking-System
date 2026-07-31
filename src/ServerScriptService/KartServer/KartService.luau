@@ -193,6 +193,18 @@ local function createKart(name: string, slot: number, player: any?): Model
 	)
 	local kart = KartFactory.build(KartFactory.colorFor(slot), wanted)
 	kart.Name = name
+	-- Who is driving, as text, for anything that has to SHOW it.
+	--
+	-- The results board resolved names through GetPlayerByUserId and fell
+	-- back to the literal string "Racer" when that returned nothing —
+	-- which was every bot. Now that bots can finish, a four-bot podium
+	-- read as four anonymous Racers.
+	--
+	-- An attribute rather than a lookup because the answer has to survive
+	-- on the client, where the bot's identity doesn't otherwise exist.
+	if player then
+		kart:SetAttribute(Names.RACER_NAME, player.Name)
+	end
 	kart:PivotTo(Placement.cframeFor(pad, slot))
 	kart.Parent = workspace
 	bindOwnership(kart, isBot(player))

@@ -29,6 +29,20 @@ Names.KART_TAG = "Kart"
 
 -- On a kart. Maps a model back to the player who owns it, which is how
 -- every system that starts from a kart finds the human.
+-- Set by KartFactory on every kart it builds, and by nothing else.
+--
+-- The Kart TAG says "this is kart-shaped" — art, a spare in Workspace, a
+-- model being worked on. This attribute says "somebody is racing this".
+-- They were the same question for a while, which made a kart parked on
+-- the spawn pad into a missile target, an obstacle for bot avoidance and
+-- an entry in the standings.
+Names.RACER = "IsRacer"
+
+-- Who is driving, as text. Players resolve through OWNER, but a bot has
+-- no UserId and no existence on the client at all, so anything that has
+-- to DISPLAY a name reads this instead of guessing.
+Names.RACER_NAME = "RacerName"
+
 Names.OWNER = "OwnerUserId"
 
 -- On a power-up box. Server-owned: set when collected, cleared when it

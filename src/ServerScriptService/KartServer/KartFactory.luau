@@ -253,6 +253,18 @@ function KartFactory.build(color: Color3?, visualName: string?): Model
 		end
 	end
 
+	-- MARKED AS A REAL ENTRANT, not merely as kart-shaped.
+	--
+	-- The tag alone was doing both jobs, and it can't. Anything tagged
+	-- Kart with a PrimaryPart counted as a racer, so a kart left sitting
+	-- in Workspace — an authored one being worked on, a spare on the
+	-- spawn pad — became a missile target, an obstacle bots steered
+	-- around, and a competitor in the standings. Nobody was driving it.
+	--
+	-- Set here rather than in KartService because this is the only place
+	-- a kart is ever built, so the marker cannot drift apart from the
+	-- tag. A model that didn't come through this function is scenery.
+	kart:SetAttribute(Names.RACER, true)
 	CollectionService:AddTag(kart, KartFactory.TAG)
 	return kart
 end

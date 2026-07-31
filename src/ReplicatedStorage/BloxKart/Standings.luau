@@ -43,11 +43,21 @@ Standings.REMOTE = "KartProgressReport"
 function Standings.allKarts(): { Model }
 	local out = {}
 	for _, k in CollectionService:GetTagged(Names.KART_TAG) do
-		-- PrimaryPart required: everything downstream reads a position off
-		-- it, and anything tagged Kart without one is a mis-tag rather
-		-- than a racer. Belt and braces against art that arrives carrying
-		-- the tag — see KartFactory.
-		if k:IsA("Model") and k.Parent and k.PrimaryPart then
+		-- Three things required, and the RACER attribute is the one that
+		-- matters most.
+		--
+		-- The tag says "kart-shaped". It does not say anybody is driving
+		-- it. A spare kart parked on the spawn pad, or art being worked
+		-- on in Workspace, carries the tag perfectly legitimately — and
+		-- used to arrive here as a racer, which made it a missile target,
+		-- something bots swerved around, and a competitor in the results.
+		--
+		-- Only KartFactory sets RACER, and it is the only thing that
+		-- builds a kart, so anything without it is scenery.
+		--
+		-- PrimaryPart stays as belt and braces: everything downstream
+		-- reads a position off it.
+		if k:IsA("Model") and k.Parent and k.PrimaryPart and k:GetAttribute(Names.RACER) then
 			table.insert(out, k)
 		end
 	end
