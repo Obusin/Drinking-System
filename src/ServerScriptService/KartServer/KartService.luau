@@ -103,11 +103,24 @@ end
 --=====================================================================
 --  OWNERSHIP
 --=====================================================================
-local function bindOwnership(kart: Model)
+-- `botKart` karts are excluded from the anchoring entirely.
+--
+-- This used to anchor the hitbox whenever the occupant wasn't a Player —
+-- which a bot's driver never is. So the instant a bot's rig sat down,
+-- this fired, found no player, and anchored the kart wherever it
+-- happened to be at that moment. Mid-air, usually. That was the floating.
+--
+-- The anchoring exists so an EMPTY kart sits still instead of drifting
+-- off. A bot's kart is never empty and never idle: BotService writes its
+-- CFrame every frame and owns its position outright.
+local function bindOwnership(kart: Model, botKart: boolean?)
 	local seat = kart:FindFirstChild("Seat") :: VehicleSeat
 	local hitbox = kart.PrimaryPart :: BasePart
 
 	seat:GetPropertyChangedSignal("Occupant"):Connect(function()
+		if botKart then
+			return
+		end
 		local occupant = seat.Occupant
 		local driver = occupant and Players:GetPlayerFromCharacter(occupant.Parent)
 
@@ -182,7 +195,7 @@ local function createKart(name: string, slot: number, player: any?): Model
 	kart.Name = name
 	kart:PivotTo(Placement.cframeFor(pad, slot))
 	kart.Parent = workspace
-	bindOwnership(kart)
+	bindOwnership(kart, isBot(player))
 	log("built %s at %s", kart.Name, tostring(kart:GetPivot().Position))
 	return kart
 end
@@ -285,20 +298,24 @@ function KartService.addBot(name: string): (any, Model)
 	local kart = createKart(name .. "_Kart", slot, racer)
 	karts[racer] = kart
 
-	-- ANCHORED, unlike a player's.
+	-- UNANCHORED, exactly like a player's, and for the same reason.
 	--
-	-- A player's kart is unanchored because their client OWNS it —
-	-- Roblox replicates an owned physics part smoothly. A bot has no
-	-- owner, so leaving it unanchored means the server writes its CFrame
-	-- while Roblox physics integrates the same part underneath, sixty
-	-- times a second. Those two fight, and the fight is visible as a
-	-- flicker.
+	-- Roblox interpolates a physics part between replication updates. It
+	-- does NOT interpolate an anchored part's CFrame — those arrive as
+	-- bare property updates about twenty times a second, which at racing
+	-- speed is six studs a step. That is the whole of why bots looked
+	-- jerky next to players: not a different movement system, the same
+	-- one delivered differently.
 	--
-	-- Anchored there is no physics to fight: the CFrame we write is the
-	-- only thing that moves it.
+	-- Anchoring was a fix for a flicker caused by stepping bots at 30Hz
+	-- against 60Hz physics — the server's write and the engine's
+	-- integration disagreeing every other frame. Bots step at 60 now, and
+	-- their velocity is written alongside their CFrame, so the engine
+	-- extrapolates along the path we're already taking instead of
+	-- fighting it.
 	local hitbox = kart.PrimaryPart
 	if hitbox then
-		hitbox.Anchored = true
+		hitbox.Anchored = false
 	end
 	return racer, kart
 end

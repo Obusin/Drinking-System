@@ -716,6 +716,14 @@ local function step(dt: number)
 			bot.controls.touchSteer = math.sin(now * B.IdleSteerRate * math.pi * 2) * B.IdleSteerAmount
 			bot.controls.driftHeld = false
 			bot.sim:Step(dt, bot.controls)
+			-- Zeroed explicitly. A parked kart with stale velocity on it
+			-- gets extrapolated away from where we keep putting it, which
+			-- reads as floating.
+			local hb = bot.kart.PrimaryPart
+			if hb then
+				hb.AssemblyLinearVelocity = Vector3.zero
+				hb.AssemblyAngularVelocity = Vector3.zero
+			end
 			bot.kart:SetAttribute(Names.STEER, bot.sim.steer)
 			bot.kart:SetAttribute(Names.DRIFT, bot.sim.driftAngle)
 			continue
@@ -768,8 +776,24 @@ local function step(dt: number)
 				bot.sim.speed,
 				bot.controls.touchThrottle,
 				bot.controls.touchSteer,
-				if bot.sim.grounded then "" else "AIRBORNE"
+				if bot.sim.grounded then "" else "AIRBORNE — no ground under it"
 			)
+		end
+
+		-- The velocity we ACTUALLY have, written every step.
+		--
+		-- This is what makes an unanchored server-driven kart replicate
+		-- smoothly instead of flickering: Roblox extrapolates a physics
+		-- part along its velocity between updates, so telling it the truth
+		-- means the extrapolation matches where we were going anyway, and
+		-- each correction is a few centimetres rather than a snap.
+		--
+		-- It also stops gravity accumulating between our CFrame writes,
+		-- which is what walked them into the floor the first time.
+		local hitbox = bot.kart.PrimaryPart
+		if hitbox then
+			hitbox.AssemblyLinearVelocity = bot.sim.travel * bot.sim.speed + bot.sim.up * bot.sim.vertVel
+			hitbox.AssemblyAngularVelocity = Vector3.zero
 		end
 
 		-- Progress, so bots appear in the standings and the missile's
