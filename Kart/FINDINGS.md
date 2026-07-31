@@ -415,6 +415,33 @@ I read that comment twice while hunting the bug and moved on both times.
 **When a comment claims a guarantee, go and check the code that would
 have to enforce it.**
 
+### A turn RATE implies a turning CIRCLE. Write it down before tuning.
+`Speed / HomingRate` is the tightest circle a homing projectile can fly.
+The missile shipped with `210 / 3.2` — a **66-stud circle** against a
+**7-stud kill radius**. It could not physically reach anything it wasn't
+already lined up on, so it flew past, turned around, and flew past
+again: the "goes back and forth instead of charging in" report.
+
+Measured across bearings 0–180° and ranges 15–60 studs: at 3.2, **11 of
+65 engagements never terminated**, and a target directly behind was
+missed by 60 studs. At 9 (a 23-stud circle) all 65 terminated.
+
+**But raising the rate is not the fix**, and the sweep proves it — even
+at 14 the worst case still logged 10 fly-bys. Pursuit steers at the
+target's *current* bearing, so the turn it needs tightens faster than any
+fixed rate can follow as range drops. No value removes this; higher
+rates only move the radius where it begins.
+
+**The fix is a proximity fuze.** When the range to the target stops
+closing, that instant *was* the closest approach — detonate there. Real
+missiles carry one for exactly this reason. It converts "orbits forever"
+into "near miss counts", which is both correct and better game feel.
+
+**Generalises:** any chase controller — missile, bot, camera — has a
+geometry limit that tuning cannot cross. Find the limit (turn radius,
+lag distance, deadband) and design a *terminator* for the case where it's
+exceeded, rather than tuning toward a value that cannot exist.
+
 ### Throttle is a GATE, not a dial. You cannot slow a kart with it.
 ```lua
 elseif throttle > 0.05 then target, rate = H.MaxSpeed, H.Accel * powerBand
