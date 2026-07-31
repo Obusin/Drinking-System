@@ -283,6 +283,19 @@ announcements, and the ready-skip (which compared ready-count against
 **Test for it:** anywhere the code says "the player who owns this kart",
 ask what happens when there isn't one.
 
+The worst instance: **bots could not finish a race.** Finishing was
+reachable through exactly one door — the client's `FINISH_REMOTE` — and a
+bot has no client. So however fast one drove it never crossed the line,
+never took a place, and never counted toward "everyone's in". The round
+always ran to the time limit and the board could only list humans. Fixed
+by splitting `finishKart(kart, …)` from the two thin routes into it, so a
+bot's win is literally the same object as yours.
+
+**Corollary:** when you split a path like that, the validation belongs on
+the *client* route, not the shared function. The server calling it for a
+bot is trusted by construction; leaving a "TODO: validate" in the shared
+half implies the server doesn't trust itself.
+
 ---
 
 # 7. Method notes
@@ -321,11 +334,29 @@ priority order.
 
 ### Smoothness
 Not yet good enough. `RemoteKarts` interpolation is in but unproven under
-load. Open questions:
+load.
+
+**Know which knob does what**, because this was got wrong once already:
+
+| knob | affects |
+|---|---|
+| `Bots.StepRate` | integration accuracy. **Not smoothness.** |
+| `Rig.RemoteSmoothing` | what you actually see |
+
+Bot position replicates at roughly 20Hz *regardless* of `StepRate`, and
+what a client renders is `RemoteKarts` interpolating between those
+updates at its own frame rate. Raising `StepRate` to chase smoothness
+buys raycast load and nothing visible.
+
+Also: an accumulator that fires at most once per Heartbeat **silently
+caps `StepRate` at 60** — 75 and 60 ran identically for a while. It
+sub-steps properly now, with `MaxSubSteps` guarding the hitch spiral.
+
+Open questions:
 - Does `RemoteSmoothing = 14` hold up with 4 bots and a human?
 - Does `RemoteSnapDistance = 30` ever mis-fire mid-race and cause a jump?
-- Is server `StepRate = 60` for 4 bots sustainable, or does it need to
-  drop with a matching interpolation change?
+- Is `StepRate = 75` (≈25% more raycasts than 60) still fine at a full
+  grid of eight? Watch server frame time, not the visuals.
 
 ### Boosts / nitro
 Bot nitro logic **is** wired (`BotService.luau:836`: spends when
