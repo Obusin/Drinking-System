@@ -50,6 +50,7 @@ function Transition.new()
 	local band = Instance.new("Frame")
 	band.Name = "Band"
 	band.BackgroundColor3 = R.WipeColor
+	band.BackgroundTransparency = R.WipeBandTransparency
 	band.BorderSizePixel = 0
 	band.AnchorPoint = Vector2.new(0.5, 0.5)
 	band.Size = UDim2.fromScale(2.4, 3)
@@ -62,6 +63,8 @@ function Transition.new()
 	-- at 14 degrees reads as a mistake rather than as style.
 	local mark = Instance.new("ImageLabel")
 	mark.Name = "Mark"
+	-- No plate behind the art. An ImageLabel defaults to a solid white
+	-- box, which reads as a border around a transparent PNG.
 	mark.BackgroundTransparency = 1
 	mark.AnchorPoint = Vector2.new(0.5, 0.5)
 	mark.Position = UDim2.fromScale(0.5, 0.5)

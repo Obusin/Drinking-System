@@ -155,7 +155,7 @@ function QuestHud:_section(layer: string, order: number)
 	rowList.SortOrder = Enum.SortOrder.LayoutOrder
 	rowList.Parent = rows
 
-	section = { frame = frame, title = title, rows = rows, pool = {}, endsAt = 0 }
+	section = { frame = frame, title = title, rows = rows, pool = {}, conns = {}, endsAt = 0 }
 	self.sections[layer] = section
 	return section
 end
@@ -277,12 +277,19 @@ function QuestHud:Apply(snap)
 			-- Rebound every apply, because the slot a row shows can
 			-- change. A connection made once would claim whatever quest
 			-- happened to be in that row when the panel was built.
-			if row._conn then
-				row._conn:Disconnect()
+			--
+			-- HELD IN A SIDE TABLE, NOT ON THE INSTANCE. Roblox objects
+			-- reject unknown fields — `row._conn = ...` throws "not a
+			-- valid member of TextButton" — so anything we want to
+			-- remember about an instance lives beside it.
+			local existing = section.conns[i]
+			if existing then
+				existing:Disconnect()
 			end
 			local slot, layerName = quest.slot, layer
-			row._conn = row.Activated:Connect(function()
-				if self.remote and quest.done and not quest.claimed then
+			local canClaim = quest.done and not quest.claimed
+			section.conns[i] = row.Activated:Connect(function()
+				if self.remote and canClaim then
 					self.remote:FireServer("claim", layerName, slot)
 				end
 			end)
