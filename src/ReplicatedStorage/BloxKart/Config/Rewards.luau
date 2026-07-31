@@ -103,7 +103,7 @@ return {
 	-- Kept UPRIGHT while the band is angled — a logo rotated 14 degrees
 	-- reads as a mistake, not as style.
 	WipeImage = "rbxassetid://97017994154540",
-	WipeImageSize = 320, -- pixels on the long edge
+	WipeImageSize = 560, -- pixels on the long edge
 	-- Held briefly at full cover so the mark is legible rather than
 	-- glimpsed. Costs this much on top of WipeTime.
 	WipeImageHold = 0.18,
