@@ -57,8 +57,27 @@ end
 --=====================================================================
 --  VISUAL
 --=====================================================================
+-- The authored rocket, if the server published one. Nil means draw the
+-- plain part instead, which is a missile that looks basic rather than a
+-- missile that doesn't appear.
+local function rocketTemplate(): Instance?
+	if IT.ProjectileModel == "" then
+		return nil
+	end
+	local assets = ReplicatedStorage:FindFirstChild("Assets")
+	return assets and assets:FindFirstChild(IT.ProjectileModel)
+end
+
 local function makePart(item): BasePart
 	local spec = item.Projectile
+
+	-- THE ROOT IS ALWAYS A PLAIN PART, and the art hangs off it.
+	--
+	-- Everything downstream moves the missile by writing one CFrame, in
+	-- three separate places. Returning a Model would mean teaching all of
+	-- them about PivotTo, and PivotTo walks every part in the model every
+	-- frame. A welded root is one CFrame write however many pieces the
+	-- rocket has, and it keeps this function's contract unchanged.
 	local part = Instance.new("Part")
 	part.Name = item.Id .. "Visual"
 	part.Size = spec.Size
@@ -72,7 +91,70 @@ local function makePart(item): BasePart
 	part.CanTouch = false
 	part.CastShadow = false
 	part.Parent = container()
+
+	local template = rocketTemplate()
+	if not template then
+		return part
+	end
+
+	-- With art on it the root becomes an invisible handle. Its size still
+	-- matters — Ballistics knows nothing about the model — so it stays
+	-- exactly as it was and simply stops being drawn.
+	part.Transparency = 1
+
+	local art = template:Clone()
+	art.Name = "Art"
+
+	-- Pose the art on the root BEFORE welding, or the weld freezes it
+	-- wherever the template happened to sit.
+	-- Offset corrects the model's authored facing against lookAt's -Z
+	-- forward. Art only; the flight path never sees it.
+	local pose = part.CFrame * IT.ProjectileModelOffset
+	if art:IsA("Model") then
+		art:PivotTo(pose)
+	elseif art:IsA("BasePart") then
+		art.CFrame = pose
+	end
+	art.Parent = part
+
+	local pieces = if art:IsA("BasePart") then { art } else {}
+	for _, d in art:GetDescendants() do
+		if d:IsA("BasePart") then
+			table.insert(pieces, d)
+		end
+	end
+
+	for _, d in pieces do
+		-- UNANCHORED AND WELDED, not anchored. An anchored part ignores
+		-- welds, so an anchored rocket would hang at the launch point
+		-- while the root flew off without it.
+		d.Anchored = false
+		d.Massless = true
+		-- Inert, all of it. This is scenery moving at 200 studs/s through
+		-- a world full of raycasts: a queryable rocket reads as a wall to
+		-- a kart's sweep and as an obstruction to the camera.
+		d.CanCollide = false
+		d.CanQuery = false
+		d.CanTouch = false
+		d.CastShadow = false
+
+		local weld = Instance.new("WeldConstraint")
+		weld.Part0, weld.Part1 = part, d
+		weld.Parent = part
+	end
+
 	return part
+end
+
+-- The drawn CFrame: where the server says it is, rolled about its own
+-- nose.
+--
+-- PURELY COSMETIC, and it has to be. The server owns where a missile
+-- goes; this rotates the picture around the direction of travel and
+-- feeds nothing back. A lookAt CFrame's forward is -Z, so rolling about
+-- the nose is a rotation about Z.
+local function drawnCF(p): CFrame
+	return Ballistics.cframe(p) * CFrame.Angles(0, 0, p.spin or 0)
 end
 
 -- Where the target is. Trivial now that a Target is only a position —
@@ -217,8 +299,11 @@ local function onLaunch(msg)
 		way = msg.way,
 		shooter = msg.shooter,
 		part = makePart(item),
+		-- Radians of roll, accumulated per frame. Rolled at spawn so two
+		-- missiles in the air are never in phase with each other.
+		spin = math.random() * math.pi * 2,
 	}
-	state.part.CFrame = Ballistics.cframe(state)
+	state.part.CFrame = drawnCF(state)
 	live[msg.uid] = state
 	if IT.ProjectileDebug then
 		showNodes()
@@ -254,7 +339,7 @@ local function onGone(msg)
 		-- explosion doesn't appear a few studs off.
 		p.pos = msg.pos
 		if p.part then
-			p.part.CFrame = Ballistics.cframe(p)
+			p.part.CFrame = drawnCF(p)
 		end
 	end
 	destroy(msg.uid)
@@ -291,7 +376,10 @@ local function step(dt: number)
 				end
 			end
 
-			p.part.CFrame = Ballistics.cframe(p)
+			-- Advanced by dt, so the roll is the same speed on every
+			-- machine regardless of frame rate.
+			p.spin = (p.spin or 0) + math.rad(IT.ProjectileSpin) * dt
+			p.part.CFrame = drawnCF(p)
 
 			if IT.ProjectileDebug then
 				updateDebug(p)

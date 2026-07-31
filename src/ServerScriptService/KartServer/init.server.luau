@@ -23,6 +23,7 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local WorldFilter = require(ReplicatedStorage.BloxKart.WorldFilter)
+local Assets = require(script.Assets)
 local KartService = require(script.KartService)
 local MatchService = require(script.MatchService)
 local RaceService = require(script.RaceService)
@@ -42,6 +43,13 @@ local BotService = require(script.BotService)
 -- they were only ever going to behave differently where the world they
 -- were shown differed.
 WorldFilter.start()
+
+-- BEFORE ANY CLIENT CAN DRAW. Copies the authored rocket out of
+-- ServerStorage into ReplicatedStorage, because ServerStorage is
+-- server-only and missiles are drawn by each client locally. A client
+-- that loads before this simply gets the fallback part for its first
+-- missile, so earlier is better and this is as early as it gets.
+Assets.start()
 
 KartService.start()
 -- After KartService: MatchService counts the karts it owns to decide

@@ -74,6 +74,44 @@ return {
 	-- just the coloured part its Hazard spec describes.
 	HazardModelFolder = "Powerups",
 
+	-- Authored rocket for the missile, by Model name in ServerStorage.
+	--
+	-- COPIED TO ReplicatedStorage AT STARTUP by KartServer/Assets, because
+	-- missiles are drawn by each client locally and ServerStorage is
+	-- server-only. Put the model in ServerStorage as normal; the server
+	-- publishes it.
+	--
+	-- "" or a missing model falls back to the plain neon part below, so a
+	-- missing asset is a missile that looks basic rather than one that
+	-- doesn't appear.
+	--
+	-- The model should be art only: no scripts, and every part
+	-- non-collidable. Both are enforced anyway — scripts are stripped on
+	-- publish, and the client forces the parts inert — but a model that
+	-- already obeys is one less surprise.
+	ProjectileModel = "Rocket",
+
+	-- Roll about its own nose, degrees per second. Nothing reads this but
+	-- the visual: it does not steer, and it cannot, because the server
+	-- owns where a missile goes.
+	ProjectileSpin = 420,
+
+	-- Corrects the model's authored facing.
+	--
+	-- The missile is drawn with CFrame.lookAt, whose forward is -Z. A
+	-- model built nose-along-+Z, or nose-up, or lying on its side, will
+	-- fly sideways with no offset — and that reads as a bug rather than
+	-- as a modelling convention.
+	--
+	-- Applied to the ART ONLY, never to the flight path. Rotating this
+	-- cannot change where a missile goes.
+	--
+	--   nose along -Z (matches lookAt)  CFrame.identity
+	--   nose along +Z                   CFrame.Angles(0, math.pi, 0)
+	--   nose along +X                   CFrame.Angles(0, -math.pi / 2, 0)
+	--   nose pointing up                CFrame.Angles(-math.pi / 2, 0, 0)
+	ProjectileModelOffset = CFrame.identity,
+
 	--== DROPPED ITEMS =================================================
 	-- Getting spun scatters your stack onto the track instead of deleting
 	-- it. Someone else can pick it up — including the person who hit you,
