@@ -442,6 +442,20 @@ return {
 	-- studs is already a bug. Always on, not behind Debug.
 	HeldSlideWarn = 2,
 
+	-- Studs/second of upward motion before the server reports WHY.
+	--
+	-- A kart can rise two ways and they need opposite fixes. vertVel is a
+	-- real velocity that gravity subtracts from every step, so it always
+	-- arcs over. A tilted `up` is different: `travel` is perpendicular to
+	-- `up`, so if up isn't vertical then `travel * speed` has an upward
+	-- component that gravity NEVER touches, and the kart climbs forever.
+	--
+	-- The warning splits the rise between the two and prints how far off
+	-- vertical `up` is, which is the whole question.
+	--
+	-- Above a normal hop (HopSpeed is 18) so ordinary drifting is quiet.
+	RiseWarn = 22,
+
 	-- WHAT THE COLOURS MEAN
 	--
 	--   blue balls    your checkpoints, dropped onto the road

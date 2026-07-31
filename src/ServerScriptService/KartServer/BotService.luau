@@ -1231,6 +1231,45 @@ local function step(dt: number)
 			bot.heldAt, bot.heldSlide = nil, 0
 		end
 
+		--------------------------------------------------------------
+		-- WHY IS IT GOING UP?
+		--
+		-- There are exactly two ways a kart can rise, and they need
+		-- completely different fixes, so the useful thing to report is
+		-- which one it is:
+		--
+		--   vertVel      a real upward velocity. Gravity subtracts from
+		--                this every step, so it always arcs over. If a
+		--                kart rises on THIS, it will come back down.
+		--
+		--   tilted up    `travel` is perpendicular to `up`, so if `up`
+		--                is not world-up then `travel * speed` has a
+		--                world-vertical component. Gravity never touches
+		--                that term. A kart rising on THIS climbs forever
+		--                and never drops.
+		--
+		-- Both look identical from a chase camera. The numbers don't.
+		--------------------------------------------------------------
+		local sim = bot.sim
+		local fromTravel = (sim.travel * sim.speed).Y
+		local fromVert = (sim.up * sim.vertVel).Y
+		if fromTravel + fromVert > B.RiseWarn and now - (bot.riseWarnAt or 0) > 2 then
+			bot.riseWarnAt = now
+			warn(
+				("[BotService] %s is RISING at %.1f studs/s — %.1f from travel (up is %.1f deg off vertical), %.1f from vertVel %.1f. grounded %s, speed %.1f, spinning %s"):format(
+					bot.name,
+					fromTravel + fromVert,
+					fromTravel,
+					math.deg(math.acos(math.clamp(sim.up.Y, -1, 1))),
+					fromVert,
+					sim.vertVel,
+					tostring(sim.grounded),
+					sim.speed,
+					tostring(os.clock() < (sim.spinUntil or 0))
+				)
+			)
+		end
+
 		-- Let go of everything while held. drive() is the only thing that
 		-- writes these and it doesn't run outside Racing, so otherwise a
 		-- bot sits on the grid still holding last lap's full throttle.
