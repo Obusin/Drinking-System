@@ -12,7 +12,14 @@
 
 return {
 	-- The gate. See above — this is not a convenience toggle.
-	Enabled = false,
+	--
+	-- ON as of 2026-08-01. Safe in Studio, which forces ProfileStore's
+	-- mock store regardless of this flag, so nothing here can touch a
+	-- real profile. The caution above applies the moment this runs on a
+	-- PUBLISHED server: the client is still authoritative on finish time
+	-- and upward progress, so a saved balance is only as honest as the
+	-- client that produced it.
+	Enabled = true,
 
 	-- Store name. The `_v1` is a HARD RESET marker, not a migration
 	-- path: changing it abandons every existing profile. Migration is
