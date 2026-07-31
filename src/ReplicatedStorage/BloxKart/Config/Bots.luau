@@ -68,6 +68,36 @@ return {
 	SkillMin = 0.45,
 	SkillMax = 0.92,
 
+	--== CRUISE — the "I can't even chase it" dial =====================
+	-- The speed a bot settles at on a straight, as a fraction of
+	-- Handling.MaxSpeed. Worst-skill bot gets CruiseMin, best gets
+	-- CruiseMax. THIS IS THE KNOB for how catchable they are.
+	--
+	-- It works as a LIFT, not as a reduced throttle, because Simulation
+	-- reads throttle as a gate rather than a dial:
+	--
+	--     elseif throttle > 0.05 then target = H.MaxSpeed
+	--
+	-- Any throttle at all targets full speed, so scaling throttle down
+	-- does nothing at all until it crosses 0.05 and then does everything.
+	-- There is no middle, which is why "just make the bots use less
+	-- throttle" cannot work. Above cruise they come off the power and
+	-- coast; below it they get back on.
+	--
+	-- It limits the DRIVER, not the kart. Grip, top speed, turn rate and
+	-- acceleration are identical to yours — a bot simply chooses not to
+	-- use all of it, the same way it already lifts early for corners. So
+	-- a bot still cannot do anything you couldn't, and you catch one by
+	-- carrying more speed rather than by waiting for a handicap.
+	--
+	-- At MaxSpeed 95 these are about 74 and 85 studs/s, against your 95.
+	CruiseMin = 0.78,
+	CruiseMax = 0.90,
+
+	-- Fraction of cruise below which full power comes back. Stops a bot
+	-- chattering on the threshold; it settles into a speed instead.
+	CruiseBand = 0.94,
+
 	-- Drivers. NOTHING TO SET UP: without a model of this name in
 	-- ServerStorage, Roblox builds a default R15 rig and that gets sat in
 	-- the seat instead.

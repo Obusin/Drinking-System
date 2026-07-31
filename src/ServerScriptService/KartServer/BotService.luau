@@ -784,6 +784,41 @@ local function drive(bot, dt: number)
 		c.touchThrottle = math.min(c.touchThrottle, B.LedgeThrottle)
 	end
 
+	----------------------------------------------------------------
+	-- CRUISE — how fast this bot is actually willing to go.
+	--
+	-- THE ONE THAT MAKES THEM CATCHABLE, and it has to be done as a LIFT
+	-- rather than as a smaller throttle. Simulation reads throttle as a
+	-- gate, not a dial:
+	--
+	--     elseif throttle > 0.05 then target = H.MaxSpeed
+	--
+	-- Any throttle at all targets full speed. So scaling touchThrottle
+	-- down — the obvious way to make a bot slower — changes nothing
+	-- whatsoever until it crosses 0.05, at which point it changes
+	-- everything. There is no middle.
+	--
+	-- A slower driver doesn't hold a smaller throttle anyway. They get to
+	-- their pace and then feather it, which is exactly this: off the
+	-- power above `cruise`, back on below it. CoastRate is gentle, so it
+	-- reads as a driver holding a speed rather than as stuttering, and it
+	-- gives the throttle trace the on/off texture a real one has.
+	--
+	-- A small band underneath, so it settles into a cruise instead of
+	-- chattering on the threshold every frame.
+	--
+	-- Nitro deliberately still overrides this: a burn sets the speed
+	-- target directly and bypasses throttle entirely, so a bot on boost
+	-- goes properly quick — same as you.
+	----------------------------------------------------------------
+	if speed > bot.cruise then
+		c.touchThrottle = 0
+	elseif speed > bot.cruise * B.CruiseBand then
+		-- In the band: hold whatever was decided, don't re-apply full
+		-- power just for dipping a fraction under.
+		c.touchThrottle = math.min(c.touchThrottle, B.MinCornerSpeed)
+	end
+
 	drawDebug(bot, aim, bend)
 
 	----------------------------------------------------------------
@@ -1331,6 +1366,9 @@ function BotService.fill()
 			break
 		end
 
+		-- Rolled before the table, so cruise can be derived from it.
+		local skill = rng:NextNumber(B.SkillMin, B.SkillMax)
+
 		local bot = {
 			name = name,
 			racer = racer,
@@ -1339,7 +1377,11 @@ function BotService.fill()
 			controls = bindControls(newControls()),
 			-- One roll, and it scales everything. A low-skill bot is a
 			-- worse driver, not a slower one.
-			skill = rng:NextNumber(B.SkillMin, B.SkillMax),
+			skill = skill,
+			-- The speed it settles at on a straight, in studs/s. A limit
+			-- on the DRIVER — see the cruise block in drive() — not on the
+			-- kart, which is identical to yours and always will be.
+			cruise = Config.Handling.MaxSpeed * (B.CruiseMin + (B.CruiseMax - B.CruiseMin) * skill),
 			-- A fixed bias plus wander, so two bots don't drive the same
 			-- line and sit inside each other down a straight.
 			lineBias = rng:NextNumber(-1, 1) * B.LineOffset,
