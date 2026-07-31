@@ -163,6 +163,14 @@ return {
 	-- outside the kart group. Delayed because art streams in.
 	CollisionAuditDelay = 6,
 
+	-- Seconds between checks for one kart actually sitting inside
+	-- another. Names the offending part, whether it is collidable, whether
+	-- it is queryable, and which group it is in.
+	--
+	-- On while this is being chased. Set to 0 to stop it: it is a
+	-- diagnostic, not a mechanic, and it queries once per kart per tick.
+	OverlapAuditRate = 2,
+
 	-- Steering wheel. Built so the hands have something to grab; the
 	-- Rider module spins it and solves the arms onto it. If your
 	-- KartVisual already contains a part named "SteeringWheel", that

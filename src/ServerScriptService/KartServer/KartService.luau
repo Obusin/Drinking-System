@@ -127,6 +127,51 @@ function KartService.auditCollisions()
 	return bad
 end
 
+-- Names anything actually inside a kart's hitbox that a kart could hit.
+--
+-- The static audit above answers "is anything set up wrong". This
+-- answers the question that was actually being asked: WHAT is touching
+-- me right now. Two rounds of reasoning said karts cannot collide —
+-- anchored hitboxes, CanCollide off, every kart in one non-collidable
+-- group, the whole lot excluded from each other's movement queries — and
+-- the report kept coming back that they do.
+--
+-- When the reasoning and the report disagree, the reasoning is missing
+-- a case. This finds it by looking rather than arguing: a query with NO
+-- filter at all, so nothing can hide behind the same exclusion list that
+-- might be the thing at fault.
+function KartService.auditOverlaps()
+	local params = OverlapParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.MaxParts = 12
+
+	for racer, kart in karts do
+		local hitbox = kart.PrimaryPart
+		if not hitbox then
+			continue
+		end
+		-- Exclude only OUR OWN kart, so anything else that turns up is by
+		-- definition something we could hit.
+		params.FilterDescendantsInstances = { kart }
+		for _, part in workspace:GetPartBoundsInBox(hitbox.CFrame, hitbox.Size, params) do
+			local other = part:FindFirstAncestorWhichIsA("Model")
+			-- Only report things belonging to another RACER. Scenery
+			-- overlapping a hitbox is normal and is what the sweep is for.
+			if other and CollectionService:HasTag(other, KartFactory.TAG) then
+				warn(
+					("[KartService] %s is inside %s — collide %s, query %s, group %q. This is what makes karts touch."):format(
+						tostring(racer.Name),
+						part:GetFullName(),
+						tostring(part.CanCollide),
+						tostring(part.CanQuery),
+						part.CollisionGroup
+					)
+				)
+			end
+		end
+	end
+end
+
 -- A seated racer's limbs are still collidable, so two karts passing
 -- close would knock their drivers together. Move the whole character
 -- into the kart group while they're aboard.
@@ -568,6 +613,18 @@ function KartService.start()
 	-- Delayed: karts, bots and their art all stream in, and auditing on
 	-- the first frame reports a world that isn't built yet.
 	task.delay(RIG.CollisionAuditDelay, KartService.auditCollisions)
+
+	-- Repeated, because an overlap is a moment rather than a state: it
+	-- has to be looked for while karts are actually racing past each
+	-- other, not once at startup when they are parked on a grid.
+	task.spawn(function()
+		while true do
+			task.wait(RIG.OverlapAuditRate)
+			if RIG.OverlapAuditRate > 0 then
+				KartService.auditOverlaps()
+			end
+		end
+	end)
 
 	RunService.Heartbeat:Connect(function()
 		-- Only ever non-nil in TestMode now, so this rebuild can't

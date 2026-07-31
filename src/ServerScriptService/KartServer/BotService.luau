@@ -1797,7 +1797,23 @@ function BotService.seatRig(bot)
 			end
 		end
 
-		rig.Parent = workspace
+		-- PARENTED UNDER THE KART, not into workspace.
+		--
+		-- WorldFilter excludes two things from every kart's movement
+		-- queries: models tagged Kart, and the characters of actual
+		-- Players. A bot's rig was neither — it sat loose in workspace, so
+		-- the only thing keeping it out of everyone's collision sweeps was
+		-- the CanQuery pass below.
+		--
+		-- That pass runs once, over the descendants that exist at that
+		-- moment. Anything appearing afterwards — an accessory still
+		-- loading, a part Sit creates — never gets it, and a single
+		-- queryable limb is a solid obstacle to every kart on the track.
+		-- "I collide with the bots" is exactly what that looks like.
+		--
+		-- Under the kart it inherits the kart's own exclusion, for every
+		-- part it will ever have, without anything having to remember.
+		rig.Parent = bot.kart
 		-- Placed ON the seat before sitting. Sat immediately rather than
 		-- deferred: a deferred Sit gives an unanchored rig a frame to fall,
 		-- and Sit on something already falling can miss.
