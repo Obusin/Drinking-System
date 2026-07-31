@@ -180,7 +180,7 @@ return {
 	-- Prints the checkpoint table to Output once at startup: how many
 	-- parts, what order each resolved to, and a loud warning if they all
 	-- collapsed into one. Leave it on while building a track.
-	Debug = true,
+	Debug = false,
 
 	-- Placeholder convenience: with no RaceStart tagged anywhere, start
 	-- the clock as soon as you're moving, so the HUD can be tested

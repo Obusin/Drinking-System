@@ -65,6 +65,6 @@ return {
 	-- principles — it was tested.
 	ElbowPole = Vector3.new(1.15, 1.35, 1.0),
 
-	Debug = true, -- report in Output why the IK is idle. Turn off once
+	Debug = false, -- report in Output why the IK is idle. Turn off once
 	-- the hands are on the wheel.
 }

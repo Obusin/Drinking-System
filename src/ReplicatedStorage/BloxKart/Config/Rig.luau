@@ -184,7 +184,7 @@ return {
 	--
 	-- On while this is being chased. Set to 0 to stop it: it is a
 	-- diagnostic, not a mechanic, and it queries once per kart per tick.
-	OverlapAuditRate = 2,
+	OverlapAuditRate = 0,
 
 	-- Steering wheel. Built so the hands have something to grab; the
 	-- Rider module spins it and solves the arms onto it. If your
@@ -231,5 +231,5 @@ return {
 	SeatDelay = 0.2, -- let the character assemble before Sit()
 	ReseatDelay = 0.1, -- grace before shoving an escapee back in
 
-	Debug = true, -- trace spawning to Output
+	Debug = false, -- trace spawning to Output
 }

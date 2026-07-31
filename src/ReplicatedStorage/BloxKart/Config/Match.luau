@@ -82,5 +82,5 @@ return {
 	-- a field of eight.
 	ResultsSelfColor = Color3.fromRGB(120, 255, 170),
 
-	Debug = true,
+	Debug = false,
 }

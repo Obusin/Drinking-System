@@ -169,7 +169,7 @@ return {
 	-- died.
 	--
 	-- On while there's still a missile bug to find; off for players.
-	ProjectileDebug = true,
+	ProjectileDebug = false,
 	ProjectileDebugWidth = 0.35,
 	ProjectileDebugRoute = Color3.fromRGB(80, 220, 120),
 	ProjectileDebugHome = Color3.fromRGB(255, 90, 90),
@@ -266,7 +266,7 @@ return {
 	-- reading the code, and reading it again is not going to settle it.
 	-- The give-up warning fires regardless of this flag: an item that
 	-- never finds ground leaves no other trace at all.
-	ThrowDebug = true,
+	ThrowDebug = false,
 
 	--== LANDING CUE ==================================================
 	-- A ring that expands and fades where a thrown hazard plants itself.

@@ -526,5 +526,5 @@ return {
 	--
 	-- Cheap enough to leave on while testing; turn it off before anyone
 	-- else plays, because everything it draws is a real part.
-	Debug = true,
+	Debug = false,
 }
