@@ -323,6 +323,10 @@ function Items:Update(sim, input): { [string]: any }
 				events[if landed then "hit" else "blocked"] = {
 					hazard = true,
 					note = item.HitNote or 1,
+					-- Named, so a hazard can have its own hit sound the same
+					-- way a relayed item does. Nothing has one yet; without
+					-- this, nothing ever could without a second mechanism.
+					item = item.Id,
 				}
 				if landed then
 					self:_dropAll(events, sim)

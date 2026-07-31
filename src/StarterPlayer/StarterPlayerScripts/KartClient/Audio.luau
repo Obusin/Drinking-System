@@ -93,6 +93,23 @@ function Audio.new(hitbox: BasePart)
 		)
 	end
 
+	-- Being hit. One generic thump for the spin, plus an optional
+	-- per-item layer on top; see Audio:PlayHit.
+	local hit = make({
+		Name = "_Hit",
+		SoundId = A.HitSoundId,
+		Volume = A.HitSoundVolume,
+		RollOffMaxDistance = 220,
+	})
+	-- SoundId is set at play time, because it depends on which item
+	-- landed. One instance rather than one per item: only one hit can be
+	-- arriving at a time, and swapping the id is free.
+	local itemHit = make({
+		Name = "_ItemHit",
+		Volume = A.ItemHitVolume,
+		RollOffMaxDistance = 260,
+	})
+
 	return setmetatable({
 		created = created,
 		boost = boost,
@@ -100,6 +117,8 @@ function Audio.new(hitbox: BasePart)
 		screech = screech,
 		tick = tick,
 		pickup = pickup,
+		hit = hit,
+		itemHit = itemHit,
 		notes = notes,
 		noteIndex = 0,
 	}, Audio)
@@ -110,6 +129,25 @@ end
 function Audio:PlayTick()
 	if self.tick.SoundId ~= "" then
 		self.tick:Play()
+	end
+end
+
+-- Something landed on you. `itemId` is optional and only decides
+-- whether a second, item-specific layer plays over the top.
+--
+-- Two sounds rather than one lookup with a fallback: the thump is what
+-- being spun FEELS like and should be identical every time, while the
+-- item layer is what tells you WHAT hit you. Replacing the first with
+-- the second would make a missile and a banana feel like different
+-- amounts of trouble when they are the same amount.
+function Audio:PlayHit(itemId: string?)
+	if self.hit.SoundId ~= "" then
+		self.hit:Play()
+	end
+	local layer = itemId and A.ItemHitIds[itemId]
+	if layer and layer ~= "" then
+		self.itemHit.SoundId = layer
+		self.itemHit:Play()
 	end
 end
 

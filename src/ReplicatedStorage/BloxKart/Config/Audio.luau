@@ -43,6 +43,25 @@ return {
 	-- steps between pitches sounds like a broken sample
 
 	--== PICKUP ========================================================
+	--== BEING HIT ====================================================
+	-- Played whenever something lands on you and spins you, whatever it
+	-- was. Getting hit is one event to the player — the kart is gone from
+	-- under them — so it gets one sound, and the item on top of it says
+	-- WHICH thing did it.
+	HitSoundId = "rbxassetid://85376004233635", -- spun out
+	HitSoundVolume = 0.9,
+
+	-- Per-item, layered OVER the generic one. A missile arriving should
+	-- sound like a missile arriving, not like a banana.
+	--
+	-- Keyed by item Id, so adding a sound for a new item is one line here
+	-- and nothing anywhere else. An item with no entry simply gets the
+	-- generic hit and is none the worse for it.
+	ItemHitIds = {
+		Missile = "rbxassetid://122840050680240", -- explosion
+	},
+	ItemHitVolume = 1,
+
 	PickupSoundId = "rbxassetid://117570443671176", -- roulette lands
 	PickupVolume = 0.85,
 	-- One click per name the roulette cycles past. A single Sound is

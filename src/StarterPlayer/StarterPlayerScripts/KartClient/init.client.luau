@@ -294,12 +294,14 @@ local function step(dt: number)
 	end
 	if itemEvents.hit then
 		camera:BoostPunch(1)
+		-- The thump of being spun, plus an item layer over it when there
+		-- is one. `item` is only present on hits relayed by the server —
+		-- a hazard you drove into names itself through `note` instead.
+		audio:PlayHit(itemEvents.hit.item)
 		-- Hazards carry their own note so oil and mines sound different
 		-- without needing separate sound assets.
 		if itemEvents.hit.note then
 			audio:PlayTierNote(itemEvents.hit.note)
-		else
-			audio:Boost(1)
 		end
 	end
 	if itemEvents.dropped then
