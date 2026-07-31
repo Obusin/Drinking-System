@@ -37,11 +37,11 @@ local L = Config.Level
 
 local Progress = {}
 
--- userId -> { xp, bolt, hits, takedowns, eliminations, races }
+-- userId -> { xp, bolt, hits, takedowns, eliminations, races, stats }
 local state: { [number]: any } = {}
 
 local function blank()
-	return { xp = 0, bolt = 0, hits = 0, takedowns = 0, eliminations = 0, races = 0 }
+	return { xp = 0, bolt = 0, hits = 0, takedowns = 0, eliminations = 0, races = 0, stats = {} }
 end
 
 local function entry(userId: number)
@@ -132,8 +132,10 @@ function Progress.hit(player: Player?, takedown: boolean)
 	end
 	local e = entry(player.UserId)
 	e.hits += 1
+	Progress.count(player, "hits")
 	if takedown then
 		e.takedowns += 1
+		Progress.count(player, "takedowns")
 		Progress.award(player, L.XpPerTakedown, "takedown")
 	else
 		Progress.award(player, L.XpPerHit, "hit")
@@ -147,15 +149,103 @@ function Progress.eliminated(player: Player?)
 		return
 	end
 	entry(player.UserId).eliminations += 1
+	Progress.count(player, "eliminations")
 	Progress.award(player, L.XpPerElimination, "elimination")
 end
 
-function Progress.finished(player: Player?, place: number)
+-- Everything about a finish the SERVER can see for itself. Counted here
+-- rather than accepted from the client precisely because it can be: a
+-- place, a win, a podium and a grid gain are all things the server
+-- assigned, so there is no reason for any of them to be reported.
+function Progress.finished(player: Player?, place: number, gridSlot: number?)
 	if not player then
 		return
 	end
-	entry(player.UserId).races += 1
+	local e = entry(player.UserId)
+	e.races += 1
+	Progress.count(player, "finishes")
+	if place == 1 then
+		Progress.count(player, "wins")
+	end
+	if place <= 3 then
+		Progress.count(player, "podiums")
+	end
+	if gridSlot and gridSlot > place then
+		Progress.count(player, "gridGain", gridSlot - place)
+	end
 	Progress.award(player, L.XpForPlace[place] or L.XpFloor, "finish P" .. tostring(place))
+end
+
+--=====================================================================
+--  COUNTERS
+--
+--  Everything a quest can read that is not XP. Deliberately a generic
+--  bag rather than a named field per stat: the quest pools are content
+--  and will keep growing, and a schema that needs editing every time
+--  somebody writes a quest is a schema that stops being edited.
+--=====================================================================
+
+function Progress.count(player: Player?, metric: string, n: number?)
+	if not player or metric == "" then
+		return
+	end
+	local by = n or 1
+	if by <= 0 then
+		return
+	end
+	local e = entry(player.UserId)
+	e.stats[metric] = (e.stats[metric] or 0) + by
+end
+
+-- A whole race's worth of client-reported driving counters, clamped.
+--
+-- CLAMPED HERE AND NOWHERE ELSE, so there is one place to look when the
+-- numbers are wrong and one place to change when the caps are. See
+-- Config.Level.StatCaps for why a cap rather than a proof.
+-- The cap for a metric, or nil if we do not know it.
+--
+-- ITERATING THE CAP TABLE WAS WRONG. Per-item counters are
+-- `itemsUsed_<Id>` and are generated from the catalogue, so they can
+-- never appear in a hand-written table — every per-item quest would have
+-- been silently dropped, which is indistinguishable from a quest nobody
+-- plays. Same failure shape as the skin probe that reported nothing.
+--
+-- An unknown key is refused rather than trusted, and said out loud once
+-- so a new counter with no cap is a warning instead of a dead quest.
+local warnedMetrics = {}
+
+local function capFor(metric: string): number?
+	local cap = L.StatCaps[metric]
+	if cap then
+		return cap
+	end
+	if string.match(metric, "^itemsUsed_") then
+		return L.StatCaps.itemsUsed
+	end
+	if not warnedMetrics[metric] then
+		warnedMetrics[metric] = true
+		warn(("[Progress] no StatCap for %q — refusing it. Add one to Config.Level.StatCaps."):format(metric))
+	end
+	return nil
+end
+
+function Progress.report(player: Player?, batch)
+	if not player or typeof(batch) ~= "table" then
+		return
+	end
+	for metric, raw in batch do
+		if typeof(metric) == "string" then
+			local cap = capFor(metric)
+			local n = tonumber(raw)
+			if cap and n and n > 0 then
+				Progress.count(player, metric, math.min(math.floor(n), cap))
+			end
+		end
+	end
+end
+
+function Progress.statsOf(player: Player)
+	return entry(player.UserId).stats
 end
 
 --=====================================================================

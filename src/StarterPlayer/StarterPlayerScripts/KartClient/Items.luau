@@ -83,6 +83,7 @@ function Items.new(kart: Model)
 		hazardRemote = BloxKart:WaitForChild("KartHazard"),
 		projectileRemote = BloxKart:WaitForChild("KartProjectile"),
 		conns = {},
+		gained = 0,
 	}, Items)
 
 	table.insert(
@@ -93,6 +94,12 @@ function Items.new(kart: Model)
 			-- Re-checked here as well as before requesting: the server may
 			-- have granted while a slot was filling.
 			if item and #self.held < IT.MaxHeld then
+				-- COUNTED HERE, because this is the only place that learns
+				-- a box was actually ours: the request goes up hopefully
+				-- and the server has the final say. Read and cleared by
+				-- Update, so it reaches the frame's event table like
+				-- everything else does.
+				self.gained += 1
 				-- The server already decided WHAT you got. The roulette is
 				-- purely presentation over a settled result — it never picks
 				-- anything, so it can't disagree with the server.
@@ -193,6 +200,11 @@ end
 function Items:Update(sim, input): { [string]: any }
 	local events = {}
 	self:_spin(events)
+
+	if self.gained > 0 then
+		events.gained = self.gained
+		self.gained = 0
+	end
 
 	-- Pickup. The server has the final say on whether the box was still
 	-- there, so this is only a request.

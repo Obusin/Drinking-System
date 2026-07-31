@@ -63,6 +63,11 @@ Match.VOID_REMOTE = "KartVoid"
 -- Attribute the server stamps with where this kart starts the round.
 Match.GRID_CF = "GridCF"
 
+-- Which slot on the grid, 0-based, as a plain number. The CFrame above
+-- says WHERE; this says WHICH, and "finish above where you started" is a
+-- question about the number.
+Match.GRID_SLOT = "GridSlot"
+
 Match.Phase = {
 	Waiting = "Waiting", -- not enough racers
 	Intermission = "Intermission", -- countdown to the grid

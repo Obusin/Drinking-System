@@ -378,6 +378,10 @@ function Race:Update(sim): { [string]: any }
 			table.insert(self.lapTimes, lapTime)
 			if not self.bestLap or lapTime < self.bestLap then
 				self.bestLap = lapTime
+				-- Announced, not just stored. "Beat your best lap" is a
+				-- quest, and a field that quietly changes is something a
+				-- counter has to poll and diff for itself.
+				events.bestLap = lapTime
 			end
 			self.lapStart = now
 			self.cpPassed = 0

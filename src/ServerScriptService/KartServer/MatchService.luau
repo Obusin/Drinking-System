@@ -330,7 +330,10 @@ local function finishKart(kart: Model, who: string, totalTime: number)
 	local ownerId = kart:GetAttribute(Names.OWNER)
 	local owner = ownerId and Players:GetPlayerByUserId(ownerId)
 	if owner then
-		Progress.finished(owner, finishers)
+		-- The grid slot comes along so "finish 3 places above where you
+		-- started" is answered by the server, which is the only thing
+		-- that knows where you started.
+		Progress.finished(owner, finishers, kart:GetAttribute(Match.GRID_SLOT))
 	end
 
 	-- The AI takes the kart over for whatever is left of the round, so

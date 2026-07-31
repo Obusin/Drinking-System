@@ -91,6 +91,46 @@ return {
 		elimination = "ELIMINATION",
 	},
 
+	--== PER-RACE STAT CAPS ============================================
+	-- The driving counters — drifts, nitro, air, items used — can only
+	-- be seen by the client, so the client is what reports them. It
+	-- sends ONE batch at the flag rather than an event at a time, and
+	-- every value is clamped here before it counts.
+	--
+	-- THIS IS A BOUND, NOT A FIX. A modified client can still claim the
+	-- cap every race. The cap makes that worth roughly one very good
+	-- race instead of unlimited, which is the difference between an
+	-- exploit and a rounding error — and it stays that way only while
+	-- none of this persists. Close the seams before it does.
+	--
+	-- Numbers are "a very good race, doubled". If an honest player ever
+	-- hits one, the cap is wrong, not the player.
+	StatCaps = {
+		drifts = 200,
+		driftBoosts = 120,
+		driftTier3 = 40,
+		driftSeconds = 240,
+		nitroBurns = 40,
+		nitroTanks = 60,
+		itemsUsed = 40,
+		-- Per-item keys are `itemsUsed_<Id>` and are capped by the
+		-- `itemsUsed` entry above rather than needing one each. Adding an
+		-- item to the catalogue must not also require editing this table.
+		itemBoxes = 40,
+		shieldBlocks = 12,
+		hazardsDropped = 30,
+		boostPads = 60,
+		airSeconds = 90,
+		landings = 80,
+		topSpeedSeconds = 240,
+		raceSeconds = 600,
+		laps = 12,
+		checkpoints = 200,
+		respawns = 40,
+		cleanRaces = 1,
+		bestLap = 1,
+	},
+
 	--== FEED ==========================================================
 	-- The kill-feed line is "<attacker> [icon] <victim>". The icon
 	-- carries the verb, which is why there is no word for it: an icon

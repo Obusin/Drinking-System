@@ -52,6 +52,7 @@ local MatchHud = require(script.MatchHud)
 local RewardHud = require(script.RewardHud)
 local Transition = require(script.Transition)
 local XpHud = require(script.XpHud)
+local Tally = require(script.Tally)
 local RaceHud = require(script.RaceHud)
 local ControlsHud = require(script.ControlsHud)
 local SpeedHud = require(script.SpeedHud)
@@ -89,6 +90,7 @@ local matchHud = MatchHud.new()
 local rewardHud = RewardHud.new()
 local transition = Transition.new()
 local xpHud = XpHud.new()
+local tally = Tally.new()
 local hud = RaceHud.new()
 local controls = ControlsHud.new()
 local speedo = SpeedHud.new()
@@ -224,6 +226,8 @@ local function step(dt: number)
 		-- — a reward for having done nothing yet. The tyre screech is the
 		-- drift's cue; `tankFilled` below owns this sound alone.
 	end
+	tally:Sample(dt, sim)
+	tally:Drive(events)
 	if events.tierChanged then
 		-- Colour only. The note belongs to `tankFilled` below — drift tiers
 		-- and tank fills happen at different moments and BOTH used to play
@@ -261,6 +265,9 @@ local function step(dt: number)
 	-- hitbox where it actually ended up this frame.
 	local pad = boosters:Check(sim)
 	if pad then
+		tally:Pad()
+	end
+	if pad then
 		sim:ApplyBoost(pad.Speed, pad.Duration)
 		effects:Boost(pad.Tier)
 		audio:Boost(pad.Tier)
@@ -287,6 +294,7 @@ local function step(dt: number)
 
 	-- Lap triggers, same reasoning: after the move.
 	local lapEvents = race:Update(sim)
+	tally:Lap(lapEvents)
 	if lapEvents.checkpoint then
 		audio:PlayTierNote(0) -- soft "do" per checkpoint
 	end
@@ -325,6 +333,9 @@ local function step(dt: number)
 	-- Fell off, drove into a void zone, or asked for a reset.
 	local why = respawn:Check(sim, race, Input, dt)
 	if why then
+		tally:Respawned()
+	end
+	if why then
 		camera:Snap()
 		audio:PlayTierNote(0)
 	end
@@ -335,6 +346,7 @@ local function step(dt: number)
 	-- half is so the HUD and the sounds agree with it.
 	local itemEvents = if match:IsRacing() then items:Update(sim, Input) else NO_EVENTS
 	-- One click per name the roulette cycles past, then the reveal.
+	tally:Items(itemEvents)
 	if itemEvents.ticks then
 		audio:PlayTick()
 	end
@@ -679,6 +691,16 @@ RunService.Heartbeat:Connect(function(dt)
 		-- lights go out.
 		if phase == Shared.Phase.Intermission or phase == Shared.Phase.Waiting then
 			gridWiped = false
+		end
+
+		-- The race's driving counters: cleared on the way to the grid,
+		-- sent once at the flag. Sent on the PHASE rather than on our own
+		-- finish, so a racer who never crossed the line still reports the
+		-- laps and drifts they did manage.
+		if phase == Shared.Phase.Grid then
+			tally:Reset()
+		elseif phase == Shared.Phase.Results then
+			tally:Send()
 		end
 
 		-- Not on the first frame: `was == nil` is joining the server, and

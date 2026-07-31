@@ -539,6 +539,10 @@ function KartService.assignGrid()
 	for player, kart in karts do
 		local slot = slots[player] or 0
 		kart:SetAttribute(Match.GRID_CF, Placement.cframeFor(pad, slot))
+		-- Stamped as a NUMBER too. The CFrame answers where to put the
+		-- kart; nothing could answer "which place did you start from",
+		-- which is what a grid-gain quest is asking.
+		kart:SetAttribute(Match.GRID_SLOT, slot + 1)
 	end
 end
 

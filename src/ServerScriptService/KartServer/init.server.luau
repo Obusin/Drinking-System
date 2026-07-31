@@ -95,6 +95,16 @@ Progress.onAward = function(player, info)
 	xpRemote:FireClient(player, info)
 end
 
+-- The client's driving counters for the race just finished. Clamped in
+-- Progress.report against Config.Level.StatCaps — see Tally for why the
+-- client is the one reporting and what that costs.
+local statsRemote = Instance.new("RemoteEvent")
+statsRemote.Name = Names.STATS_REMOTE
+statsRemote.Parent = ReplicatedStorage.BloxKart
+statsRemote.OnServerEvent:Connect(function(player, batch)
+	Progress.report(player, batch)
+end)
+
 MatchService.onRetire = function(kart)
 	BotService.detach(kart)
 	KartService.retire(kart)
