@@ -235,31 +235,35 @@ end
 --  FRAME
 --=====================================================================
 function MatchHud:Update(match)
-	-- Spectating owns the status row while it's on; letting the normal
-	-- readout write here too would make the two flicker against each
-	-- other every frame.
-	if self.spectating then
-		return
-	end
 	local phase = match:Phase()
 
-	if phase == P.Waiting then
-		local racers, need = match:Racers(), match:MinRacers()
-		self.status.Text = ("WAITING FOR RACERS   %d / %d"):format(racers, need)
-	elseif phase == P.Intermission then
-		local suffix = if match:IsReady()
-			then "READY"
-			else ("PRESS %s TO READY"):format(M.ReadyKey.Name)
-		self.status.Text = ("NEXT RACE IN %d   ·   %s   ·   %d/%d READY"):format(
-			math.ceil(match:TimeLeft()),
-			suffix,
-			match:ReadyCount(),
-			match:Racers()
-		)
-	elseif phase == P.Results then
-		self.status.Text = ("NEXT RACE IN %d"):format(math.ceil(match:TimeLeft()))
-	else
-		self.status.Text = ""
+	-- SPECTATING OWNS THE STATUS ROW, AND ONLY THE STATUS ROW.
+	--
+	-- This used to return outright, which skipped the results board with
+	-- it — so the one moment a spectator most wants the board, the end of
+	-- the round they are watching, was the one moment it never appeared.
+	--
+	-- The flicker being avoided is two writers on a single TextLabel.
+	-- That is a reason to guard the label, not the function.
+	if not self.spectating then
+		if phase == P.Waiting then
+			local racers, need = match:Racers(), match:MinRacers()
+			self.status.Text = ("WAITING FOR RACERS   %d / %d"):format(racers, need)
+		elseif phase == P.Intermission then
+			local suffix = if match:IsReady()
+				then "READY"
+				else ("PRESS %s TO READY"):format(M.ReadyKey.Name)
+			self.status.Text = ("NEXT RACE IN %d   ·   %s   ·   %d/%d READY"):format(
+				math.ceil(match:TimeLeft()),
+				suffix,
+				match:ReadyCount(),
+				match:Racers()
+			)
+		elseif phase == P.Results then
+			self.status.Text = ("NEXT RACE IN %d"):format(math.ceil(match:TimeLeft()))
+		else
+			self.status.Text = ""
+		end
 	end
 
 	-- Built once per entry into Results, not per frame: the board is a
