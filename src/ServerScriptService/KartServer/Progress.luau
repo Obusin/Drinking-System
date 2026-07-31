@@ -41,7 +41,7 @@ local Progress = {}
 local state: { [number]: any } = {}
 
 local function blank()
-	return { xp = 0, hits = 0, takedowns = 0, races = 0 }
+	return { xp = 0, hits = 0, takedowns = 0, eliminations = 0, races = 0 }
 end
 
 local function entry(userId: number)
@@ -123,6 +123,16 @@ function Progress.hit(player: Player?, takedown: boolean)
 	end
 end
 
+-- Knocked somebody into the void. A tally and an award — the victim is
+-- respawning at their last checkpoint while this is being counted.
+function Progress.eliminated(player: Player?)
+	if not player then
+		return
+	end
+	entry(player.UserId).eliminations += 1
+	Progress.award(player, L.XpPerElimination, "elimination")
+end
+
 function Progress.finished(player: Player?, place: number)
 	if not player then
 		return
@@ -146,6 +156,7 @@ function Progress.summary(player: Player)
 		xp = e.xp,
 		hits = e.hits,
 		takedowns = e.takedowns,
+		eliminations = e.eliminations,
 	}
 end
 

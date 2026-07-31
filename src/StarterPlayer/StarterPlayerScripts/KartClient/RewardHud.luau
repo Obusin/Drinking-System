@@ -160,7 +160,6 @@ function RewardHud.preview(): { [string]: any }
 			score = kart:GetAttribute(Standings.ATTRIBUTE) or 0,
 			isSelf = mine,
 			dnf = typeof(place) ~= "number",
-			eliminated = kart:GetAttribute(Shared.ELIMINATED) == true,
 		}
 		if entry.dnf then
 			table.insert(running, entry)
@@ -226,7 +225,6 @@ function RewardHud.fromServer(list, xpGained): { [string]: any }
 			score = r.score or 0,
 			isSelf = isMine,
 			dnf = r.place == nil,
-			eliminated = r.eliminated == true,
 		})
 	end
 
@@ -248,6 +246,26 @@ function RewardHud.fromServer(list, xpGained): { [string]: any }
 		xpGained = xpGained,
 		record = if mine then { value = mine.score, isNew = myPlace == 1 } else nil,
 	}
+end
+
+-- The DRIVE STATS column, from the server's running totals. Rows with a
+-- zero are dropped rather than shown: "0 ELIMINATIONS" is a reminder of
+-- what you did not do, on the screen that exists to say what you did.
+function RewardHud.statsFrom(level): { any }
+	if not level then
+		return {}
+	end
+	local rows = {}
+	local function add(label: string, value: number?)
+		if value and value > 0 then
+			table.insert(rows, { label = label, value = value })
+		end
+	end
+	add("Eliminations", level.eliminations)
+	add("Takedowns", level.takedowns)
+	add("Hits", level.hits)
+	add("Total XP", level.xp)
+	return rows
 end
 
 --=====================================================================
@@ -602,8 +620,16 @@ function RewardHud:_stat(i: number): Frame
 
 	local v = text(s, R.ValueSize, R.TextColor)
 	v.Name = "Value"
-	v.Position = UDim2.fromOffset(44, 0)
-	v.Size = UDim2.new(1, -50, 1, 0)
+	v.Position = UDim2.fromOffset(38, 0)
+	v.Size = UDim2.fromOffset(56, 34)
+
+	-- A number on its own is not a stat. The reference gets away with
+	-- bare figures because every row has an icon; ours do not all have
+	-- art yet, so they say what they are.
+	local lab = text(s, R.SubSize, R.DimTextColor)
+	lab.Name = "Label"
+	lab.Position = UDim2.fromOffset(98, 0)
+	lab.Size = UDim2.new(1, -104, 1, 0)
 
 	self.statPool[i] = s
 	return s
@@ -633,9 +659,7 @@ function RewardHud:Show(payload)
 		row.Who.Text = tostring(entry.name or "?")
 		row.Kart.Text = string.upper(tostring(entry.kart or ""))
 		row.Score.Text = tostring(entry.score or "")
-		if entry.eliminated then
-			row.Kart.Text = Config.Match.EliminationText
-		elseif entry.dnf then
+		if entry.dnf then
 			row.Kart.Text = "DID NOT FINISH"
 		end
 		local c = if entry.isSelf then R.AccentColor else R.TextColor
@@ -712,6 +736,7 @@ function RewardHud:Show(payload)
 		w.Visible = true
 		w.Icon.Image = tostring(s.icon or "")
 		w.Value.Text = tostring(s.value or 0)
+		w.Label.Text = string.upper(tostring(s.label or ""))
 	end
 
 	----------------------------------------------------------------

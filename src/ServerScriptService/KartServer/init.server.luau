@@ -22,7 +22,6 @@
 --]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Config = require(ReplicatedStorage.BloxKart.Config)
 local WorldFilter = require(ReplicatedStorage.BloxKart.WorldFilter)
 local Assets = require(script.Assets)
 local Skins = require(script.Skins)
@@ -85,11 +84,6 @@ end
 -- A kart leaving the world, by either route. The AI is unhooked FIRST:
 -- a bot stepping a Simulation against a destroyed model is a stream of
 -- errors rather than a visible bug.
--- Says it out loud. An elimination is the loudest thing that can happen
--- to a racer and it was the one event with no feedback at all.
-MatchService.onEliminated = function(_kart, who)
-	RaceService.announce(Config.Match.EliminationText, nil, who)
-end
 MatchService.onRetire = function(kart)
 	BotService.detach(kart)
 	KartService.retire(kart)
@@ -98,8 +92,4 @@ end
 -- rather than a require: RaceService is upstream of BotService and
 -- shouldn't have to know it exists.
 RaceService.onNonPlayerHit = BotService.applyHit
--- The hit clock lives in RaceService, the elimination rule in
--- MatchService, and RaceService already requires MatchService — so the
--- answer is handed across rather than required back, which would be a
--- cycle.
-MatchService.wasRecentlyHit = RaceService.wasRecentlyHit
+

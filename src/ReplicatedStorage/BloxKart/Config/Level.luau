@@ -21,11 +21,15 @@ return {
 	-- A hit that actually takes someone out of the race for a moment —
 	-- a spin or a stun, not a graze.
 	--
-	-- THE GAME HAS NO ELIMINATION. Nobody dies in a kart racer; they
-	-- spin, lose four seconds and carry on. This is that moment, and it
-	-- is the closest honest thing to a takedown. Called out because
-	-- "eliminated" in the feed means exactly this and nothing more.
+	-- Nobody dies in a kart racer; they spin, lose four seconds and carry
+	-- on. This is that moment.
 	XpPerTakedown = 25,
+
+	-- Knocking someone into the void. The best thing you can do to
+	-- another racer with an item, and priced accordingly — but it is
+	-- still a tally and a reward, not a removal. They respawn at their
+	-- last checkpoint exactly as they always have.
+	XpPerElimination = 60,
 
 	-- Finishing at all. INDEX 1 IS FIRST.
 	--

@@ -1927,18 +1927,13 @@ function BotService.decayCaution(bot)
 end
 
 function BotService.revive(bot)
-	-- OUT, RATHER THAN BACK ON THE TRACK.
-	--
-	-- Same rule a player gets: fall in the void shortly after being hit
-	-- and you are eliminated instead of respawned. Checked here because
-	-- this is the one place a bot comes back from a fall, so there is no
-	-- second path to keep in step.
-	--
-	-- The bot is left to be cleaned up by the retire hook rather than
-	-- removed inline: removing it from `bots` while the caller is
-	-- mid-iteration over that list is how a loop skips an entry.
-	if bot.kart.Parent and MatchService.fellInVoid(bot.kart, bot.name) then
-		return
+	-- Same rule a player gets: if somebody put this bot in the void, they
+	-- get the credit for it. Checked here because this is the one place a
+	-- bot comes back from a fall, so there is no second path to keep in
+	-- step — and it changes nothing about the revive itself. The bot
+	-- carries on from its last safe point exactly as before.
+	if bot.kart.Parent then
+		RaceService.creditVoidKill(bot.kart, bot.name)
 	end
 
 	if not bot.kart.Parent then

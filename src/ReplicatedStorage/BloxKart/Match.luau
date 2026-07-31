@@ -51,16 +51,13 @@ Match.FINISH_TIME = "FinishTime"
 -- workspace:GetServerTimeNow().
 Match.RETIRE_AT = "RetireAt"
 
--- Out of the race. Distinct from a DNF: a DNF ran out of time, this one
--- was put in the void while stunned.
-Match.ELIMINATED = "Eliminated"
-
 -- Remotes.
 Match.FINISH_REMOTE = "KartMatchFinish"
 Match.READY_REMOTE = "KartMatchReady"
--- Client -> server: "I just fell in the void". The server decides
--- whether that was an elimination, because only it knows when this kart
--- was last hit and the client must not get a vote on being out.
+-- Client -> server: "I just fell in the void". The victim respawns
+-- either way; this is only so the server can work out whether somebody
+-- put them there and deserves the credit. Only the server knows who hit
+-- this kart last, and the client gets no vote on who is rewarded.
 Match.VOID_REMOTE = "KartVoid"
 
 -- Attribute the server stamps with where this kart starts the round.

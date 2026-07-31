@@ -63,7 +63,6 @@ type Result = {
 	time: number?,
 	score: number,
 	userId: number?,
-	eliminated: boolean?,
 	dnf: boolean?,
 }
 
@@ -81,21 +80,6 @@ local function racerCount(): number
 	local n = 0
 	for _ in KartService.allKarts() do
 		n += 1
-	end
-	return n
-end
-
--- Racers who are DONE, by either route. `finishers` counts places
--- awarded and is not the same question: an eliminated kart never takes
--- a place, so counting only finishers leaves the round waiting for a
--- racer that is never coming — which is a hang, and the same shape as
--- the bug where bots could not finish at all.
-local function settledCount(): number
-	local n = 0
-	for _, kart in KartService.allKarts() do
-		if kart:GetAttribute(Match.FINISH_PLACE) or kart:GetAttribute(Match.ELIMINATED) then
-			n += 1
-		end
 	end
 	return n
 end
@@ -161,8 +145,8 @@ local function sendRewards()
 		MatchService.reward:FireClient(player, {
 			level = Progress.summary(player),
 			xpGained = Progress.since(player),
-			-- Anyone who never finished and was never eliminated is still
-			-- out there when the flag drops. They are added here, at the
+			-- Anyone who never finished is still out there when the flag
+			-- drops. They are added here, at the
 			-- one moment the whole field is known, rather than tracked
 			-- alongside the record and kept in step with it.
 			standings = MatchService.standings(),
@@ -170,8 +154,8 @@ local function sendRewards()
 	end
 end
 
--- The finished and the eliminated, in order, followed by everyone still
--- running when the flag dropped, ordered by how far they got.
+-- The finishers in order, then everyone still running when the flag
+-- dropped, ordered by how far they got.
 function MatchService.standings(): { Result }
 	local out: { Result } = {}
 	for _, r in results do
@@ -180,7 +164,7 @@ function MatchService.standings(): { Result }
 
 	local running: { Result } = {}
 	for _, kart in KartService.allKarts() do
-		if not (kart:GetAttribute(Match.FINISH_PLACE) or kart:GetAttribute(Match.ELIMINATED)) then
+		if not kart:GetAttribute(Match.FINISH_PLACE) then
 			table.insert(running, {
 				name = kart:GetAttribute(Names.RACER_NAME) or "Racer",
 				score = kart:GetAttribute(Standings.ATTRIBUTE) or 0,
@@ -240,7 +224,6 @@ local function clearFinishes()
 		-- guarded on this attribute still matching, so clearing it is
 		-- also what stops a stale timer destroying a kart mid-race.
 		kart:SetAttribute(Match.RETIRE_AT, nil)
-		kart:SetAttribute(Match.ELIMINATED, nil)
 	end
 	table.clear(results)
 	finishers = 0
@@ -295,8 +278,7 @@ end
 -- whole point is that a bot's win is the same object as yours.
 -- LEAVING THE WORLD.
 --
--- A racer who has finished or been eliminated still has a kart sitting
--- on the track, and until now that kart kept driving — the AI took it
+-- A racer who has finished still has a kart sitting on the track, and until now that kart kept driving — the AI took it
 -- over and raced it for the rest of the round. For a player that was the
 -- point, so the field stayed full. For a BOT it meant a finisher lapped
 -- everyone still racing two or three more times, which is the clutter
@@ -324,73 +306,6 @@ local function scheduleRetire(kart: Model, after: number)
 		end
 	end)
 end
-
--- OUT. Not a DNF — a DNF ran out of time, this one was put in the void
--- while it was still spinning from a hit.
---
--- No finish place is assigned, deliberately: taking a place is what
--- finishing means, and an eliminated racer did not.
-function MatchService.eliminate(kart: Model, who: string): boolean
-	if phase ~= P.Racing or not kart or not kart.Parent then
-		return false
-	end
-	if kart:GetAttribute(Match.FINISH_PLACE) or kart:GetAttribute(Match.ELIMINATED) then
-		return false
-	end
-	kart:SetAttribute(Match.ELIMINATED, true)
-	log("%s eliminated", who)
-
-	table.insert(results, {
-		name = who,
-		eliminated = true,
-		score = kart:GetAttribute(Standings.ATTRIBUTE) or 0,
-		userId = kart:GetAttribute(Names.OWNER),
-	})
-
-	if MatchService.onEliminated then
-		MatchService.onEliminated(kart, who)
-	end
-
-	-- Gone at once. The cutscene is a reward for finishing; being knocked
-	-- into a pit does not earn a lap of honour.
-	scheduleRetire(kart, 0)
-
-	-- An elimination can be the last thing that ends a round, exactly as
-	-- a finish can. Missing this is how a race hangs with one eliminated
-	-- kart nobody is waiting for.
-	if settledCount() >= racerCount() then
-		endsAt = workspace:GetServerTimeNow() + M.FinishSettle
-		publish()
-	end
-	return true
-end
-
-MatchService.onEliminated = nil :: ((Model, string) -> ())?
-
--- A racer fell in the void. THE SERVER DECIDES what that means.
---
--- Returns true if it was an elimination, so the caller knows whether to
--- bother respawning. Both kinds of racer come through here: the client
--- reports its own fall (it is the only thing that can see it), but it
--- reports the FALL and never the verdict — a client that could declare
--- itself eliminated could also declare someone else eliminated.
-function MatchService.fellInVoid(kart: Model, who: string): boolean
-	if phase ~= P.Racing or not kart or not kart.Parent then
-		return false
-	end
-	if kart:GetAttribute(Match.FINISH_PLACE) or kart:GetAttribute(Match.ELIMINATED) then
-		return false
-	end
-	if not MatchService.wasRecentlyHit or not MatchService.wasRecentlyHit(kart, M.EliminationWindow) then
-		return false
-	end
-	return MatchService.eliminate(kart, who)
-end
-
--- Supplied by init.server from RaceService, which owns the hit clock.
--- A function rather than a require because RaceService requires this
--- module, and requiring it back is a cycle.
-MatchService.wasRecentlyHit = nil :: ((Model, number) -> boolean)?
 
 local function finishKart(kart: Model, who: string, totalTime: number)
 	if phase ~= P.Racing or not kart then
@@ -448,7 +363,7 @@ local function finishKart(kart: Model, who: string, totalTime: number)
 		publish()
 	end
 
-	if settledCount() >= racerCount() then
+	if finishers >= racerCount() then
 		-- Everyone's in; don't sit through the grace period.
 		endsAt = workspace:GetServerTimeNow() + M.FinishSettle
 		publish()
@@ -566,19 +481,6 @@ function MatchService.start()
 	reward.Name = Names.REWARD_REMOTE
 	reward.Parent = BloxKart
 	MatchService.reward = reward
-
-	-- "I fell in the void." No payload — there is nothing the client
-	-- could tell us that we would believe, and everything the verdict
-	-- needs is already on the server.
-	local voidRemote = Instance.new("RemoteEvent")
-	voidRemote.Name = Match.VOID_REMOTE
-	voidRemote.Parent = BloxKart
-	voidRemote.OnServerEvent:Connect(function(player)
-		local kart = KartService.kartFor(player)
-		if kart then
-			MatchService.fellInVoid(kart, player.DisplayName)
-		end
-	end)
 
 	finishRemote.OnServerEvent:Connect(function(player, totalTime)
 		if typeof(totalTime) ~= "number" or totalTime ~= totalTime or totalTime < 0 then

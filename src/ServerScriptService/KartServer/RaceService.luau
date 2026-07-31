@@ -79,27 +79,53 @@ end
 -- exists.
 RaceService.onNonPlayerHit = nil
 
--- WHEN EACH KART WAS LAST HIT, by server time.
+-- WHO LAST HIT EACH KART, AND WHEN. Server time.
 --
--- This is the whole basis of elimination: falling in the void is a
--- respawn normally and an elimination if someone put you there. Kept
--- here because this is the one place every hit passes through, whoever
--- threw it and whoever caught it.
+-- This is the whole basis of the elimination tally: falling in the void
+-- is nobody's doing normally, and somebody's if they put you there.
+-- Kept here because this is the one place every hit passes through,
+-- whoever threw it and whoever caught it.
 --
--- Keyed by the kart rather than by a player, because bots have to be
--- eliminable too and a bot has no account. Weak keys: a destroyed kart
--- must not hold itself alive through this table.
-local lastHit: { [Model]: number } = setmetatable({}, { __mode = "k" }) :: any
+-- Keyed by the kart rather than by a player, because a bot can be
+-- knocked into the void too and a bot has no account. Weak keys: a
+-- destroyed kart must not hold itself alive through this table.
+local lastHit: { [Model]: any } = setmetatable({}, { __mode = "k" }) :: any
 
-function RaceService.noteHit(kart: Model)
-	lastHit[kart] = workspace:GetServerTimeNow()
+function RaceService.noteHit(kart: Model, byPlayer: Player?, byName: string?, itemId: string?)
+	lastHit[kart] = {
+		at = workspace:GetServerTimeNow(),
+		byPlayer = byPlayer,
+		byName = byName,
+		item = itemId,
+	}
 end
 
--- Was this kart hit recently enough that the void counts as somebody
--- else's doing?
-function RaceService.wasRecentlyHit(kart: Model, window: number): boolean
-	local at = lastHit[kart]
-	return at ~= nil and (workspace:GetServerTimeNow() - at) <= window
+-- Somebody fell in the void. Credit whoever put them there, if anyone
+-- did and recently enough.
+--
+-- NOBODY IS REMOVED FROM THE RACE. The victim respawns at their last
+-- checkpoint exactly as they always have — this awards a tally and some
+-- XP to the attacker and nothing else. Returns true if a credit was
+-- given, purely so callers can avoid announcing twice.
+function RaceService.creditVoidKill(kart: Model, victimName: string): boolean
+	local hit = lastHit[kart]
+	if not hit then
+		return false
+	end
+	if workspace:GetServerTimeNow() - hit.at > Config.Match.EliminationWindow then
+		return false
+	end
+	-- Consumed, so one fall cannot be credited twice — a respawn that
+	-- drops straight back into the void would otherwise pay again.
+	lastHit[kart] = nil
+
+	-- A bot can land the hit. It earns no XP, because it has no account,
+	-- but it still gets its name on the line.
+	if hit.byPlayer then
+		Progress.eliminated(hit.byPlayer)
+	end
+	RaceService.announce(hit.item or Config.Match.EliminationText, hit.byName, victimName)
+	return true
 end
 
 -- Cheapest possible bound on the hit remote. Generous enough that no
@@ -139,7 +165,7 @@ function RaceService.relayHit(byName: string?, targetKart: Model, payload, byPla
 	-- seconds, that is an elimination rather than a respawn.
 	local takedown = effect.spin > 0 or effect.stun > 0
 	if takedown then
-		RaceService.noteHit(targetKart)
+		RaceService.noteHit(targetKart, byPlayer, byName, tostring(effect.item))
 	end
 	-- Never pay for hitting yourself. A mine you drove into is still a
 	-- hit for the feed; it is not an achievement.
@@ -714,6 +740,20 @@ function RaceService.start()
 	feed.Name = Names.FEED_REMOTE
 	feed.Parent = BloxKart
 	RaceService.feed = feed
+
+	-- "I fell in the void." No payload: there is nothing the client
+	-- could tell us that we would believe, and everything the credit
+	-- needs is already here. The client respawns itself either way — it
+	-- is not asking permission, it is reporting.
+	local voidRemote = Instance.new("RemoteEvent")
+	voidRemote.Name = Match.VOID_REMOTE
+	voidRemote.Parent = BloxKart
+	voidRemote.OnServerEvent:Connect(function(player)
+		local kart = KartService.kartFor(player)
+		if kart then
+			RaceService.creditVoidKill(kart, player.DisplayName)
+		end
+	end)
 
 	hitRemote.OnServerEvent:Connect(function(player, targetKart, payload)
 		if typeof(targetKart) ~= "Instance" or not targetKart:IsA("Model") then

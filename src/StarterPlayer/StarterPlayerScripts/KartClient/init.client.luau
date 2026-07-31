@@ -729,6 +729,7 @@ RunService.Heartbeat:Connect(function(dt)
 			end
 			if serverReward then
 				payload.level = serverReward.level
+				payload.stats = RewardHud.statsFrom(serverReward.level)
 			end
 			-- Built BEFORE the wipe and shown behind it, so the panel is
 			-- already assembled the moment the band clears.

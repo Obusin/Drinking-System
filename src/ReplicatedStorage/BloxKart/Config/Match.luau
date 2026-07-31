@@ -62,14 +62,17 @@ return {
 	FinishDriveTime = 5,
 
 	--== ELIMINATION ===================================================
-	-- Touch the void within this many seconds of being hit and you are
-	-- OUT, rather than respawned.
+	-- Fall in the void within this many seconds of being hit and whoever
+	-- hit you is CREDITED with an elimination.
 	--
-	-- The window is what makes it a consequence of the hit rather than
-	-- of the fall. Drive into a pit unprovoked and you respawn like
-	-- always; get missiled off a bridge and you are gone. Same geometry,
-	-- different story, and the difference is whether someone did it to
-	-- you.
+	-- NOBODY IS REMOVED FROM THE RACE. The victim respawns at their last
+	-- checkpoint exactly as they always have; this is a tally and an XP
+	-- award, nothing more.
+	--
+	-- The window is what makes the credit belong to the hit rather than
+	-- to the fall. Drive into a pit unprovoked and nobody scored; get
+	-- missiled off a bridge and somebody did. Same geometry, different
+	-- story, and the difference is whether someone put you there.
 	--
 	-- Long enough to cover the spin, the lost grip and the actual fall.
 	-- Too short and the rule reads as random.
