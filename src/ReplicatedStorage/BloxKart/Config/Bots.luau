@@ -42,7 +42,7 @@ return {
 	-- Also drops the checkpoint requirement — a parked bot needs no
 	-- racing line, and the whole point is to check the rig on a track
 	-- that isn't finished.
-	Idle = true,
+	Idle = false,
 	IdleSteerRate = 1.1, -- wags per second
 	IdleSteerAmount = 1, -- 1 is lock to lock
 
@@ -114,6 +114,15 @@ return {
 	-- the apex. This one has no opinion about what's ahead, it just
 	-- refuses to be off the line. Raise it if bots still clip the inside.
 	LineCorrect = 0.07,
+
+	-- Damping on that correction, per stud/second of closing speed.
+	--
+	-- Without it the bot zig-zags forever: a proportional term with
+	-- nothing opposing it overshoots the line, corrects, and overshoots
+	-- the other way. Lowering the gain doesn't fix that, it just makes
+	-- the weave slower and wider. This eases off as the error closes, so
+	-- it arrives on the line rather than crossing it.
+	LineDamp = 0.012,
 	SteerSlew = 9, -- how fast its steering input can move. This is what
 	-- stops a bot flicking to full lock instantly, which no human can do
 
@@ -167,6 +176,20 @@ return {
 	--== DRIFTING ======================================================
 	-- Drifts when the corner is sharp enough and it's quick enough to
 	-- benefit, same as a player would.
+	-- Drifts are PLANNED, not reacted to. The bot scans ahead for the
+	-- sharpest bend, commits to it once, and holds the drift through the
+	-- corner — rather than asking every frame whether the road under its
+	-- wheels is bendy enough.
+	--
+	-- That difference is visible from across the track: a reactive bot
+	-- always initiates a beat late and spends the exit straightening up,
+	-- where a driver is already sideways on the way in.
+	DriftScanAhead = 2.4, -- nodes to look for a corner worth drifting
+	DriftEntry = 0.55, -- nodes BEFORE the corner to start, scaled by
+	-- skill — a good driver commits earlier and carries more through
+	DriftHold = 0.8, -- nodes past it to stay committed, so it doesn't
+	-- unwind halfway round
+
 	DriftBend = 0.32, -- bend required before it considers a drift
 	DriftMinSpeed = 55,
 	DriftChance = 0.85, -- rolled per corner, scaled by skill. A bot that

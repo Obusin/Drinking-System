@@ -56,6 +56,7 @@ local TagZones = require(BloxKart:WaitForChild("TagZones"))
 local CollectionService = game:GetService("CollectionService")
 
 local B = Config.Bots
+local H = Config.Handling
 local log = Util.logger("BotService", B.Debug)
 
 local BotService = {}
@@ -369,7 +370,20 @@ local function drive(bot, dt: number)
 	-- corner ahead; it simply refuses to be off the line, which is what
 	-- holds the kart on the tarmac through an apex.
 	local actualOffset = Route.lateralAt(bot.u, sim.pos, sim.up)
-	wantSteer += math.clamp((offset - actualOffset) * B.LineCorrect, -1, 1)
+	local crossErr = offset - actualOffset
+
+	-- DAMPING. Two proportional terms with nothing opposing them always
+	-- overshoot, correct, and overshoot again — that is the zig-zag, and
+	-- no amount of lowering the gains removes it, it only slows it down.
+	--
+	-- The derivative term watches how fast the error is CLOSING and eases
+	-- off as it does, so the bot arrives on the line instead of crossing
+	-- it. Standard PD; the P alone was never going to settle.
+	local closing = (crossErr - (bot.lastCrossErr or crossErr)) / math.max(dt, 1e-4)
+	bot.lastCrossErr = crossErr
+	bot.crossRate = Util.approach(bot.crossRate or 0, closing, 12, dt)
+
+	wantSteer += math.clamp(crossErr * B.LineCorrect + bot.crossRate * B.LineDamp, -1, 1)
 	wantSteer = math.clamp(wantSteer, -1, 1)
 
 	----------------------------------------------------------------
@@ -437,17 +451,52 @@ local function drive(bot, dt: number)
 	-- take every single one — that's the difference between a rival and
 	-- a metronome.
 	----------------------------------------------------------------
-	local wantsDrift = bend >= B.DriftBend and speed >= B.DriftMinSpeed
-
-	if wantsDrift and not bot.driftDecided then
-		bot.driftDecided = true
-		bot.willDrift = rng:NextNumber() < B.DriftChance * bot.skill
-	elseif not wantsDrift then
-		bot.driftDecided = false
-		bot.willDrift = false
+	-- PLANNED, not reacted to.
+	--
+	-- Deciding to drift when the corner is already under the wheels is
+	-- what a bot does; a driver sees a corner coming, decides, and is
+	-- already sideways by the time they reach it. That difference is
+	-- visible from across the track — a reactive bot always initiates a
+	-- beat late and finishes the corner straightening up.
+	--
+	-- So: scan ahead for the sharpest bend within reach, commit to it
+	-- once, and hold the drift through the corner rather than re-asking
+	-- every frame whether it's still sharp enough.
+	local aheadBend, aheadAt = 0, 0
+	for k = 1, 6 do
+		local at = bot.u + k * (B.DriftScanAhead / 6)
+		local b = bendAt(at, B.CornerLookahead, sim.up)
+		if b > aheadBend then
+			aheadBend, aheadAt = b, at
+		end
 	end
 
-	local drifting = wantsDrift and bot.willDrift
+	if not bot.driftPlan and aheadBend >= B.DriftBend and speed >= B.DriftMinSpeed then
+		-- Rolled once per corner. A bot that takes every drift perfectly
+		-- is one you can never out-drive; missing some is what leaves the
+		-- door open.
+		if rng:NextNumber() < B.DriftChance * bot.skill then
+			bot.driftPlan = {
+				-- Entered BEFORE the apex, and how early is skill: a good
+				-- driver commits sooner and carries more through.
+				entry = aheadAt - B.DriftEntry * bot.skill,
+				exit = aheadAt + B.DriftHold,
+			}
+		else
+			-- Remember we declined this one, so it isn't re-rolled every
+			-- frame until it eventually says yes.
+			bot.driftPlan = { declined = true, exit = aheadAt + B.DriftHold }
+		end
+	end
+
+	local drifting = false
+	if bot.driftPlan then
+		if bot.u > bot.driftPlan.exit then
+			bot.driftPlan = nil
+		elseif not bot.driftPlan.declined then
+			drifting = bot.u >= bot.driftPlan.entry and speed >= H.DriftExitSpeed
+		end
+	end
 	if drifting and not c.driftHeld then
 		c._driftPress = true -- the hop, exactly as a keypress would
 	end
@@ -900,13 +949,14 @@ function BotService.fill()
 			throttleAt = rng:NextNumber(0, 20),
 			sawSteer = {},
 			heldSteer = 0,
+			lastCrossErr = nil,
+			crossRate = 0,
 			-- Placed on the grid by its first step, so a bot joining
 			-- mid-intermission still starts from the line.
 			needsGrid = true,
 			u = 0,
 			laps = 0,
-			driftDecided = false,
-			willDrift = false,
+			driftPlan = nil,
 			item = nil,
 			itemAt = 0,
 			lastU = nil,
