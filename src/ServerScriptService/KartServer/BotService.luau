@@ -518,7 +518,7 @@ local function drive(bot, dt: number)
 		local centre = Route.pointAt(aheadU)
 		local lineOverAir = centre ~= nil and not Route.hasGround(centre, sim.up)
 
-		if lineOverAir then
+		if lineOverAir and B.TreatGapsAsJumps then
 			-- The route is airborne here. Only commit if there's somewhere
 			-- to land, or a bot happily accelerates into a chasm the
 			-- designer built as a hazard rather than as a jump.

@@ -356,6 +356,30 @@ return {
 	-- The racing line settles it: the line is where the designer says to
 	-- drive, so if the ROUTE carries on across the gap and there is road
 	-- on the far side, this is a jump. Line up, stay on the power.
+	-- OFF. Every gap is treated as a ledge, so bots lift and steer for the
+	-- centre near one — which is exactly how they behaved before any of
+	-- this existed, and it did not fly.
+	--
+	-- READ THIS BEFORE TURNING IT ON. Committing to a jump only works if
+	-- Handling.BallisticLaunch is also on, and the two were shipped
+	-- separately, which is what caused the flying.
+	--
+	-- Here is the interaction. `travel` is perpendicular to `up`, so while
+	-- `up` is a ramp's normal, `travel * speed` points uphill IN WORLD
+	-- TERMS — a climb that lives outside vertVel, which is the only thing
+	-- gravity touches. A kart that keeps or gains speed while airborne on
+	-- a tilted `up` therefore climbs, and keeps climbing.
+	--
+	-- Lifting off the throttle near a gap hides that, because a
+	-- decelerating kart's climb decays. That is not a fix, it is a
+	-- coincidence — but it is the coincidence the game shipped on, and it
+	-- looks correct.
+	--
+	-- So: both off (bots lift, nothing flies, bots may fall short of a
+	-- real ramp), or both on (bots commit, launches arc properly). Never
+	-- this one alone.
+	TreatGapsAsJumps = false,
+
 	JumpSpan = 1.2, -- node units past the aim point to look for landing
 	-- and then simply DON'T LIFT. There is no jump throttle any more: it
 	-- used to raise the throttle to 1, overriding corner braking and pace,
