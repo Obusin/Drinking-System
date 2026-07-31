@@ -936,6 +936,55 @@ function Simulation:Step(dt: number, input): { [string]: any }
 	end
 
 	----------------------------------------------------------------
+	-- 6a. LAUNCH — hand the ramp's climb over to gravity.
+	--
+	-- `travel` is always perpendicular to `up`, so while `up` is the
+	-- ramp's normal, `travel * speed` points UPHILL IN WORLD TERMS. That
+	-- climb lives entirely outside vertVel, and gravity only ever touches
+	-- vertVel — so nothing was pulling it back down. On a 30 degree ramp
+	-- at 100 studs/s the kart rose at 50 studs/s indefinitely.
+	--
+	-- It didn't level out either: the airborne branch below settles `up`
+	-- toward whatever a 40-stud probe finds beneath, and just after a
+	-- ramp that probe still finds the ramp. So the tilt was self-
+	-- sustaining, and the kart flew.
+	--
+	-- This was survivable while an airborne kart bled speed — which is
+	-- exactly what the old throttle-off-in-the-air behaviour did by
+	-- accident. Holding speed in the air (correctly) removed the accident
+	-- and exposed this.
+	--
+	-- So at the moment of leaving the ground, convert to a ballistic
+	-- state: keep the world velocity EXACTLY, but re-express it as level
+	-- ground speed plus a vertical rate that gravity can act on. Total
+	-- velocity is unchanged, so nothing is added or taken away — it just
+	-- becomes an arc instead of a climb.
+	--
+	-- On flat ground this is a no-op by construction (up is already world
+	-- up, travel is already level), so ordinary hops are untouched.
+	----------------------------------------------------------------
+	if H.BallisticLaunch and self.wasGrounded and not self.grounded then
+		-- Not on a loop. There, surface-relative IS the truth and levelling
+		-- to world up would drop the kart off the ceiling — the whole
+		-- reason the probe below exists.
+		local under = workspace:Raycast(self.pos, -self.up * H.AirSurfaceProbe, self.rayParams)
+		local onLoop = under ~= nil and under.Normal:Dot(Vector3.yAxis) < H.LaunchLevelDot
+
+		if not onLoop then
+			local v = self.travel * self.speed + self.up * self.vertVel
+			local flat = Vector3.new(v.X, 0, v.Z)
+
+			self.up = Vector3.yAxis
+			self.vertVel = v.Y
+			self.speed = flat.Magnitude
+			if flat.Magnitude > 1e-3 then
+				self.travel = flat.Unit
+			end
+			self.forward, self.up = Util.orthonormal(self.forward, self.up)
+		end
+	end
+
+	----------------------------------------------------------------
 	-- 6b. SURFACE GRAVITY — rotate our idea of "down" onto the track.
 	----------------------------------------------------------------
 	if self.grounded then

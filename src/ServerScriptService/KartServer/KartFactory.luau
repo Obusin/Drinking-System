@@ -20,6 +20,9 @@ local PlaceholderVisual = require(script.Parent.PlaceholderVisual)
 local SteeringWheel = require(script.Parent.SteeringWheel)
 
 local RIG = Config.Rig
+-- Only for ShieldName: the bubble has to be hidden at build, and the one
+-- place that names it is the effects config the client reads.
+local FX = Config.Effects
 local log = Util.logger("KartFactory", RIG.Debug)
 
 local KartFactory = {}
@@ -139,6 +142,31 @@ function KartFactory.build(color: Color3?, visualName: string?): Model
 		if CollectionService:HasTag(inst, KartFactory.TAG) then
 			log("un-tagging %s — art must never register as a kart", inst.Name)
 			CollectionService:RemoveTag(inst, KartFactory.TAG)
+		end
+	end
+
+	-- THE SHIELD BUBBLE STARTS INVISIBLE.
+	--
+	-- It's authored art welded to the kart, so it arrives at whatever
+	-- transparency it was saved with — visible. The only thing that ever
+	-- hid it was the client's Effects module, which runs for YOUR kart
+	-- and nothing else. So every other kart in the race wore a permanent
+	-- shield: bots most obviously, but remote players too.
+	--
+	-- Hidden at build, so "off" is the default state of the world rather
+	-- than something a client has to remember to impose. Whoever owns the
+	-- simulation turns it on — Effects for a player, BotService for a bot.
+	local bubble = visual:FindFirstChild(FX.ShieldName, true)
+	if bubble then
+		for _, part in { bubble, table.unpack(bubble:GetDescendants()) } do
+			if part:IsA("BasePart") then
+				part.Transparency = 1
+				-- Never solid. It's decoration, and a bubble that collides
+				-- turns the kart into a beach ball.
+				part.CanCollide = false
+				part.CanQuery = false
+				part.CanTouch = false
+			end
 		end
 	end
 

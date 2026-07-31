@@ -73,6 +73,24 @@ local warnedNoRig = false
 --  knows it's a bot, which is why a bot can't accidentally be given
 --  abilities a player doesn't have.
 --=====================================================================
+-- Show or hide a kart's shield bubble.
+--
+-- Server-side twin of what Effects does for the local player. Effects
+-- fades; this snaps, because a bot's shield going up is something you
+-- see from across the track rather than something you're looking at.
+local function setShieldVisible(kart: Model, on: boolean)
+	local bubble = kart:FindFirstChild(Config.Effects.ShieldName, true)
+	if not bubble then
+		return
+	end
+	local alpha = if on then Config.Effects.ShieldTransparency else 1
+	for _, part in { bubble, table.unpack(bubble:GetDescendants()) } do
+		if part:IsA("BasePart") then
+			part.Transparency = alpha
+		end
+	end
+end
+
 local function newControls()
 	return {
 		touchThrottle = 0,
@@ -1323,6 +1341,23 @@ local function step(dt: number)
 		-- And its steering, so Rider turns the wheel and the front tyres.
 		bot.kart:SetAttribute(Names.STEER, bot.sim.steer)
 		bot.kart:SetAttribute(Names.DRIFT, bot.sim.driftAngle)
+
+		-- The shield bubble, which nothing else would ever show.
+		--
+		-- Effects drives it for a player, and Effects is a client module
+		-- that only ever looks at the local kart. A bot has no client, so
+		-- its bubble is whatever KartFactory left it as — now hidden,
+		-- which made bots permanently unshielded-looking instead of
+		-- permanently shielded-looking. Neither is the truth.
+		--
+		-- Toggled on change rather than written every step: this walks the
+		-- model, and doing that 75 times a second per bot to set a value
+		-- that is already correct is waste.
+		local shielded = bot.sim:HasShield()
+		if shielded ~= bot.shieldShown then
+			bot.shieldShown = shielded
+			setShieldVisible(bot.kart, shielded)
+		end
 	end
 end
 

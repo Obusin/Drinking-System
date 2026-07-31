@@ -189,6 +189,31 @@ return {
 	-- the arc of a jump is fine.
 	AirSurfaceProbe = 40,
 
+	-- Leaving the ground converts the ramp's climb into a proper arc.
+	--
+	-- `travel` is perpendicular to `up`, so on a ramp `travel * speed`
+	-- points uphill in world terms — a climb that lives outside vertVel,
+	-- and gravity only touches vertVel. Nothing pulled it back down: on a
+	-- 30 degree ramp at 100 studs/s the kart rose at 50 studs/s and kept
+	-- rising, because the airborne probe below kept finding the ramp it
+	-- had just left and held `up` tilted.
+	--
+	-- The conversion preserves world velocity exactly. It doesn't slow
+	-- anything down; it re-expresses the same motion as level speed plus
+	-- a vertical rate, so gravity has something to work on. A jump does
+	-- cost a little forward speed now, which is what launching upward
+	-- actually costs.
+	--
+	-- Set false to go back to climbing.
+	BallisticLaunch = true,
+
+	-- How level a surface has to be for a launch off it to count as a
+	-- jump rather than as riding a loop. Dot of the surface normal with
+	-- world up: 0.5 is a 60 degree slope. Anything steeper is treated as
+	-- track you're still attached to, and levelling there would drop you
+	-- off the ceiling.
+	LaunchLevelDot = 0.5,
+
 	StickTime = 0.16, -- grace period after losing contact before world
 	-- gravity takes back over. Bridges seams and stair nosings.
 	StairSmoothing = true, -- average the probe normals instead of
