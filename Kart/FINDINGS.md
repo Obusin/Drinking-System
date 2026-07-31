@@ -439,6 +439,20 @@ still wide open, so the speed cap barely applied. Knowing the rule is
 not the same as applying it. Grep for every write to the value you just
 learned is a threshold.
 
+### A half-applied revert is worse than either side of it.
+A revert kept `finishKart` but dropped `recordFinish`, which was still
+being called by the remote handler. Every finish raised "attempt to call
+a nil value", nothing was recorded, and the round could only end on the
+time limit.
+
+It presented as a **design** bug — "the match doesn't end even though
+everyone finished" — and cost a full round of testing before anyone
+opened the file.
+
+**Luau resolves globals lazily, so the analyser cannot see this.** After
+any revert or partial merge, grep every call site of the functions
+involved. `luau-analyze` reporting clean means nothing here.
+
 ### A probability rolled per step is not a probability.
 ```lua
 if rng:NextNumber() > B.NitroHoldChance * (1 - bot.skill) then  -- every step
