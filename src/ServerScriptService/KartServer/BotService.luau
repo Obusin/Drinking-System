@@ -196,6 +196,7 @@ local function drawRacingLine()
 		table.insert(lineParts, p)
 	end
 
+	local narrowest, narrowestAt = math.huge, 0
 	for i, node in nodes do
 		marker(node.position + Vector3.yAxis * 2, 4, Color3.fromRGB(90, 170, 255), true)
 		-- Sampled between nodes, so the CURVE is visible rather than
@@ -206,8 +207,38 @@ local function drawRacingLine()
 				marker(at + Vector3.yAxis * 1.5, 1.1, Color3.fromRGB(255, 230, 120), false)
 			end
 		end
+
+		-- GREEN EDGES: how wide this thinks the road is, and therefore the
+		-- box a bot's line is clamped inside.
+		--
+		-- Worth drawing because the measurement comes from your checkpoint
+		-- volumes, so a gate narrower than the tarmac shows up here as
+		-- green markers sitting well inside the kerb — and a gate WIDER
+		-- than the tarmac shows up as green out in the scenery, which is
+		-- the setup mistake that puts bots off the track.
+		local tangent = Route.tangentAt(i - 1)
+		if tangent then
+			local across = tangent:Cross(Vector3.yAxis)
+			if across.Magnitude > 1e-4 then
+				across = across.Unit
+				local room = math.max(node.halfWidth - B.EdgeMargin, 0)
+				for _, s in { -1, 1 } do
+					marker(node.position + across * room * s + Vector3.yAxis * 1.5, 1.6, Color3.fromRGB(120, 230, 140), false)
+				end
+			end
+		end
+
+		if node.halfWidth < narrowest then
+			narrowest, narrowestAt = node.halfWidth, node.order
+		end
 	end
-	print(("[BotService] racing line drawn: %d checkpoints"):format(#nodes))
+	print(
+		("[BotService] racing line drawn: %d checkpoints. Green markers are the road edge bots stay inside; narrowest is %.0f studs wide at checkpoint %d. If green sits off the tarmac anywhere, that gate volume is the wrong size — bots will drive off there."):format(
+			#nodes,
+			narrowest * 2,
+			narrowestAt
+		)
+	)
 end
 
 local function debugPart(bot, key: string, colour: Color3): BasePart
@@ -322,6 +353,26 @@ local function drive(bot, dt: number)
 	end
 
 	----------------------------------------------------------------
+	-- STAY ON THE ROAD
+	--
+	-- Everything above is free to move the bot sideways: a personal line
+	-- bias up to LineOffset, a wander of the same size again, and up to
+	-- AvoidStrength more for traffic. Nothing so far has had any idea how
+	-- wide the road is.
+	--
+	-- So a bot that rolled a positive bias, wandered the same way, and
+	-- dodged someone would aim tens of studs right of the centreline and
+	-- drive off the track — reliably, since the bias never changes. Which
+	-- is exactly what it did.
+	--
+	-- The road's width is measured from the checkpoint volumes (see
+	-- Route.nodes), so this clamps against the track you actually built
+	-- rather than a number someone guessed.
+	----------------------------------------------------------------
+	local room = math.max(Route.halfWidthAt(bot.u) - B.EdgeMargin, 0)
+	offset = math.clamp(offset, -room, room)
+
+	----------------------------------------------------------------
 	-- STEERING
 	--
 	-- Aim at a point up the road, offset onto our own line. Lookahead
@@ -371,6 +422,24 @@ local function drive(bot, dt: number)
 	-- holds the kart on the tarmac through an apex.
 	local actualOffset = Route.lateralAt(bot.u, sim.pos, sim.up)
 	local crossErr = offset - actualOffset
+
+	-- LAST PLACE IT WAS DEFINITELY ON THE TRACK.
+	--
+	-- Remembered here, while we already know both facts that make it
+	-- true: wheels down, and inside the road's width.
+	--
+	-- revive() used to respawn at whatever point on the racing line was
+	-- nearest to where the kart ENDED UP. A kart that drives off the right
+	-- and falls is nearest to the road it was aiming at, not the road it
+	-- left — so it came back at the following checkpoint, or on a hairpin
+	-- at some entirely unrelated stretch it happened to fall beside. From
+	-- outside that reads as a bot skipping ahead, which is what it was.
+	--
+	-- Where you fell is not where you were. Store where you were.
+	if sim.grounded and math.abs(actualOffset) <= room then
+		bot.safeU = bot.u
+		bot.safeCF = CFrame.lookAt(sim.pos, sim.pos + sim.forward, sim.up)
+	end
 
 	-- DAMPING. Two proportional terms with nothing opposing them always
 	-- overshoot, correct, and overshoot again — that is the zig-zag, and
@@ -742,6 +811,12 @@ local function step(dt: number)
 				bot.sim:ResetForRound()
 				bot.u = Route.nearestU(grid.Position)
 				bot.lastU = nil
+				-- The grid IS a known-good position, and last round's is
+				-- not — reviving to a corner from the previous race would
+				-- put a bot on the track mid-lap before the lights go out.
+				bot.safeU = bot.u
+				bot.safeCF = grid
+				bot.revives = 0
 				bot.laps = 0
 				bot.item = nil
 				bot.heldSteer = 0
@@ -782,12 +857,22 @@ local function step(dt: number)
 			-- Counted, because a bot that rejoins the line over and over is
 			-- not falling off the map — something is putting it back, and
 			-- that reads from outside as flying to the checkpoint.
+			-- Counted AND located. The count alone said a bot kept coming
+			-- back; it took a screenshot to find out the bot was driving
+			-- off the right-hand edge every lap, so the count now carries
+			-- the one fact that identifies that: which side it left from,
+			-- and how far off the racing line it was when it went.
 			bot.revives = (bot.revives or 0) + 1
 			if bot.revives % 5 == 1 then
+				local off = Route.lateralAt(bot.safeU or bot.u, bot.sim.pos, bot.sim.up) or 0
 				warn(
-					("[BotService] %s has rejoined the racing line %d time(s) — it is falling through the world, not driving off it."):format(
+					("[BotService] %s left the track %d time(s) — last seen %.0f studs %s of the racing line near node %.1f (road is %.0f wide there). Off-centre by more than half the road means it is steering off, not falling through."):format(
 						bot.name,
-						bot.revives
+						bot.revives,
+						math.abs(off),
+						if off >= 0 then "RIGHT" else "LEFT",
+						bot.safeU or bot.u or 0,
+						Route.halfWidthAt(bot.safeU or bot.u or 0) * 2
 					)
 				)
 			end
@@ -1094,6 +1179,21 @@ function BotService.revive(bot)
 		BotService.seatRig(bot)
 	end
 
+	-- Back to the last spot it was demonstrably ON the road — recorded in
+	-- drive(), not derived from where it came to rest.
+	--
+	-- Projecting the crash site onto the racing line is what put bots at
+	-- the checkpoint AFTER the one they left: fall off a right-hand bend
+	-- and the nearest line point is the straight you were aiming at.
+	if bot.safeCF then
+		bot.sim:RespawnAt(bot.safeCF + bot.safeCF.UpVector * 3)
+		bot.u = bot.safeU or bot.u
+		bot.lastU = nil
+		return
+	end
+
+	-- Never got a clean lap position — spun off the grid, say. Only now is
+	-- projecting the wreck onto the line the best we can do.
 	local u = Route.nearestU(bot.sim.pos)
 	local at = Route.pointAt(u)
 	local tangent = Route.tangentAt(u)

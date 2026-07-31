@@ -36,6 +36,10 @@ export type Node = {
 	order: number,
 	position: Vector3,
 	parts: { BasePart },
+	-- Studs of road either side of the centreline here. Anything choosing
+	-- a line off-centre has to be clamped to this or it drives off the
+	-- track; see the measuring pass in Route.nodes.
+	halfWidth: number,
 }
 
 -- Order attribute first, trailing digits in the name as a fallback, so
@@ -116,12 +120,68 @@ function Route.nodes(): { Node }
 			order = o,
 			position = dropToRoad(sum / #group, group[1]),
 			parts = group,
+			halfWidth = R.RouteDefaultHalfWidth,
 		})
+	end
+
+	-- HOW WIDE THE ROAD IS. Measured in a second pass, because it needs
+	-- the direction of travel and that needs the neighbours placed first.
+	--
+	-- This exists because nothing used to know it, and everything that
+	-- steers off the centreline was therefore guessing. A bot holds a
+	-- random line offset and moves over for traffic; with no idea where
+	-- the tarmac ends it will happily aim at a point beside the road and
+	-- drive straight off, every lap, forever. That is not a tuning
+	-- problem — there was no number to tune against.
+	--
+	-- Taken from the checkpoint volume rather than probed, because a gate
+	-- is already a slab spanning the track: its width IS the road's, it
+	-- was placed by hand on purpose, and reading it costs nothing.
+	for i, node in nodes do
+		local prev = nodes[if i > 1 then i - 1 else #nodes]
+		local nxt = nodes[if i < #nodes then i + 1 else 1]
+		local forward = nxt.position - prev.position
+		if forward.Magnitude < 1e-3 then
+			continue
+		end
+		forward = forward.Unit
+
+		local part = node.parts[1]
+		local across = forward:Cross(part.CFrame.UpVector)
+		if across.Magnitude < 1e-4 then
+			continue
+		end
+		across = across.Unit
+
+		-- The volume's extent along `across`: a box projected onto an
+		-- arbitrary axis, so this is right at any rotation rather than only
+		-- for gates left square to the world.
+		local cf, size = part.CFrame, part.Size
+		local extent = math.abs(cf.RightVector:Dot(across)) * size.X
+			+ math.abs(cf.UpVector:Dot(across)) * size.Y
+			+ math.abs(cf.LookVector:Dot(across)) * size.Z
+
+		node.halfWidth = math.max(extent * 0.5, R.RouteMinHalfWidth)
 	end
 
 	cache = nodes
 	cachedCount = #parts
 	return nodes
+end
+
+-- Road half-width at a point along the line, blended between nodes so it
+-- doesn't step at every gate.
+function Route.halfWidthAt(u: number): number
+	local nodes = Route.nodes()
+	local n = #nodes
+	if n == 0 then
+		return R.RouteDefaultHalfWidth
+	end
+	local i = math.floor(u) % n
+	local t = u - math.floor(u)
+	local a = nodes[i + 1].halfWidth or R.RouteDefaultHalfWidth
+	local b = nodes[(i + 1) % n + 1].halfWidth or R.RouteDefaultHalfWidth
+	return a + (b - a) * t
 end
 
 --=====================================================================

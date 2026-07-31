@@ -173,6 +173,17 @@ return {
 	AvoidRadius = 26, -- studs, and only counts karts AHEAD
 	AvoidStrength = 11, -- studs of offset at closest range
 
+	-- Studs of road to leave between the bot's chosen line and the edge.
+	--
+	-- LineOffset, the wander and AvoidStrength can add up to nearly thirty
+	-- studs of sideways offset, and until the road had a measured width
+	-- nothing stopped that landing off the track. A bot that rolled a
+	-- positive bias drove off the right-hand side every single lap.
+	--
+	-- Raise it if bots still clip the edge; the room they're clamped to is
+	-- the checkpoint volume's half-width minus this.
+	EdgeMargin = 4,
+
 	--== DRIFTING ======================================================
 	-- Drifts when the corner is sharp enough and it's quick enough to
 	-- benefit, same as a player would.

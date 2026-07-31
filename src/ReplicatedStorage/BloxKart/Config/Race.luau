@@ -112,6 +112,20 @@ return {
 	-- permanent corner to anything measuring how much the road bends.
 	RouteDropProbe = 40,
 
+	-- ROAD WIDTH, taken from the checkpoint volumes themselves — a gate is
+	-- already a slab spanning the track, so its width is the road's.
+	--
+	-- Anything that drives off the centreline needs this. Bots hold a
+	-- personal line offset and move over for traffic, and with no idea
+	-- where the tarmac ends they aim beside the road and drive off it,
+	-- every lap. That isn't a tuning problem: without this there is no
+	-- number to tune against.
+	--
+	-- The fallback is for checkpoints that aren't road-shaped — a small
+	-- marker cube, say. Set it to roughly your track's half-width.
+	RouteDefaultHalfWidth = 18,
+	RouteMinHalfWidth = 6, -- never trust a measurement tighter than a kart
+
 	--== WRONG WAY =====================================================
 	-- Needs no extra setup: "which way does traffic flow here" is already
 	-- stated by CheckpointFacing, so the warning reads the facing of the
