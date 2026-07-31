@@ -105,8 +105,24 @@ return {
 	-- At MaxSpeed 95 these are about 65 and 76 studs/s, against your 95.
 	-- Lowered once already: the first pass was too close to your own top
 	-- speed to leave any closing rate worth the name.
-	CruiseMin = 0.68,
-	CruiseMax = 0.80,
+	-- CALIBRATED AGAINST A LAP, not by feel.
+	--
+	-- 0.68-0.80 was a serious over-correction. On a 1500-stud lap it
+	-- handed you 527 studs on an average bot EVERY LAP — a third of the
+	-- circuit, before items. That is not a slow rival, it is no rival.
+	--
+	-- 0.92-1.00 puts the best bot level with your top speed and the worst
+	-- 7.6 studs/s down, which is about 60 studs a lap: a kart is 7 studs
+	-- long, so that is a gap you close over several corners rather than
+	-- one straight.
+	--
+	-- The top of the band being 1.00 is deliberate and is NOT a cheat.
+	-- The kart is identical to yours; a bot at full cruise is simply one
+	-- that never lifts on a straight, which you can also do. It is beaten
+	-- by carrying more speed through corners, using nitro better, and
+	-- landing items — not by out-dragging it.
+	CruiseMin = 0.92,
+	CruiseMax = 1.00,
 
 	-- Fraction of cruise below which full power comes back. Stops a bot
 	-- chattering on the threshold; it settles into a speed instead.
@@ -486,8 +502,13 @@ return {
 	--
 	-- 0.3 means a bot on a long straight usually spends one within a few
 	-- seconds, and often doesn't bother at all on a short one.
-	NitroUsePerSecond = 0.3,
-	NitroCooldown = 7, -- seconds before it will consider another, so a bot
+	-- Raised with the cruise band. Nitro is the only thing that takes a
+	-- bot ABOVE its cruise, so it is where the pressure comes from — a
+	-- rival that never boosts is one you pass once and never see again.
+	-- At 0.55/s a bot spends one within a couple of seconds of reaching a
+	-- straight with a tank banked.
+	NitroUsePerSecond = 0.55,
+	NitroCooldown = 4, -- seconds before it will consider another, so a bot
 	-- can't chain three tanks down one straight
 
 	--== ITEMS =========================================================
