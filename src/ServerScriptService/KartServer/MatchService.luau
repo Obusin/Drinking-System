@@ -41,6 +41,7 @@ local phase = P.Waiting
 local endsAt = 0
 local round = 0
 local finishers = 0 -- how many have crossed the line this round
+local racingStartedAt = 0 -- server clock at the moment the lights went out
 local ready: { [Player]: boolean } = {}
 
 --=====================================================================
@@ -109,6 +110,12 @@ end
 local function enter(next: string, duration: number?)
 	phase = next
 	endsAt = if duration and duration > 0 then workspace:GetServerTimeNow() + duration else 0
+	-- Stamped on the way in, so anything computing an elapsed race time
+	-- reads it from here rather than keeping its own copy of when the
+	-- lights went out. A second copy is a second thing to get wrong.
+	if next == P.Racing then
+		racingStartedAt = workspace:GetServerTimeNow()
+	end
 	log("→ %s%s", next, if duration then (" (%.1fs)"):format(duration) else "")
 	publish()
 end
@@ -154,12 +161,19 @@ end
 --=====================================================================
 --  FINISHING
 --=====================================================================
-local function recordFinish(player: Player, totalTime: number)
-	if phase ~= P.Racing then
-		return
-	end
-	local kart = KartService.kartFor(player)
-	if not kart then
+-- Takes a KART, not a player.
+--
+-- This split is what lets a bot win. Finishing used to be reachable only
+-- through the client remote below, and a bot has no client — so however
+-- fast one drove, it could never cross the line, never take a place, and
+-- never end the round. Bots weren't losing races; they were not entered
+-- in them.
+--
+-- Same counter, same attributes, same grace-period logic for everybody.
+-- A separate bot path would drift out of step with this one, and the
+-- whole point is that a bot's win is the same object as yours.
+local function finishKart(kart: Model, who: string, totalTime: number)
+	if phase ~= P.Racing or not kart then
 		return
 	end
 	-- Already in. Re-reporting is either lag or a client trying to claim
@@ -168,15 +182,10 @@ local function recordFinish(player: Player, totalTime: number)
 		return
 	end
 
-	-- TODO: validate. The server knows when Racing began, so a time
-	-- shorter than the phase has been running is provably fake, and the
-	-- progress relay already tells us whether they ever reached the last
-	-- checkpoint. Both belong here, in this function, before the
-	-- attribute is written.
 	finishers += 1
 	kart:SetAttribute(Match.FINISH_PLACE, finishers)
 	kart:SetAttribute(Match.FINISH_TIME, totalTime)
-	log("%s finished P%d in %.2fs", player.Name, finishers, totalTime)
+	log("%s finished P%d in %.2fs", who, finishers, totalTime)
 
 	if finishers == 1 then
 		-- The leader is home. Everyone else is on the clock now, so the
@@ -191,6 +200,33 @@ local function recordFinish(player: Player, totalTime: number)
 		endsAt = workspace:GetServerTimeNow() + M.FinishSettle
 		publish()
 	end
+end
+
+-- The client's route in. Resolves the kart, then goes through the same
+-- door as everyone else.
+--
+-- TODO: validate. The server knows when Racing began, so a time shorter
+-- than the phase has been running is provably fake, and the progress
+-- relay already tells us whether they ever reached the last checkpoint.
+-- Both belong HERE — on the path a client can reach — and deliberately
+-- not in finishKart, which the server calls for bots and trusts.
+local function recordFinish(player: Player, totalTime: number)
+	local kart = KartService.kartFor(player)
+	if kart then
+		finishKart(kart, player.Name, totalTime)
+	end
+end
+
+-- The server's route in, for racers with nobody sitting at a keyboard.
+-- BotService calls this the moment a bot completes its last lap.
+function MatchService.botFinished(kart: Model, name: string, totalTime: number)
+	finishKart(kart, name, totalTime)
+end
+
+-- When Racing began, so a bot can work out its own elapsed time without
+-- BotService having to track the phase itself.
+function MatchService.racingSince(): number?
+	return if phase == P.Racing then racingStartedAt else nil
 end
 
 --=====================================================================

@@ -49,18 +49,31 @@ return {
 	IdleSteerRate = 1.1, -- wags per second
 	IdleSteerAmount = 1, -- 1 is lock to lock
 
-	-- Every frame, and it has to be.
+	-- How often the bot simulation advances, in fixed steps per second.
 	--
-	-- Their karts are unanchored so motion replicates smoothly, which
-	-- means physics runs on them at 60Hz. Writing their CFrame at 30
-	-- meant physics extrapolated them along their velocity for a frame
-	-- and then got snapped back by the next write — visible as a flicker.
-	-- Matching the physics rate makes each correction tiny.
+	-- The old comment here justified 60 by physics running on unanchored
+	-- bot karts. That reasoning is dead: bot karts are ANCHORED now (one
+	-- authority — see FINDINGS §3), so nothing else is integrating them
+	-- and this rate answers only to itself.
 	--
-	-- The controller is frame-rate independent, so lowering this doesn't
-	-- change how bots DRIVE. It trades smoothness for server cost, and
-	-- smoothness is the thing you notice.
-	StepRate = 60,
+	-- BE CLEAR ABOUT WHAT THIS DOES AND DOESN'T BUY. It is NOT what makes
+	-- bots look smooth. Their position replicates to clients at roughly
+	-- 20Hz whatever this says, and what you actually see is RemoteKarts
+	-- interpolating between those updates at your own frame rate. Raising
+	-- this improves integration accuracy — slightly tighter cornering,
+	-- slightly less overshoot — and costs raycasts linearly, because
+	-- every step probes the ground, the ledge ahead and the road edges.
+	--
+	-- 75 is a ~25% raycast increase over 60. Comfortable for a field of
+	-- four; watch the server frame time before pushing it much past this
+	-- with a full grid of eight.
+	StepRate = 75,
+
+	-- Ceiling on how many fixed steps one frame may run. Without it a
+	-- hitch banks work that the next frame tries to pay off, making that
+	-- frame slow, which banks more — the classic spiral. 4 is generous:
+	-- at 75Hz on a 60Hz server the normal case is 1 or 2.
+	MaxSubSteps = 4,
 
 	--== SKILL =========================================================
 	-- Rolled per bot at spawn, and scales everything below. Kept away

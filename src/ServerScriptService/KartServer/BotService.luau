@@ -1158,6 +1158,23 @@ local function step(dt: number)
 					-- it fade. Without this a single incident makes a bot
 					-- crawl that corner for the rest of the server's life.
 					BotService.decayCaution(bot)
+
+					-- CROSSING THE LINE. Bots could not do this at all
+					-- until now: finishing was reachable only through the
+					-- client remote, and a bot has no client. However fast
+					-- one drove it never took a place and never ended the
+					-- round — they weren't losing races, they were not
+					-- entered in them.
+					--
+					-- Reported once. FINISH_PLACE is the guard, and
+					-- MatchService checks it too, so a bot that keeps
+					-- driving after the flag can't claim a second place.
+					if bot.laps >= Config.Race.TotalLaps and not bot.kart:GetAttribute(Match.FINISH_PLACE) then
+						local since = MatchService.racingSince()
+						if since then
+							MatchService.botFinished(bot.kart, bot.name, workspace:GetServerTimeNow() - since)
+						end
+					end
 				end
 				bot.lastU = bot.u
 			end
@@ -1608,20 +1625,34 @@ function BotService.start()
 	end)
 	task.defer(BotService.fill)
 
-	-- Stepped at StepRate rather than every frame. The controller is
-	-- frame-rate independent by construction, so this changes nothing
-	-- about how they drive — it halves the server's raycast load, which
-	-- is the real limit on how many bots a race can hold.
+	-- FIXED TIMESTEP, with sub-stepping.
+	--
+	-- The old loop could only ever fire ONCE per Heartbeat, so any
+	-- StepRate above the server's 60Hz silently did nothing — 75 and 60
+	-- ran identically, and the config was quietly lying. It also passed
+	-- the accumulated time as dt and zeroed the accumulator, which is a
+	-- variable timestep dressed up as a fixed one.
+	--
+	-- Now the integrator always advances by exactly `interval`, however
+	-- many of those fit in the frame. Below 60 it skips frames as before;
+	-- above 60 it genuinely sub-steps.
 	local accum = 0
 	local interval = 1 / math.max(B.StepRate, 1)
 
 	RunService.Heartbeat:Connect(function(dt)
-		accum += dt
-		if accum < interval then
-			return
+		-- Clamped BEFORE accumulating. A hitch — a big spawn, someone
+		-- joining — must not bank a second of work that the next frame
+		-- then tries to pay off all at once, which makes the next frame
+		-- slow and banks more still. Dropping the excess costs a little
+		-- simulated time; not dropping it costs the server.
+		accum += math.min(dt, interval * B.MaxSubSteps)
+
+		local n = 0
+		while accum >= interval and n < B.MaxSubSteps do
+			step(interval)
+			accum -= interval
+			n += 1
 		end
-		step(accum)
-		accum = 0
 	end)
 end
 
