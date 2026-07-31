@@ -156,6 +156,26 @@ return {
 	WheelSegments = 14, -- rim is a ring of blocks; no torus primitive
 	WheelColor = Color3.fromRGB(33, 33, 38),
 
+	--== SEEING OTHER PEOPLE'S KARTS ===================================
+	-- Your kart is simulated on your machine at your frame rate. Everyone
+	-- else's arrives over the network — a bot's is written by the server
+	-- and replicates as a property update around twenty times a second.
+	-- At 120 studs/s that's six studs a step, which reads as teleporting.
+	--
+	-- This is the rate each client eases its picture of somebody else's
+	-- kart toward the last position the server sent. It changes nothing
+	-- about where a kart IS, only what gets drawn between updates. Hits,
+	-- items and standings all read server state.
+	--
+	-- Higher is tighter to the server and choppier; lower is smoother and
+	-- further behind. 0 turns it off entirely.
+	RemoteSmoothing = 14,
+
+	-- Past this, jump instead of ease. A respawn or a grid placement is a
+	-- real jump, and easing across one flies the kart through the scenery
+	-- — which is exactly the artifact this exists to remove.
+	RemoteSnapDistance = 30,
+
 	--== SPAWNING ======================================================
 	DropHeight = 3, -- studs above the pad's top face at spawn
 	GridColumns = 2, -- karts per row on the start grid

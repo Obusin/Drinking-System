@@ -55,6 +55,7 @@ local Respawn = require(script.Respawn)
 local Projectiles = require(script.Projectiles)
 local TouchHud = require(script.TouchHud)
 local Rider = require(script.Rider)
+local RemoteKarts = require(script.RemoteKarts)
 
 local H = Config.Hud
 
@@ -402,6 +403,10 @@ Items.startBoxes()
 -- Missiles are drawn locally at full frame rate, whether or not WE fired
 -- them — every client renders its own copy of every projectile.
 Projectiles.start()
+
+-- Same idea, applied to karts we don't own: the server says where they
+-- are, we decide what to draw in between.
+RemoteKarts.start()
 
 -- Checkpoint sanity check, once. Delayed rather than immediate: tagged
 -- parts stream in with the rest of Workspace, so counting them on the

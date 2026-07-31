@@ -298,24 +298,27 @@ function KartService.addBot(name: string): (any, Model)
 	local kart = createKart(name .. "_Kart", slot, racer)
 	karts[racer] = kart
 
-	-- UNANCHORED, exactly like a player's, and for the same reason.
+	-- ANCHORED. One thing may own a part's position, and here that is us.
 	--
-	-- Roblox interpolates a physics part between replication updates. It
-	-- does NOT interpolate an anchored part's CFrame — those arrive as
-	-- bare property updates about twenty times a second, which at racing
-	-- speed is six studs a step. That is the whole of why bots looked
-	-- jerky next to players: not a different movement system, the same
-	-- one delivered differently.
+	-- A player's kart is unanchored because their CLIENT owns it: the
+	-- client's Simulation writes the CFrame and Roblox replicates an
+	-- owned part smoothly. Exactly one authority.
 	--
-	-- Anchoring was a fix for a flicker caused by stepping bots at 30Hz
-	-- against 60Hz physics — the server's write and the engine's
-	-- integration disagreeing every other frame. Bots step at 60 now, and
-	-- their velocity is written alongside their CFrame, so the engine
-	-- extrapolates along the path we're already taking instead of
-	-- fighting it.
+	-- A bot's kart has no owner. Unanchored, Roblox's physics integrates
+	-- it — gravity pulls it down — while the server writes the CFrame
+	-- back sixty times a second. Two authorities disagreeing, which looks
+	-- like the kart sinking and then snapping back to the racing line.
+	-- Writing the velocity too doesn't settle it; it just tells the
+	-- engine to argue faster.
+	--
+	-- Anchored, physics has no opinion. The cost is that replication of an
+	-- anchored CFrame isn't interpolated, so motion arrives in steps at
+	-- the network rate rather than smoothly. That's a visual limit with a
+	-- known fix (draw it client-side, as missiles do) and not two systems
+	-- fighting over where a kart is.
 	local hitbox = kart.PrimaryPart
 	if hitbox then
-		hitbox.Anchored = false
+		hitbox.Anchored = true
 	end
 	return racer, kart
 end
