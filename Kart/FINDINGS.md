@@ -132,6 +132,25 @@ failing — it was these working as written. Both now scale with how hard
 the bot is working, because people hold a straight and get untidy in
 corners, not the reverse.
 
+### A kart in the air had an engine. Nothing checked `grounded`.
+The speed calculation never asked whether the kart was touching
+anything, so full throttle accelerated it in **mid-air** toward
+`MaxSpeed`. Launch at 70 studs/s, two seconds airborne, land at 113.
+
+Always true, always wrong, and invisible until something held the
+throttle down through a flight — the bot ramp logic, which correctly
+pins throttle to clear a gap. It kept accelerating for the whole jump.
+
+Speed is **held** in the air now, not decayed: coasting to zero is
+equally invented in the other direction and makes every jump feel like a
+punishment. Boost and nitro stay live — thrust, not traction.
+
+**The general lesson:** a missing precondition can sit for months
+looking correct because nothing exercises it. The bug report will name
+the feature that *exposed* it, not the one that contains it. "It was
+working before" meant the old code accidentally hid the hole by lifting
+off the throttle.
+
 ### Depenetration must use the nearest FACE, not the part's centre.
 `pos - part.Position` is fine for a crate and meaningless for anything
 large. A road slab or a track-surface zone can have its centre a hundred
