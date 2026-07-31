@@ -128,14 +128,25 @@ end
 --  here; it was simply going nowhere.
 --=====================================================================
 function Tally:Drive(events)
-	if events.boostFired then
+	-- `boostFired` USED TO BE THE SIGNAL AND IS NOW NEVER RAISED.
+	--
+	-- Drift release no longer fires a boost — it banks nitro while you
+	-- slide and you spend it separately. The event survived in every
+	-- consumer, so "drift-boost N times" was a quest that could not
+	-- complete and had no way to say so: the metric was in StatCaps, so
+	-- the generator's liveness check passed it, but a cap only says what
+	-- to do IF a number arrives.
+	--
+	-- A charged drift is the honest replacement: one that reached at
+	-- least the first tier, which is what "a drift boost" always meant.
+	if events.driftEnded and (events.driftTier or 0) >= 1 then
 		self:Add("driftBoosts")
-		-- The top tier specifically. Rewards drifting WELL rather than
-		-- drifting more, which is the difference between a quest that
-		-- improves you and one that slows you down.
-		if events.boostFired >= 3 then
-			self:Add("driftTier3")
-		end
+	end
+	-- The top tier specifically. Rewards drifting WELL rather than
+	-- drifting more, which is the difference between a quest that
+	-- improves you and one that slows you down.
+	if events.tierChanged and events.tierChanged >= 3 then
+		self:Add("driftTier3")
 	end
 	if events.driftStarted then
 		self:Add("drifts")

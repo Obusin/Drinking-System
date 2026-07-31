@@ -259,6 +259,11 @@ function Simulation:_endDrift(events)
 	if self.state ~= STATE_DRIFT then
 		return
 	end
+	-- REPORTED BEFORE IT IS CLEARED. The tier a drift reached is the
+	-- only measure of whether it was a good one, and it was being thrown
+	-- away one line later — so nothing downstream could tell a committed
+	-- slide from a twitch.
+	events.driftTier = self.tier
 	self.tanksGained = 0
 	self.state = STATE_GRIP
 	self.tier = 0

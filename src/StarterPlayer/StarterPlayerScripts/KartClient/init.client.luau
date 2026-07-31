@@ -265,6 +265,10 @@ local function step(dt: number)
 	if events.landed then
 		haptics:Punch(HAP.LandPunch)
 	end
+	-- DEAD SINCE DRIFT RELEASE STOPPED FIRING A BOOST. Simulation banks
+	-- nitro while you slide and `nitroStage` below drives all of this
+	-- when you spend it. Kept only because an item boost could route
+	-- through here again; nothing raises it today.
 	if events.boostFired then
 		effects:Boost(events.boostFired)
 		audio:Boost(events.boostFired)
