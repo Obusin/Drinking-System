@@ -20,7 +20,17 @@ return {
 	-- isn't assigned to anybody — so the match sits in Waiting forever
 	-- and you free-drive. That's usually what you want out of test mode,
 	-- but it does mean the countdown can't be tested from it.
-	MinRacers = 2,
+	-- HUMANS needed to run a round, not karts. One is right: the field
+	-- is filled with AI, so a solo player has seven opponents and a race
+	-- rather than an empty track and a wait for somebody who may never
+	-- arrive.
+	--
+	-- Counting KARTS here is what made it look like two players were
+	-- required. Bots only spawn at the grid, the grid is only reached
+	-- from Intermission, and Intermission was gated on a kart count that
+	-- nothing could raise — so one player waited forever for the bots
+	-- that were waiting for them.
+	MinRacers = 1,
 	-- NOTE: grid size lives in Rig.MaxRacers, not here. There was a second
 	-- copy of it in this file that nothing read — two numbers meaning one
 	-- thing, waiting to disagree.

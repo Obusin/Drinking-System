@@ -118,6 +118,13 @@ function Match:IsRacing(): boolean
 	return Shared.isDriving(self:Phase())
 end
 
+-- Racers with a person behind them. The waiting line asks about people,
+-- not grid slots — "1 / 8" while the round is gated on one human reads
+-- as six missing players.
+function Match:Humans(): number
+	return self.state:GetAttribute(Shared.HUMANS) or 0
+end
+
 function Match:Racers(): number
 	if not self.state then
 		return 0

@@ -37,6 +37,10 @@ Match.FOLDER = "MatchState"
 Match.PHASE = "Phase"
 Match.ENDS_AT = "PhaseEndsAt" -- server time, or 0 for "no deadline"
 Match.RACERS = "Racers"
+-- Racers with a person behind them. Published separately because the
+-- round is gated on HUMANS while the field is mostly AI, and one number
+-- cannot answer both "how big is the grid" and "is anyone here".
+Match.HUMANS = "Humans"
 Match.READY = "Ready" -- how many have readied up
 Match.ROUND = "Round" -- increments per race; clients watch it to reset
 

@@ -122,6 +122,10 @@ local function publish()
 	if state:GetAttribute(Match.RACERS) ~= racers then
 		state:SetAttribute(Match.RACERS, racers)
 	end
+	local humans = humanRacers()
+	if state:GetAttribute(Match.HUMANS) ~= humans then
+		state:SetAttribute(Match.HUMANS, humans)
+	end
 	if state:GetAttribute(Match.READY) ~= readied then
 		state:SetAttribute(Match.READY, readied)
 	end
@@ -417,19 +421,26 @@ end
 --  no business running per-frame.
 --=====================================================================
 local function tick()
-	local racers = racerCount()
+	-- GATED ON PEOPLE, NOT KARTS. A round exists because somebody is
+	-- here to race it; the bots are the field, not the reason.
+	--
+	-- Counting karts deadlocked a solo lobby: bots spawn at the grid,
+	-- the grid is only reached from Intermission, and Intermission
+	-- required a kart count nothing could raise without bots.
+	local people = humanRacers()
 
 	if phase == P.Waiting then
-		if racers >= M.MinRacers then
+		if people >= M.MinRacers then
 			enter(P.Intermission, M.IntermissionTime)
 		else
-			publish() -- keep the racer count live so the HUD can say "1/2"
+			publish() -- keep the count live so the HUD can say "0 / 1"
 		end
 		return
 	end
 
-	-- Everyone left mid-round. Nothing to race.
-	if racers < M.MinRacers and phase ~= P.Results then
+	-- Everyone left mid-round. Nothing to race — and an empty server
+	-- must not keep running rounds for bots nobody is watching.
+	if people < M.MinRacers and phase ~= P.Results then
 		enter(P.Waiting)
 		return
 	end
@@ -457,7 +468,7 @@ local function tick()
 		end
 	elseif phase == P.Results then
 		if Match.timeLeft(endsAt) <= 0 then
-			if racers >= M.MinRacers then
+			if people >= M.MinRacers then
 				enter(P.Intermission, M.IntermissionTime)
 			else
 				enter(P.Waiting)

@@ -256,7 +256,7 @@ function MatchHud:Update(match)
 	-- That is a reason to guard the label, not the function.
 	if not self.spectating then
 		if phase == P.Waiting then
-			local racers, need = match:Racers(), match:MinRacers()
+			local racers, need = match:Humans(), match:MinRacers()
 			self.status.Text = ("WAITING FOR RACERS   %d / %d"):format(racers, need)
 		elseif phase == P.Intermission then
 			local suffix = if match:IsReady()
