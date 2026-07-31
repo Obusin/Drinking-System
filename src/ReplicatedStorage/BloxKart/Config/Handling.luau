@@ -83,9 +83,17 @@ return {
 	-- punishment. Boost and nitro still apply while airborne — those are
 	-- thrust, not traction.
 	--
-	-- Set false to go back to the old behaviour if a track turns out to
-	-- depend on air acceleration.
-	AirKeepsSpeed = true,
+	-- OFF. Turned on during a session chasing bots flying off ramps, and
+	-- turned back off because the physics was not the problem — the karts
+	-- were driving correctly before any of it, and the actual complaint
+	-- was bots ignoring the match phase.
+	--
+	-- The observation still looks true on paper: nothing checks whether
+	-- the kart is touching anything, so full throttle does accelerate you
+	-- in mid-air. If that ever becomes a real complaint, this is the
+	-- switch. It is off because it changes how every jump in the game
+	-- feels, and nobody asked for that.
+	AirKeepsSpeed = false,
 
 	TurnRate = 2.5, -- rad/s at full lock, low speed
 	TurnRateTop = 1.6, -- rad/s at full lock, top speed
@@ -204,8 +212,17 @@ return {
 	-- cost a little forward speed now, which is what launching upward
 	-- actually costs.
 	--
-	-- Set false to go back to climbing.
-	BallisticLaunch = true,
+	-- OFF, for the same reason as AirKeepsSpeed above: it was written to
+	-- chase bots flying, and the karts were jumping correctly before any
+	-- of this session's changes. Ramps that worked are worth more than a
+	-- tidier model of ramps.
+	--
+	-- Keep the analysis, because it is probably still right and the next
+	-- person will otherwise rediscover it: `travel` is perpendicular to
+	-- `up`, so a tilted `up` is a climb that vertVel — and therefore
+	-- gravity — never sees. If karts ever genuinely do float off ramps,
+	-- start here rather than from scratch.
+	BallisticLaunch = false,
 
 	-- How level a surface has to be for a launch off it to count as a
 	-- jump rather than as riding a loop. Dot of the surface normal with

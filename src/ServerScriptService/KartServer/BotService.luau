@@ -806,15 +806,18 @@ local function drive(bot, dt: number)
 	-- to lift is overruled — including the corner-braking above, which
 	-- reads a ramp's approach as a bend and would take the pace off at
 	-- exactly the wrong moment.
-	-- Only while the wheels are still down. Throttle is what carries speed
-	-- UP the ramp; once airborne it has no honest job, and pinning it
-	-- there is what turned "commits to the jump" into "flies". Simulation
-	-- now refuses engine power in the air anyway (AirKeepsSpeed), so this
-	-- is belt and braces — but a bot asking for something it cannot have
-	-- is a lie in the debug readout, and the throttle bar is how these get
-	-- diagnosed.
-	if bot.jumping and sim.grounded then
-		c.touchThrottle = math.max(c.touchThrottle, B.JumpThrottle)
+	-- A jump means DON'T LIFT. It does not mean floor it.
+	--
+	-- This used to raise the throttle to JumpThrottle, which overrode
+	-- corner braking, pace and everything else — so bots hit ramps harder
+	-- than they would have driven them, and launched. That was never the
+	-- job. The problem being solved was a bot BRAKING for a ramp, and all
+	-- that needs is for the ledge cap below not to apply.
+	--
+	-- So a jump now simply falls through: the bot arrives at whatever
+	-- speed its normal driving produced, exactly as a player would.
+	if bot.jumping then
+		-- Nothing. Deliberately.
 	elseif (bot.ledgeFor or 0) > 0 then
 		-- Off the edge of the world beats every other consideration.
 		-- Allowed below MinCornerSpeed, which nothing else is: that floor

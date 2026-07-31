@@ -357,8 +357,11 @@ return {
 	-- drive, so if the ROUTE carries on across the gap and there is road
 	-- on the far side, this is a jump. Line up, stay on the power.
 	JumpSpan = 1.2, -- node units past the aim point to look for landing
-	JumpThrottle = 1, -- and commit. Overrides corner braking, which reads
-	-- a ramp's approach as a bend
+	-- and then simply DON'T LIFT. There is no jump throttle any more: it
+	-- used to raise the throttle to 1, overriding corner braking and pace,
+	-- so bots hit ramps harder than they would otherwise have driven them
+	-- and launched. The problem was only ever a bot BRAKING for a ramp,
+	-- and not applying the ledge cap is the whole fix.
 
 	--== NOT FIGHTING THE LINE =========================================
 	-- LineDeadband is GONE too, and for a subtler reason than the others.
