@@ -257,6 +257,19 @@ local function groundOut(part: BasePart): boolean
 	part.CFrame = CFrame.new(hit.Position + hit.Normal * (part.Size.Y * 0.5)) * CFrame.Angles(0, y, 0)
 	part.Anchored = true
 	part.CanCollide = false
+	-- RE-ARMED ON LANDING.
+	--
+	-- The grace starts when the item is THROWN, and a forward throw
+	-- spends most of it in the air — so by the time the thing is actually
+	-- on the road, the person who threw it is already driving at it with
+	-- almost no protection left. Restarting the clock here means the
+	-- grace covers the part that matters: the moment it becomes a trap.
+	--
+	-- Only for hazards; drops and other settling parts have no arming.
+	if part:GetAttribute(Names.ARM_AT) then
+		part:SetAttribute(Names.ARM_AT, workspace:GetServerTimeNow() + Config.Items.HazardOwnerGrace)
+	end
+
 	-- Says "it landed HERE", to everybody.
 	landingRing(hit.Position, hit.Normal, part.Color)
 	return true
@@ -342,7 +355,19 @@ function RaceService.spawnHazard(ownerId: number, cf: CFrame, item, back: boolea
 	-- hazard, nobody can claim someone else's, and the victim's
 	-- client knows which effect to apply.
 	hz:SetAttribute(Names.OWNER, ownerId)
-	hz:SetAttribute(Names.ARM_AT, os.clock() + IT.HazardOwnerGrace)
+	-- SERVER TIME, not os.clock().
+	--
+	-- os.clock() is time since THIS process started, so the server's and
+	-- each client's are unrelated numbers — comparing them is meaningless
+	-- and fails in both directions. A client newer than the server is
+	-- immune to its own hazards forever; a client older than the server
+	-- gets no grace at all, drives into its own item the instant it
+	-- spawns, and the hit destroys it. That second case is exactly
+	-- "nothing spawns in front when I throw".
+	--
+	-- GetServerTimeNow is the same clock everywhere, which is the entire
+	-- requirement for a timestamp that crosses the wire.
+	hz:SetAttribute(Names.ARM_AT, workspace:GetServerTimeNow() + IT.HazardOwnerGrace)
 	hz:SetAttribute(Names.HAZARD_ITEM, item.Id)
 	-- Optional art. The part above stays the trigger volume and goes
 	-- invisible; the model is decoration welded to it, and must never

@@ -312,8 +312,15 @@ function Items:Update(sim, input): { [string]: any }
 		-- you and you are driving at it, so any grace period just delays
 		-- the moment you hit your own item. Others still trigger it the
 		-- instant it exists, which is the asymmetry that matters.
+		-- GetServerTimeNow, matching what the server stamped. os.clock()
+		-- was being compared against a server os.clock(), and those are
+		-- process uptimes on two different machines — the check was
+		-- meaningless in both directions.
 		local live = not mine
-			or (not IT.HazardOwnerImmune and not (typeof(armAt) == "number" and os.clock() < armAt))
+			or (
+				not IT.HazardOwnerImmune
+				and not (typeof(armAt) == "number" and workspace:GetServerTimeNow() < armAt)
+			)
 		if live then
 			-- Which hazard this is comes off the part, so one code path
 			-- serves mines, oil and anything added later.
