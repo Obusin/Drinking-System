@@ -674,6 +674,34 @@ local function step(dt: number)
 		end
 
 		----------------------------------------------------------------
+		-- BACK TO THE GRID
+		--
+		-- Flagged by the match, NOT detected by watching the grid CFrame
+		-- change. Slot 3 is in the same place every round, so "has this
+		-- attribute changed" is true exactly once and never again — bots
+		-- lined up for the first race and then stayed wherever the last
+		-- one left them, for the rest of the server's life.
+		--
+		-- The client keys off the round NUMBER for the same reason. This
+		-- is the server-side half of the same idea.
+		----------------------------------------------------------------
+		if bot.needsGrid then
+			local grid = bot.kart:GetAttribute(Match.GRID_CF)
+			if typeof(grid) == "CFrame" then
+				bot.needsGrid = false
+				bot.sim:RespawnAt(grid)
+				bot.sim:ResetForRound()
+				bot.u = Route.nearestU(grid.Position)
+				bot.lastU = nil
+				bot.laps = 0
+				bot.item = nil
+				bot.heldSteer = 0
+				table.clear(bot.sawSteer)
+				log("%s on the grid", bot.name)
+			end
+		end
+
+		----------------------------------------------------------------
 		-- IDLE — parked, wagging the wheel.
 		--
 		-- Steps the simulation with zero throttle, so the kart settles on
@@ -697,19 +725,6 @@ local function step(dt: number)
 		-- the same thing for everybody.
 		bot.sim:Hold(not racing)
 
-		-- And placed on it. A player's own client applies GridCF; a bot
-		-- has no client, so it does it here — once per round, watching the
-		-- same attribute for the same reason.
-		local grid = bot.kart:GetAttribute(Match.GRID_CF)
-		if typeof(grid) == "CFrame" and grid ~= bot.grid then
-			bot.grid = grid
-			bot.sim:RespawnAt(grid)
-			bot.sim:ResetForRound()
-			bot.u = Route.nearestU(grid.Position)
-			bot.lastU = nil
-			bot.laps = 0
-			bot.item = nil
-		end
 
 		-- Fell off the world, or ended up somewhere the road isn't. No
 		-- character to re-seat, so it puts itself back on the racing line
@@ -773,6 +788,19 @@ end
 --=====================================================================
 --  LIFECYCLE
 --=====================================================================
+-- Called by MatchService as a round starts. Tops the field up and sends
+-- everybody back to the grid.
+--
+-- The flag rather than the placement, because this fires BEFORE
+-- KartService.assignGrid has written the positions — so the bots pick
+-- them up on their next step, once they exist.
+function BotService.onGrid()
+	BotService.fill()
+	for _, bot in bots do
+		bot.needsGrid = true
+	end
+end
+
 -- Tops the field up to FillTo. Refuses mid-race: adding a bot to a race
 -- in progress puts a kart on the track from nowhere, and removing one
 -- deletes a racer somebody may be about to overtake.
@@ -848,6 +876,9 @@ function BotService.fill()
 			throttleAt = rng:NextNumber(0, 20),
 			sawSteer = {},
 			heldSteer = 0,
+			-- Placed on the grid by its first step, so a bot joining
+			-- mid-intermission still starts from the line.
+			needsGrid = true,
 			u = 0,
 			laps = 0,
 			driftDecided = false,

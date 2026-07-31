@@ -54,7 +54,7 @@ ProjectileService.start()
 -- Last: bots need every service they drive through to exist first, and
 -- they fill the grid on the match's cue rather than at startup.
 BotService.start()
-MatchService.onGrid = BotService.fill
+MatchService.onGrid = BotService.onGrid
 -- A hit on a kart with no Player behind it goes to the bots. A hook
 -- rather than a require: RaceService is upstream of BotService and
 -- shouldn't have to know it exists.
