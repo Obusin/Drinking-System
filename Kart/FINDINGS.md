@@ -439,6 +439,24 @@ still wide open, so the speed cap barely applied. Knowing the rule is
 not the same as applying it. Grep for every write to the value you just
 learned is a threshold.
 
+### A Studio sync can delete the entire source tree. Commit early.
+It has now happened twice. Argon syncing from a Studio session that
+doesn't have the files removes them from disk — all 68 at once, silently,
+mid-session.
+
+**Both times git was the only thing that saved it.** Nothing else in the
+setup keeps a copy.
+
+**Rules:**
+- Commit as soon as a change compiles. Uncommitted work is one sync away
+  from gone, and "I'll commit when it's tested" is how you lose an hour.
+- If the tree disappears, **do not `git checkout` while the sync is
+  live** — a running sync can re-delete the restore, or push the empty
+  state back. Stop the sync first, then restore.
+- `find src -name '*.luau' | wc -l` against
+  `git ls-tree -r HEAD --name-only | grep -c src/` tells you instantly
+  whether the tree is whole.
+
 ### A half-applied revert is worse than either side of it.
 A revert kept `finishKart` but dropped `recordFinish`, which was still
 being called by the remote handler. Every finish raised "attempt to call
