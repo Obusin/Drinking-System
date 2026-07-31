@@ -155,6 +155,25 @@ return {
 	WrongWayDot = -0.35,
 	WrongWayTime = 0.7, -- seconds facing the wrong way before it appears.
 	-- Long enough to survive a spin, short enough to be useful.
+	-- Seconds of continuous wrong way before the game puts you back.
+	--
+	-- WHY NOT JUST FORGIVE MISSED CHECKPOINTS. A percentage allowance —
+	-- "you may skip 10% of them" — turns into a shortcut budget the
+	-- moment anyone works out WHICH gate is skippable, and then the
+	-- fastest line is the one that spends it. It is also invisible: you
+	-- cannot see how much allowance you have left, so it never reads as a
+	-- rule, only as the game being inconsistent about laps.
+	--
+	-- The problem was never that checkpoints are strict. It is that a
+	-- player who misses one has no idea and no way back. So: keep the
+	-- rule, say what happened, and recover them if they clearly cannot.
+	--
+	-- Long, and much longer than the warning. Driving backwards briefly
+	-- is legitimate — turning around after an overshoot, doubling back
+	-- for an item, catching a spin — and yanking someone out of any of
+	-- those is worse than the problem it solves.
+	LostTime = 5,
+
 	WrongWaySpeed = 15, -- studs/s. Below this you're probably reversing
 	-- out of a wall on purpose and don't need telling.
 

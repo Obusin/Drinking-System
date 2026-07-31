@@ -298,7 +298,19 @@ local function step(dt: number)
 	-- the moment you touch the stick.
 	local alertText, alertColour = nil, nil
 	if race:WrongWay(sim, dt) then
-		alertText, alertColour = H.WrongWayText, H.WrongWayColor
+		-- NAME THE GATE THEY STILL OWE.
+		--
+		-- "WRONG WAY" alone says you're facing the wrong direction. It
+		-- does not say that the lap you're driving has already stopped
+		-- counting, which is the part that actually costs you the race —
+		-- and a lap silently not counting is the single most confusing
+		-- thing this game can do to somebody.
+		--
+		-- Missing a gate is meant to be recoverable, so the message has
+		-- to say what to recover.
+		local owed = race:NextCheckpoint()
+		alertText = if owed then ("%s  ·  CHECKPOINT %d"):format(H.WrongWayText, owed) else H.WrongWayText
+		alertColour = H.WrongWayColor
 	elseif sim:IsScrambled() then
 		alertText, alertColour = H.ScrambledText, H.ScrambledColor
 	end

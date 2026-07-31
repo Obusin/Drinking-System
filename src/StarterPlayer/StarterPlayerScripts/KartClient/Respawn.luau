@@ -129,6 +129,13 @@ function Respawn:Check(sim, race, input, dt: number): string?
 		reason = "fell"
 	elseif sim.pos.Y < RS.FallFloor then
 		reason = "void"
+	elseif race:IsLost() then
+		-- Driven the wrong way long past the warning. Put back at the LAST
+		-- checkpoint they banked, not the one they missed: from there they
+		-- drive forward through the missed gate and take it properly,
+		-- rather than being placed on top of it and hoping the trigger
+		-- fires.
+		reason = "lost"
 	end
 
 	if not reason then

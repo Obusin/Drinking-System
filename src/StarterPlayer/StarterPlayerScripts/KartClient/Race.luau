@@ -464,6 +464,30 @@ function Race:WrongWay(sim, dt: number): boolean
 	return self.wrongFor >= R.WrongWayTime
 end
 
+-- Wrong way for long enough that they are not coming back on their own.
+--
+-- Deliberately a LONG time after the warning, not a second one. Going
+-- backwards briefly is a legitimate thing to do — turning around after
+-- an overshoot, doubling back for an item box, catching a slide that
+-- spun you. Yanking someone out of any of those is worse than the
+-- problem being solved.
+--
+-- This is for the player who has genuinely lost the track, and it is
+-- the last resort behind the warning and the manual reset.
+function Race:IsLost(): boolean
+	return self.wrongFor >= R.LostTime
+end
+
+-- The checkpoint they still owe, for the HUD. Nil once the lap is
+-- complete and the finish line is what's left.
+function Race:NextCheckpoint(): number?
+	local orders = self:_orders()
+	if self.cpPassed >= #orders then
+		return nil
+	end
+	return orders[self.cpPassed + 1]
+end
+
 function Race:CheckpointProgress(): (number, number)
 	return self.cpPassed, #self:_orders()
 end
