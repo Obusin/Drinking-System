@@ -415,6 +415,24 @@ I read that comment twice while hunting the bug and moved on both times.
 **When a comment claims a guarantee, go and check the code that would
 have to enforce it.**
 
+### Throttle is a GATE, not a dial. You cannot slow a kart with it.
+```lua
+elseif throttle > 0.05 then target, rate = H.MaxSpeed, H.Accel * powerBand
+```
+Any throttle above 0.05 targets **full speed**. Throttle magnitude
+affects nothing else — so scaling a bot's `touchThrottle` down, the
+obvious way to make it slower, changes *nothing* until it crosses 0.05
+and then changes *everything*. There is no middle.
+
+The way to make a driver slower is a **lift**: pick a cruise speed, come
+off the power above it, get back on below it. That's also what a real
+driver does, and it gives the throttle trace the on/off texture a real
+one has.
+
+**Generalises:** before tuning a value, check whether the code reads it
+as a magnitude or as a threshold. A surprising amount of this codebase
+reads thresholds.
+
 ### THE BOTS-FLYING INCIDENT — a symptom chased into shared physics
 The most expensive mistake in the project so far. Worth the space,
 because the failure was in *method*, not in any one line of code.
