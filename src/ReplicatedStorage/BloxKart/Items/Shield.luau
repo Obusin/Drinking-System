@@ -12,7 +12,7 @@
 return {
 	Id = "Shield",
 	Tint = Color3.fromRGB(120, 170, 255), -- fallback tile if Icon fails to load
-	Icon = "", -- no art yet; the HUD falls back to the name
+	Icon = "rbxassetid://76997335159864", -- shield
 	Name = "SHIELD",
 	Scope = "self",
 	Weight = 45,

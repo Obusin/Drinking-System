@@ -20,7 +20,7 @@
 return {
 	Id = "Scramble",
 	Tint = Color3.fromRGB(190, 120, 255),
-	Icon = "", -- falls back to the tinted tile until there's art
+	Icon = "rbxassetid://105654076631080", -- scramble
 	Name = "SCRAMBLE",
 	Scope = "world",
 	Weight = 65,

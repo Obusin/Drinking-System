@@ -20,7 +20,7 @@
 return {
 	Id = "Lightning",
 	Tint = Color3.fromRGB(255, 230, 90),
-	Icon = "", -- falls back to the tinted tile until there's art
+	Icon = "rbxassetid://125335826328787", -- lightning
 	Name = "LIGHTNING",
 	Scope = "world", -- reaches other players, so the server relays it
 	-- Deliberately low. It's the rarest thing in the pool, and position
