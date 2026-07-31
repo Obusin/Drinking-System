@@ -31,5 +31,6 @@ return {
 	Spectate = require(script.Spectate), -- watching after you finish
 	Rewards = require(script.Rewards), -- end-of-race results and payout
 	Level = require(script.Level), -- XP, the curve, and what earns it
+	Quests = require(script.Quests), -- the daily/weekly/monthly pools
 	Hud = require(script.Hud), -- shared on-screen styling
 }
