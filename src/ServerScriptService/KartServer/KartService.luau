@@ -42,6 +42,10 @@ local function isBot(racer: any): boolean
 end
 
 local karts: { [any]: Model } = {}
+-- How many times each player has had to be put back in their kart, so a
+-- one-off escape and a seating failure that never resolves read
+-- differently in Output.
+local reseats: { [any]: number } = {}
 local slots: { [any]: number } = {}
 
 -- Lowest free grid slot, so a leaver's position is reused rather than
@@ -535,6 +539,7 @@ function KartService.start()
 		local kart = karts[player]
 		karts[player] = nil
 		slots[player] = nil
+		reseats[player] = nil
 		if kart then
 			kart:Destroy()
 		end
@@ -572,6 +577,54 @@ function KartService.start()
 				if isBot(racer) then
 					continue
 				end
+
+				--=================================================
+				--  IS THE DRIVER ACTUALLY IN THE KART?
+				--
+				--  bindLockIn already puts an escapee back, but it hangs
+				--  off the seat's Occupant signal — so it fires only on a
+				--  transition OUT of the seat. The case it cannot see is
+				--  the one that never got IN: seatPlayer bails when the
+				--  character or humanoid is not ready yet, or when they
+				--  are mid-respawn and dead, and nothing retries. The
+				--  player is then left on foot for the rest of the round
+				--  with a kart parked somewhere else, and since Rig.Debug
+				--  is off it happens in complete silence.
+				--
+				--  A signal cannot recover a state that was never
+				--  entered. This checks the state itself.
+				--=================================================
+				local seat = kart:FindFirstChild("Seat") :: VehicleSeat?
+				local character = racer.Character
+				local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+				local seated = seat and seat.Occupant and seat.Occupant == humanoid
+
+				-- Skipped while the AI has the kart: the player is meant to
+				-- be spectating, and shoving them back into a kart the
+				-- server is driving would fight it for control.
+				if not seated and not kart:GetAttribute(Names.AI_DRIVEN) then
+					if humanoid and humanoid.Health > 0 and seat then
+						seatPlayer(racer, kart)
+						-- First time, then every tenth. A player who cannot
+						-- be seated at all would otherwise print this every
+						-- couple of seconds for the life of the server, and
+						-- a warning that repeats forever is one people learn
+						-- to scroll past.
+						reseats[racer] = (reseats[racer] or 0) + 1
+						local n = reseats[racer]
+						if n == 1 or n % 10 == 0 then
+							warn(
+								("[KartService] %s was not in their kart and has been put back (%d time(s)). Once is an escape; repeating means seating is failing."):format(
+									racer.Name,
+									n
+								)
+							)
+						end
+					end
+					-- No living character yet is normal mid-respawn, and
+					-- retrying next tick is the whole point of a watchdog.
+					continue
+				end
 				-- Handed to the AI when its driver finished. Giving
 				-- ownership back here would put the client and the server
 				-- both in charge of one kart, which is the failure this
@@ -579,9 +632,10 @@ function KartService.start()
 				if kart:GetAttribute(Names.AI_DRIVEN) then
 					continue
 				end
+				-- `seat` is the one found by the seating check above; by
+				-- here we already know it is occupied by this player.
 				local hitbox = kart.PrimaryPart
-				local seat = kart:FindFirstChild("Seat") :: VehicleSeat?
-				if not (hitbox and seat and seat.Occupant and not hitbox.Anchored) then
+				if not (hitbox and not hitbox.Anchored) then
 					continue
 				end
 				local driver = Players:GetPlayerFromCharacter(seat.Occupant.Parent)
