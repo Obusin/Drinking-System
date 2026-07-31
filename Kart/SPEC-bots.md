@@ -133,3 +133,122 @@ and is worth doing on its own merits.
 
 Test the same way throughout: watch a replay and try to pick the bot out.
 If you can, the reason is on the table above.
+
+---
+
+# The twelve-layer plan, audited
+
+Mark's layered design, checked against what's actually in the repo. Kept
+as a scoreboard because the useful information isn't the list — it's
+which entries are already done, which are cheap, and which cost real time
+for something nobody will notice.
+
+## Already built
+
+**Layer 2 — car controller.** This is the whole architecture and it's
+been true since bots existed. `BotService` writes a controls table;
+`Simulation` reads exactly five fields off it and cannot tell a bot from
+a keyboard. Bots have no separate physics, no speed bonus, and no ability
+to corner harder than the kart allows. Everything else on this list is
+only worth building *because* this is true.
+
+**Layer 1 — racing line with lookahead.** `Route` is the line;
+`LookaheadBase`/`LookaheadPerSpeed` aim up the road rather than at the
+node underfoot. `LineCorrect`/`LineDamp` hold the line without weaving.
+
+*But the waypoints are dumb.* They store position, nothing else. Every
+frame the bot re-derives the bend ahead and re-decides its speed. Mark's
+version — each node storing **recommended speed, brake distance, drift
+yes/no, lookahead** — is better for two reasons: the decision is made
+once instead of sixty times a second, and it gives Layer 8 somewhere to
+write. **This is the prerequisite for half the list and should go first.**
+
+**Layer 3 — skill stats.** Exists, but as *one scalar*. `Skill` scales
+reaction, line error, drift odds and corner speed together. Splitting it
+into named axes is Layer 6's job, below.
+
+**Layer 7 — intentional mistakes.** Partly. `SteerNoise`,
+`ThrottleJitter`, `SteerDeadzone` and `ReactionTime` are all in and all
+tuned to be human-shaped rather than random-per-frame. Missing: the
+*discrete* mistakes — a botched drift, a missed braking point, a
+forgotten nitro. Those are the ones you actually see.
+
+## Worth building, in this order
+
+**Layer 6 — personality.** Highest visible payoff per line on the entire
+list. One scalar makes a grid of bots that are the same driver at
+different volumes; named archetypes make a grid that feels like people.
+Coward / Aggressive / Speedrunner / Chaos / Rookie is the right set, and
+it's a table of multipliers over numbers that already exist.
+
+**Layer 12 — race director.** Cheap, and it's what makes a race feel
+close. The spec above says "deliberately not doing rubber-banding" and
+that still stands *for handling* — a bot must never get grip or top speed
+it hasn't earned, because that's the version players resent and always
+detect.
+
+What a director may touch: **inputs and decisions.** A bot 20 seconds
+clear lifts a little earlier, takes fewer drifts, spends nitro lazily. A
+bot far back drives closer to its own limit. That's a driver easing off
+or pushing — not a car that changed. Cap it, and cap it visibly in
+config, or it becomes the thing it was excluded for.
+
+**Layer 8 — adaptive optimisation.** The best idea in the list, and
+correctly *not* machine learning: record entry speed and outcome per
+corner, back the speed off after a crash, keep the gain when a drift is
+faster. It's a hill-climb over a handful of numbers, it's debuggable, and
+it needs Layer 1's waypoint table and nothing else.
+
+**One caveat that decides the design:** a race is three laps, so a bot
+gets *two* attempts per corner. That is not enough to converge on
+anything. Either the learned table persists across races (per track, in
+`DataService`), or this is a feature nobody will ever observe. Persist
+it — and then a track's bots genuinely are faster in week two.
+
+**Layer 5 — tactical tick.** Item and overtake decisions on a ~0.2s
+cadence rather than per-frame. Currently only item use has a delay. Cheap
+and tidies up where decisions live.
+
+**Layer 11 — named lines.** `LineOffset` already wanders, which covers
+most of it. Naming lines — inside / outside / recovery — and switching
+deliberately is a real upgrade for defending and overtaking, and it's the
+natural partner to §5 "Racing you, not the track".
+
+## Not worth it
+
+**Layer 4 — raycast vision.** The instinct is right: bots shouldn't have
+information a player couldn't have. But a fan of rays is a lot of work
+for something invisible, because **what gives a bot away is reaction
+time, not sensing method**. A bot that queries a hazard list and then
+waits `ReactionTime` before responding is indistinguishable from one that
+saw it — and it can't get stuck because a ray happened to miss.
+
+Worth keeping from this layer: bots should only react to things *ahead
+and in range*, which is a cone test, not a raycast fan.
+
+**Layer 9 — heatmap.** This is Layer 8's data indexed by grid square
+instead of by corner. If waypoints record their own outcomes, the heatmap
+is the same information stored twice — and the corner is the more useful
+key, because that's what a bot actually decides about.
+
+**Layer 10 — opponent memory.** Genuinely fun, and nobody will notice. It
+needs many races against the same player to gather anything, and the
+resulting behaviour change is a small bias on a decision that's already
+noisy. Revisit if bots ever become the main attraction.
+
+## Scoreboard
+
+| Layer | State | Verdict |
+|---|---|---|
+| 1 Racing line | line yes, waypoint data no | **do first** — unblocks 8 |
+| 2 Car controller | done | the foundation |
+| 3 Skill | one scalar | absorbed into 6 |
+| 4 Vision | no | skip; keep the cone test |
+| 5 Tactical tick | items only | cheap tidy-up |
+| 6 Personality | no | **best payoff** |
+| 7 Mistakes | continuous yes, discrete no | finish it |
+| 8 Learning | no | **best idea**; needs persistence |
+| 9 Heatmap | no | redundant with 8 |
+| 10 Opponent memory | no | defer indefinitely |
+| 11 Dynamic line | wander only | pairs with §5 |
+| 12 Race director | no | cheap; inputs only, never grip |
