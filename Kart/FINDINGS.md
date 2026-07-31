@@ -319,6 +319,17 @@ studs". Measured: 11.9 vs 11.6 on even spacing, 18.5 vs 20.8 on uneven —
 i.e. no real difference. The commit was amended and `RouteTension` added
 as the actual lever.
 
+### A comment asserting something is not evidence it's true.
+`Hold()` zeroed speed and its comment claimed that "stops a boost that
+was live when the hold began". It doesn't — speed is re-targeted 200
+lines further down, where a nitro burn or boost pad sets the target
+*regardless of throttle*, so the zeroing was undone within the same
+`Step` and the kart accelerated out of the hold at boost speed.
+
+I read that comment twice while hunting the bug and moved on both times.
+**When a comment claims a guarantee, go and check the code that would
+have to enforce it.**
+
 ### Diagnostics beat guessing, but a diagnostic can lie.
 The revive warning asserted "falling through the world, **not** driving
 off it". It was driving off it. An assertion with no evidence behind it
