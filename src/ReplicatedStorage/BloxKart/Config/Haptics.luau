@@ -22,25 +22,41 @@ return {
 	-- rumbling, so anything under it is sent as a clean zero.
 	MotorFloor = 0.06,
 
-	--== THE BED ======================================================
-	-- Road noise: scales with speed, and is the reason a fast kart feels
-	-- heavier than a slow one. Silent while airborne, on purpose — that
-	-- gap is what makes a landing land.
-	SpeedRumble = 0.16,
+	--== THE BED — MOSTLY OFF, AND THAT IS THE DESIGN ================
+	-- The motors should be at ZERO most of the time you are driving.
+	--
+	-- Continuous rumble is what wears a controller out and flattens its
+	-- battery: an impact is a few hundred milliseconds, a bed runs for
+	-- the entire race. The first version had road noise scaling with
+	-- speed, which meant both motors spinning every second the kart was
+	-- moving. That is hard on the hardware and, worse, it is useless —
+	-- a signal that is always present tells the player nothing.
+	--
+	-- So the bed is EVENT-SHAPED now. It fires when something is
+	-- genuinely happening to the tyres and is silent otherwise, which is
+	-- both kinder to the pad and more informative.
 
-	-- Tyre scrub, on the small motor where detail belongs. Follows
-	-- tyreLoad, so it rises through a hard corner and peaks when you're
-	-- fighting a slide — the same signal the screech follows.
-	ScrubRumble = 0.34,
+	-- Road noise from speed alone: OFF.
+	--
+	-- This was the expensive one — always on, always the same, and the
+	-- least informative thing here. Left as a dial rather than deleted
+	-- because it is defensible on a wheel or a pad being charged; just
+	-- know it runs a motor continuously for the whole race.
+	SpeedRumble = 0,
 
-	-- Nitro and boost pads, layered on top. A whine rather than a thump,
-	-- which is why it goes to the small motor.
-	BoostRumble = 0.22,
+	-- Tyre scrub, and only once the tyres are genuinely working. Below
+	-- the threshold there is nothing to say and the motor stays off, so a
+	-- straight is completely silent and a corner is not.
+	ScrubRumble = 0.22,
+	ScrubThreshold = 0.45, -- tyreLoad below this produces no rumble
+
+	-- Nitro. Brief by nature, so it costs nothing to let it speak.
+	BoostRumble = 0.16,
 
 	--== IMPACTS ======================================================
 	-- Seconds for a punch to fade out. Short: a jolt that outstays its
 	-- welcome stops reading as an impact and starts reading as a fault.
-	PunchDecay = 0.35,
+	PunchDecay = 0.3,
 
 	-- How much of a punch reaches the small motor. Under 1 so a hit is
 	-- felt mostly as a thump in the body of the pad rather than as a
@@ -64,5 +80,10 @@ return {
 	-- you feel in the finger already holding the throttle — which is the
 	-- fastest route into a driver there is. The brake trigger carries
 	-- the same signal while braking, the way an ABS pedal does.
-	TriggerSlip = 0.7,
+	-- Also thresholded, for the same reason as the scrub: gentle
+	-- cornering is not a traction event, and a trigger buzzing through
+	-- every mild corner is the fastest way to make a player turn rumble
+	-- off entirely.
+	TriggerSlip = 0.5,
+	TriggerThreshold = 0.5, -- slip below this leaves the triggers alone
 }

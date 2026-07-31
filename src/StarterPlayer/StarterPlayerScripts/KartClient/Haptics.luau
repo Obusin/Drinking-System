@@ -161,10 +161,26 @@ function Haptics:Update(dt: number, sim)
 	-- it back on landing is most of what a landing feels like.
 	local grounded = sim.grounded and 1 or 0
 
+	-- THRESHOLDED, so the motors are OFF unless something is happening.
+	--
+	-- This is the difference between a bed and a buzz. Scaling straight
+	-- off tyreLoad meant the small motor spun the entire race, which
+	-- wears a controller out, flattens its battery, and says nothing —
+	-- a signal that is always present carries no information.
+	--
+	-- Rescaled above the threshold rather than clipped, so scrub still
+	-- comes in from zero and rises. A hard step at the threshold would
+	-- read as the motor faulting.
 	local bedLarge = speed * HAP.SpeedRumble * grounded
-	local bedSmall = load * HAP.ScrubRumble * grounded
+
+	local bedSmall = 0
+	if load > HAP.ScrubThreshold then
+		local over = (load - HAP.ScrubThreshold) / math.max(1 - HAP.ScrubThreshold, 1e-3)
+		bedSmall = over * HAP.ScrubRumble * grounded
+	end
 
 	-- Boost adds its own layer to the small motor, where a whine belongs.
+	-- Unthresholded because it is already brief and self-limiting.
 	if sim.burning or sim.boosting then
 		bedSmall += HAP.BoostRumble
 	end
@@ -184,8 +200,15 @@ function Haptics:Update(dt: number, sim)
 	-- which is what an ABS pedal does.
 	----------------------------------------------------------------
 	if self.hasTriggers then
+		-- Same threshold logic. Gentle cornering is not a traction event,
+		-- and a trigger buzzing through every mild bend is the fastest way
+		-- to make somebody turn rumble off in the settings.
+		local traction = 0
+		if slip > HAP.TriggerThreshold then
+			local over = (slip - HAP.TriggerThreshold) / math.max(1 - HAP.TriggerThreshold, 1e-3)
+			traction = over * HAP.TriggerSlip * grounded
+		end
 		local throttle = sim.speed and sim.speed > 0
-		local traction = slip * HAP.TriggerSlip * grounded
 		self:_set(RTRIG, if throttle then traction else 0, "lastRight")
 		self:_set(LTRIG, if throttle then 0 else traction, "lastLeft")
 	end
