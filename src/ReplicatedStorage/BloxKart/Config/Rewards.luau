@@ -30,13 +30,15 @@ return {
 	PreviewNote = "PREVIEW · not saved yet",
 
 	--== CURRENCY ======================================================
-	-- Uploaded 2026-08-01.
+	-- Uploaded 2026-08-01. Image ids, not Decal ids — the first pair
+	-- were Decals and rendered nothing, which is what Util.verifyImage
+	-- exists to say out loud rather than leaving a blank square.
 	--
-	-- If either renders as a blank square, it is almost certainly a
-	-- DECAL id rather than an IMAGE id — Util.verifyImage says so out
-	-- loud after three seconds rather than leaving an empty box.
+	-- NOTE: the Bolt id is UNCHANGED from the pair that failed. If it
+	-- still warns, the cause is not decal-vs-image — check that the
+	-- asset is approved and owned by the place owner.
 	BoltIcon = "rbxassetid://78484915579310",
-	NitroIcon = "rbxassetid://127297976467018",
+	NitroIcon = "rbxassetid://107666490588324",
 
 	BoltColor = Color3.fromRGB(255, 196, 62),
 	NitroColor = Color3.fromRGB(120, 214, 255),
