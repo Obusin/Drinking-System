@@ -433,6 +433,29 @@ one has.
 as a magnitude or as a threshold. A surprising amount of this codebase
 reads thresholds.
 
+**I then made this exact mistake while implementing the fix for it** —
+the hysteresis band set throttle to `MinCornerSpeed` (0.42), which is
+still wide open, so the speed cap barely applied. Knowing the rule is
+not the same as applying it. Grep for every write to the value you just
+learned is a threshold.
+
+### A probability rolled per step is not a probability.
+```lua
+if rng:NextNumber() > B.NitroHoldChance * (1 - bot.skill) then  -- every step
+```
+At 60Hz, "a 40% chance it holds the tank" is a 40% chance of holding it
+for **one sixtieth of a second**. Chance of firing within one second:
+**100%**. Bots spent nitro the instant they had it, permanently — which
+is why they were uncatchable, since a burn sets the speed target
+directly and bypasses every pace limit.
+
+Any `rng` roll inside a per-frame update must either be **scaled by
+`dt`** (odds per second) or guarded by a **cooldown / edge trigger**.
+An unscaled one is a certainty wearing a percentage sign.
+
+**Both of these are the same failure**: a number whose units were never
+checked. Threshold vs magnitude, per-second vs per-step.
+
 ### THE BOTS-FLYING INCIDENT — a symptom chased into shared physics
 The most expensive mistake in the project so far. Worth the space,
 because the failure was in *method*, not in any one line of code.
