@@ -14,6 +14,21 @@
 	on where a kart IS; this only decides what to draw between the moments
 	it says so.
 
+	ANCHORED KARTS ONLY — READ THIS BEFORE WIDENING IT
+	--------------------------------------------------
+	A player's kart is unanchored and network-owned by its driver, and
+	Roblox interpolates those for free. It must NOT be touched here.
+
+	Writing the CFrame of a part this client doesn't own fights the
+	replication that already works: our write lands after the incoming
+	update, so the next frame reads back our own value, concludes nothing
+	changed, and never advances the target. The kart freezes on screen
+	while its driver races away happily on theirs.
+
+	That is not a subtle degradation, it is every other player appearing
+	parked — and it shipped exactly once, from this module missing the
+	Anchored check.
+
 	WHY NOT JUST MAKE THE SERVER SEND MORE
 	--------------------------------------
 	Because it doesn't matter how often it sends — you're always drawing
@@ -59,6 +74,32 @@ local function step(dt: number)
 	for _, kart in CollectionService:GetTagged("Kart") do
 		local hitbox = kart.PrimaryPart
 		if not hitbox or not kart.Parent or isOurs(kart) then
+			continue
+		end
+
+		-- ONLY ANCHORED KARTS. This is the whole correctness condition,
+		-- and leaving it out is what froze every other player on screen.
+		--
+		-- A player's kart is UNANCHORED and network-owned by them, so
+		-- Roblox already interpolates it natively — it needs nothing from
+		-- this module. Worse, writing its CFrame here fights the thing
+		-- that does work: our write lands after the incoming update, so
+		-- next frame we read back OUR OWN value, decide nothing has
+		-- changed, and never advance the target. The kart sits still
+		-- forever while its driver races off perfectly happily on their
+		-- own screen.
+		--
+		-- Every player seeing every other player parked, and each of them
+		-- moving fine locally, is exactly that loop.
+		--
+		-- A bot's kart is ANCHORED and its CFrame is written by the
+		-- server, which replicates as a bare property update with no
+		-- interpolation at all. That is the only case with something to
+		-- smooth, and it is the case this was written for.
+		if not hitbox.Anchored then
+			-- Drop any state so it can't be re-applied if the same kart is
+			-- later anchored for some other reason.
+			tracked[hitbox] = nil
 			continue
 		end
 
