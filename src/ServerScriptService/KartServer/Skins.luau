@@ -39,35 +39,47 @@ local Skins = {}
 -- id would bury Output within a minute.
 local said = false
 
--- Returns true if the mesh actually changed.
-local function apply(part: BasePart, id: string): boolean
-	-- MeshContent first: it is the assignable one.
-	local ok = pcall(function()
+-- Swaps the mesh on an existing MeshPart, and says how.
+--
+-- THREE ROUTES, tried in order, because which one exists depends on the
+-- engine version and only one of them is the documented answer:
+--
+--   1. MeshContent = Content.fromUri(id)
+--        The newer Content property. Direct, no yield, no extra part.
+--   2. AssetService:CreateMeshPartAsync + ApplyMesh
+--        The DOCUMENTED runtime path: build a MeshPart from the id and
+--        transplant its mesh onto ours. Yields, so this runs inside the
+--        loop's own thread.
+--   3. MeshId = id
+--        Attempted last and expected to fail. MeshPart.MeshId has never
+--        been assignable at runtime; it is here only so "nothing worked"
+--        is stated rather than inferred.
+local AssetService = game:GetService("AssetService")
+
+local function apply(part: BasePart, id: string): (boolean, string)
+	if pcall(function()
 		(part :: any).MeshContent = Content.fromUri(id)
-	end)
-	if ok then
-		if not said then
-			said = true
-			print("[Skins] MeshContent is writable at runtime — skins can be pure asset ids.")
-		end
-		return true
+	end) then
+		return true, "MeshContent"
 	end
 
-	-- Only to turn a silent no-op into a stated one.
-	local legacy = pcall(function()
-		(part :: any).MeshId = id
-	end)
-	if not said then
-		said = true
-		if legacy then
-			print("[Skins] MeshContent failed but MeshId took — unusual, worth noting.")
-		else
-			warn(
-				"[Skins] neither MeshContent nor MeshId could be set at runtime. Skins cannot be a mesh swap on this engine version; they need a separate model per skin, swapped through Rig.VisualName."
-			)
+	local built
+	if pcall(function()
+		built = AssetService:CreateMeshPartAsync(id)
+	end) and built then
+		if pcall(function()
+			(part :: any):ApplyMesh(built)
+		end) then
+			return true, "CreateMeshPartAsync + ApplyMesh"
 		end
 	end
-	return legacy
+
+	if pcall(function()
+		(part :: any).MeshId = id
+	end) then
+		return true, "MeshId"
+	end
+	return false, "nothing"
 end
 
 function Skins.start()
@@ -90,13 +102,65 @@ function Skins.start()
 			at += 1
 			local id = RIG.SkinTestIds[(at - 1) % #RIG.SkinTestIds + 1]
 
+			local karts, found, changed = 0, 0, 0
+			local how = "nothing"
 			for _, kart in CollectionService:GetTagged("Kart") do
+				karts += 1
 				-- Recursive: the part lives wherever the artist filed it,
 				-- and requiring a fixed path is how the rocket lookup
 				-- silently found nothing.
 				local part = kart:FindFirstChild(RIG.SkinPart, true)
 				if part and part:IsA("MeshPart") then
-					apply(part, id)
+					found += 1
+					local ok, route = apply(part, id)
+					if ok then
+						changed += 1
+						how = route
+					end
+				elseif part and not said then
+					said = true
+					warn(
+						("[Skins] found %s but it is a %s, not a MeshPart — only a MeshPart has a mesh to swap."):format(
+							part:GetFullName(),
+							part.ClassName
+						)
+					)
+				end
+			end
+
+			-- SAID ONCE, and it says what was actually seen. The first
+			-- version reported only the write, so a part that was never
+			-- found produced no output at all — which is
+			-- indistinguishable from a swap that silently did nothing,
+			-- and is the likelier of the two.
+			-- Nothing to report on yet. The first tick lands a few seconds
+			-- in and karts may not exist, and reporting "found nothing in
+			-- 0 karts" would burn the one report on a question nobody
+			-- asked.
+			if karts > 0 and not said then
+				said = true
+				if found == 0 then
+					warn(
+						("[Skins] no MeshPart named %q in any of %d kart(s). Check the name matches exactly — it is looked up recursively, so its folder does not matter."):format(
+							RIG.SkinPart,
+							karts
+						)
+					)
+				elseif changed == 0 then
+					warn(
+						("[Skins] found %d %q part(s) but no runtime mesh swap worked on this engine. Skins need a separate model per skin, applied through Rig.VisualName."):format(
+							found,
+							RIG.SkinPart
+						)
+					)
+				else
+					print(
+						("[Skins] swapping %d %q mesh(es) via %s — skins CAN be pure asset ids."):format(
+							changed,
+							RIG.SkinPart,
+							how
+						)
+					)
 				end
 			end
 		end
@@ -110,7 +174,8 @@ function Skins.applyTo(kart: Model, id: string): boolean
 	if not (part and part:IsA("MeshPart") and id ~= "") then
 		return false
 	end
-	return apply(part, id)
+	local ok = apply(part, id)
+	return ok
 end
 
 return Skins
