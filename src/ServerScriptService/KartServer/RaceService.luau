@@ -132,10 +132,25 @@ local settling = {}
 
 local function launch(part: BasePart, vel: Vector3, lifetime: number)
 	-- Collidable while airborne or it falls through the road; back off
-	-- on landing so it never blocks anyone. Karts ignore it either way —
-	-- hazards are in the trigger filter.
+	-- on landing so it never blocks anyone.
 	part.Anchored = false
 	part.CanCollide = true
+
+	-- COLLIDES WITH THE WORLD, NEVER WITH A KART.
+	--
+	-- The trigger filter keeps a hazard out of a kart's own movement
+	-- queries, which is why the old comment said karts ignore it. That is
+	-- only half of it: the filter is OUR query rule, and Roblox physics
+	-- has its own opinion. A hazard sat in the default group with
+	-- CanCollide on, so a bomb in flight physically struck karts and
+	-- bounced off them — a throw at the racer in front would deflect
+	-- rather than land, which is exactly the kind of thing that reads as
+	-- the throw being wrong.
+	--
+	-- The kart group is already set non-collidable with itself, so
+	-- putting the hazard in it gives both halves at once: passes through
+	-- every kart, still lands on the road.
+	part.CollisionGroup = Config.Rig.CollisionGroup
 	part.AssemblyLinearVelocity = vel
 	-- A little spin, so it tumbles rather than sliding through the air
 	-- facing one way.
@@ -279,10 +294,9 @@ function RaceService.spawnHazard(ownerId: number, cf: CFrame, item, back: boolea
 	hz.Parent = workspace
 	CollectionService:AddTag(hz, IT.HazardTag)
 
-	-- Thrown forward: it leaves the kart and travels. Dropped
-	-- backwards it just sits where it was put.
-	-- Thrown forward: it arcs out of the kart. Dropped backwards it
-	-- just sits where it was put.
+	-- Thrown forward: it arcs out of the kart. Dropped backwards it just
+	-- sits where it was put — the item modules already place a backward
+	-- drop BEHIND the kart, so it needs no arc to get there.
 	if not back then
 		-- Wind-up scales the FORWARD speed only. Lift stays put, so
 		-- a weak throw is a short lob at the same height rather than
