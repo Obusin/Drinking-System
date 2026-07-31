@@ -69,6 +69,25 @@ return {
 	-- ride proud or tucked for a reason. Zero is correct for most models.
 	VisualOffset = Vector3.new(0, 0, 0),
 
+	--== SKINS  (test) ================================================
+	-- Cycles one mesh part between a list of asset ids, to prove a skin
+	-- can be a mesh swap rather than a whole separate kart model.
+	--
+	-- If it works, cosmetics are a table of ids and nothing else: no new
+	-- models in ServerStorage, no change to KartFactory, and no way for a
+	-- skin to affect handling — the mesh sits inside the visual, and
+	-- Simulation reads only the Hitbox and the Seat.
+	--
+	-- Set SkinTest false once the answer is known; the loop is a probe,
+	-- not a feature. Skins.applyTo is the real entry point.
+	SkinTest = true,
+	SkinPart = "Body", -- the MeshPart to swap, found recursively
+	SkinTestInterval = 3,
+	SkinTestIds = {
+		"rbxassetid://72597967734984",
+		"rbxassetid://89589911208680",
+	},
+
 	--== PAINT =========================================================
 	-- One colour per grid slot, so every racer is tellable apart.
 	-- Chosen to stay distinct for the common colour-blindness types:

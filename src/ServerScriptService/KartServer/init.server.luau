@@ -24,6 +24,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local WorldFilter = require(ReplicatedStorage.BloxKart.WorldFilter)
 local Assets = require(script.Assets)
+local Skins = require(script.Skins)
 local KartService = require(script.KartService)
 local MatchService = require(script.MatchService)
 local RaceService = require(script.RaceService)
@@ -62,6 +63,11 @@ ProjectileService.start()
 -- Last: bots need every service they drive through to exist first, and
 -- they fill the grid on the match's cue rather than at startup.
 BotService.start()
+
+-- Last, and only a probe: cycles a kart mesh to establish whether a skin
+-- can be an asset id rather than a separate model. Rig.SkinTest = false
+-- turns it off.
+Skins.start()
 MatchService.onGrid = BotService.onGrid
 -- A finished player's kart is handed to the AI for the rest of the
 -- round, and handed back before the next grid. Hooks rather than
