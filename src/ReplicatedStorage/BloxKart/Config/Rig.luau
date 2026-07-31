@@ -80,6 +80,13 @@ return {
 	--
 	-- Set SkinTest false once the answer is known; the loop is a probe,
 	-- not a feature. Skins.applyTo is the real entry point.
+	-- ANSWERED: the working route is CreateMeshPartAsync + ApplyMesh,
+	-- which YIELDS and fetches over the network. MeshContent is not
+	-- available on this engine. Consequence for the real system: preload
+	-- the equipped set at the grid and never swap mid-race — see the
+	-- vault note "BloxKart Kart Customization and Skinning".
+	--
+	-- The probe has served its purpose. Set false once you have seen it.
 	SkinTest = true,
 	SkinTestInterval = 3,
 	-- A SKIN IS A SET, NOT A PART. Swapping the body alone leaves the

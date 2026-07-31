@@ -1860,6 +1860,52 @@ function BotService.seatRig(bot)
 		seat:Sit(humanoid)
 		bot.rig = rig
 
+		-- THE HUMANOID PUTS CanCollide BACK, and the sweep above cannot
+		-- stop it. The state machine owns collision on the torso parts
+		-- and re-asserts it as it changes state, so an audit six seconds
+		-- later still finds UpperTorso and LowerTorso solid — which is
+		-- what "8 kart parts still have CanCollide on" was.
+		--
+		-- Physics state hands the parts back to us: the humanoid stops
+		-- driving them, which is exactly right for a rig that is welded
+		-- to a seat and will never walk anywhere. pcall'd because the
+		-- state is engine-controlled and refusing it must not cost us the
+		-- rig.
+		pcall(function()
+			humanoid:ChangeState(Enum.HumanoidStateType.Physics)
+		end)
+
+		-- ANYTHING THAT ARRIVES LATER GETS THE SAME TREATMENT.
+		--
+		-- The sweep above ran over the descendants that existed at that
+		-- moment. Accessories are still loading, and Sit creates parts of
+		-- its own — every one of them arrives collidable and queryable,
+		-- and a single queryable limb is a solid obstacle to every kart
+		-- on the track. The comment above already knew this about
+		-- CanQuery; it was never true for CanCollide either.
+		rig.DescendantAdded:Connect(function(d)
+			if d:IsA("BasePart") then
+				d.CanCollide = false
+				d.CanQuery = false
+				d.CollisionGroup = Config.Rig.CollisionGroup
+			end
+		end)
+
+		-- One more pass after the state settles. The change above is not
+		-- instant, and the parts it releases are released with whatever
+		-- the humanoid last set on them.
+		task.delay(0.3, function()
+			if not rig.Parent then
+				return
+			end
+			for _, d in rig:GetDescendants() do
+				if d:IsA("BasePart") then
+					d.CanCollide = false
+					d.CanQuery = false
+				end
+			end
+		end)
+
 		-- Verified, because every way this fails is silent — an anchored
 		-- part, a missing HumanoidRootPart, a humanoid that can't enter the
 		-- Seated state all produce an empty kart and no error at all.
