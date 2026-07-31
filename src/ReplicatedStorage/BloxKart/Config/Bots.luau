@@ -65,10 +65,17 @@ return {
 	SkillMin = 0.45,
 	SkillMax = 0.92,
 
-	-- A Model with a Humanoid in ServerStorage, sat in each bot's seat so
-	-- they look like racers rather than empty karts. Rider puts its hands
-	-- on the wheel automatically — it doesn't care that the driver isn't
-	-- a player. "" for empty karts.
+	-- Drivers. NOTHING TO SET UP: without a model of this name in
+	-- ServerStorage, Roblox builds a default R15 rig and that gets sat in
+	-- the seat instead.
+	--
+	-- Requiring an authored rig was the wrong default — a rig you have to
+	-- make is a rig that doesn't exist yet, and every failure to produce
+	-- one looked like a bug in the seating rather than a missing asset.
+	--
+	-- Put a Model with a Humanoid here to dress them properly; "" for
+	-- empty karts. Rider puts hands on the wheel either way, and doesn't
+	-- care that the driver isn't a player.
 	RigName = "BotRig",
 
 	Names = {

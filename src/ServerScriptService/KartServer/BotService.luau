@@ -884,6 +884,38 @@ end
 --  model with a Humanoid. Without one bots drive empty karts, which is
 --  a missing feature rather than a broken game.
 --=====================================================================
+-- Where the rig comes from, in order of preference.
+--
+-- Roblox will build a correct default R15 for us, which is the reason
+-- this no longer needs anything in ServerStorage. That mattered: a rig
+-- you have to author is a rig that doesn't exist yet, and every failure
+-- to produce one looked like a bug in the seating rather than a missing
+-- asset.
+--
+-- An authored model still wins if there is one — that's how you dress
+-- the drivers later.
+local function buildRig(): Model?
+	local template = ServerStorage:FindFirstChild(B.RigName)
+	if template and template:IsA("Model") and template:FindFirstChildOfClass("Humanoid") then
+		return template:Clone()
+	end
+
+	-- YIELDS, and can fail if Roblox is having a bad day. A bot without a
+	-- driver is a cosmetic loss, so it must never take the race with it.
+	local ok, rig = pcall(function()
+		return Players:CreateHumanoidModelFromDescription(Instance.new("HumanoidDescription"), Enum.HumanoidRigType.R15)
+	end)
+	if ok and rig and rig:FindFirstChildOfClass("Humanoid") then
+		return rig
+	end
+
+	if not warnedNoRig then
+		warnedNoRig = true
+		warn("[BotService] could not build a driver rig: " .. tostring(rig))
+	end
+	return nil
+end
+
 function BotService.seatRig(bot)
 	if bot.rig then
 		bot.rig:Destroy()
@@ -893,67 +925,67 @@ function BotService.seatRig(bot)
 		return
 	end
 
-	local template = ServerStorage:FindFirstChild(B.RigName)
-	if not (template and template:IsA("Model") and template:FindFirstChildOfClass("Humanoid")) then
-		if not warnedNoRig then
-			warnedNoRig = true
-			warn(
-				("[BotService] no Model named %q with a Humanoid in ServerStorage — bots will drive empty karts. "):format(
-					B.RigName
-				) .. "Any R6 or R15 rig works; drop one in and rename it."
-			)
+	-- Built off the main path because CreateHumanoidModelFromDescription
+	-- yields, and filling a grid shouldn't wait on six network calls.
+	task.spawn(function()
+		local rig = buildRig()
+		if not rig then
+			return
 		end
-		return
-	end
-	log("seating %s in %s", B.RigName, bot.name)
 
-	local seat = bot.kart:FindFirstChild("Seat")
-	local rig = template:Clone()
-	rig.Name = bot.name
-	local humanoid = rig:FindFirstChildOfClass("Humanoid")
-	-- It never walks anywhere, and a rig that can stand up climbs out of
-	-- the kart the first time anything jostles it.
-	humanoid.WalkSpeed = 0
-	humanoid.JumpPower = 0
-	humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, false)
-
-	for _, d in rig:GetDescendants() do
-		if d:IsA("BasePart") then
-			-- ANCHORED RIGS CANNOT SIT. A rig posed in ServerStorage is
-			-- almost always anchored, and Sit fails silently on one — no
-			-- error, no occupant, no hands on the wheel.
-			d.Anchored = false
-			-- Same group as the kart, so drivers never knock each other
-			-- about as two karts pass.
-			d.CollisionGroup = Config.Rig.CollisionGroup
-			d.CanQuery = false
-			-- Non-solid. A seated rig is welded to the kart, so a limb
-			-- catching on scenery drags the whole kart to a stop — and
-			-- limbs are CanCollide by default.
-			d.CanCollide = false
+		-- The bot may have been removed, or had its kart rebuilt, while we
+		-- were waiting on that.
+		local seat = bot.kart and bot.kart.Parent and bot.kart:FindFirstChild("Seat")
+		if not seat then
+			rig:Destroy()
+			return
 		end
-	end
 
-	rig.Parent = workspace
-	-- Placed ON the seat before sitting, and sat immediately rather than
-	-- deferred: a deferred Sit gives an unanchored rig a frame to fall,
-	-- and Sit on something already falling can miss.
-	rig:PivotTo(seat.CFrame + seat.CFrame.UpVector * 1.5)
-	seat:Sit(humanoid)
-	bot.rig = rig
+		rig.Name = bot.name
+		local humanoid = rig:FindFirstChildOfClass("Humanoid")
+		-- It never walks anywhere, and a rig that can stand up climbs out
+		-- of the kart the first time anything jostles it.
+		humanoid.WalkSpeed = 0
+		humanoid.JumpPower = 0
+		humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, false)
+		-- No death, no ragdoll, no falling apart mid-race.
+		humanoid.BreakJointsOnDeath = false
+		humanoid.RequiresNeck = false
 
-	-- Verified, because every way this fails is silent. An anchored rig,
-	-- a missing HumanoidRootPart, a humanoid that can't enter the Seated
-	-- state — all of them produce a kart with nobody in it and no error.
-	task.delay(0.5, function()
-		if rig.Parent and seat.Parent and seat.Occupant ~= humanoid then
-			warn(
-				("[BotService] %s did not stay seated. Check the %q model: it needs a HumanoidRootPart, and it must not be anchored."):format(
-					bot.name,
-					B.RigName
-				)
-			)
+		for _, d in rig:GetDescendants() do
+			if d:IsA("BasePart") then
+				-- ANCHORED RIGS CANNOT SIT. An authored one posed in
+				-- ServerStorage is almost always anchored, and Sit fails
+				-- silently on it — no error, no occupant, no hands.
+				d.Anchored = false
+				-- Same group as the kart, so drivers never knock each other
+				-- about as two karts pass.
+				d.CollisionGroup = Config.Rig.CollisionGroup
+				d.CanQuery = false
+				-- Non-solid: a seated rig is welded to the kart, so a limb
+				-- catching on scenery drags the whole kart to a stop.
+				d.CanCollide = false
+			end
 		end
+
+		rig.Parent = workspace
+		-- Placed ON the seat before sitting. Sat immediately rather than
+		-- deferred: a deferred Sit gives an unanchored rig a frame to fall,
+		-- and Sit on something already falling can miss.
+		rig:PivotTo(seat.CFrame + seat.CFrame.UpVector * 2)
+		seat:Sit(humanoid)
+		bot.rig = rig
+
+		-- Verified, because every way this fails is silent — an anchored
+		-- part, a missing HumanoidRootPart, a humanoid that can't enter the
+		-- Seated state all produce an empty kart and no error at all.
+		task.delay(0.6, function()
+			if rig.Parent and seat.Parent and seat.Occupant ~= humanoid then
+				warn(("[BotService] %s would not stay seated in its kart."):format(bot.name))
+			else
+				log("%s is seated", bot.name)
+			end
+		end)
 	end)
 end
 

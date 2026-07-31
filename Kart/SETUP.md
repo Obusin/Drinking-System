@@ -380,9 +380,14 @@ drive.
 They need **checkpoints**: the racing line is what they steer along, and
 with none they refuse to spawn and say so.
 
-Optional: a Model with a **Humanoid** named `BotRig` in `ServerStorage`
-gets sat in each bot's seat, so they look like racers rather than empty
-karts. Hands go on the wheel automatically.
+**Drivers need nothing.** Roblox builds a default R15 rig and sits it in
+each bot's seat; hands go on the wheel automatically. Put a Model with a
+Humanoid named `BotRig` in `ServerStorage` to dress them properly, or set
+`Config/Bots.RigName = ""` for empty karts.
+
+> An authored rig must **not be anchored** — `Sit` fails silently on an
+> anchored humanoid. You'll get a warning naming the bot if it doesn't
+> stay seated.
 
 **`Config/Bots.Debug = true`** draws what each bot has decided — a white
 line to where it's steering, and a bar above it for throttle that turns
