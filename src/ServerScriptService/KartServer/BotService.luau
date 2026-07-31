@@ -372,10 +372,44 @@ local function drive(bot, dt: number)
 	wantSteer += math.clamp((offset - actualOffset) * B.LineCorrect, -1, 1)
 	wantSteer = math.clamp(wantSteer, -1, 1)
 
+	----------------------------------------------------------------
+	-- MAKING IT LOOK DRIVEN
+	--
+	-- Everything above computes the perfect input. What follows spoils it
+	-- on purpose, because the perfect input is exactly what reads as a
+	-- machine: exact, instant, and recomputed sixty times a second.
+	--
+	-- None of this makes a bot slower. It makes the signal human-shaped.
+	----------------------------------------------------------------
+
+	-- REACTION. It acts on what it saw ~200ms ago, so it starts turning
+	-- when a person would rather than the instant the maths knows. This
+	-- is the biggest single tell and the cheapest to fix.
+	table.insert(bot.sawSteer, { at = os.clock(), value = wantSteer })
+	local seen = wantSteer
+	while #bot.sawSteer > 1 and os.clock() - bot.sawSteer[1].at >= B.ReactionTime do
+		seen = bot.sawSteer[1].value
+		table.remove(bot.sawSteer, 1)
+	end
+
+	-- WANDER. A drifting bias rather than per-frame noise: noise reads as
+	-- a broken servo, a slow bias reads as someone not quite holding a
+	-- line and having to correct.
+	bot.noiseAt += dt * B.SteerNoiseRate
+	seen += math.sin(bot.noiseAt * 1.7) * math.cos(bot.noiseAt * 0.6) * B.SteerNoise * (2 - bot.skill)
+
+	-- DEADZONE. People don't micro-adjust every frame — they let a small
+	-- error sit, notice it, then fix it. Holding the last input until the
+	-- error is worth acting on produces exactly that rhythm, and it's
+	-- most of what separates "driven" from "tracked".
+	if math.abs(seen - bot.heldSteer) > B.SteerDeadzone * (2 - bot.skill) then
+		bot.heldSteer = seen
+	end
+
 	-- Slewed, not snapped. A bot that can flick to full lock in one frame
 	-- corners in a way no player can, which reads as cheating even though
 	-- the handling is identical.
-	c.touchSteer = Util.approach(c.touchSteer, wantSteer, B.SteerSlew, dt)
+	c.touchSteer = Util.approach(c.touchSteer, math.clamp(bot.heldSteer, -1, 1), B.SteerSlew, dt)
 
 	----------------------------------------------------------------
 	-- THROTTLE
@@ -384,7 +418,14 @@ local function drive(bot, dt: number)
 	-- carries too much speed and runs wide, exactly like a poor driver.
 	----------------------------------------------------------------
 	local ease = bend * B.CornerBrake * (2 - bot.skill)
-	c.touchThrottle = math.clamp(1 - ease, B.MinCornerSpeed, 1)
+
+	-- Throttle isn't a smooth function of anything for a human: they
+	-- lift, reapply, and hold it slightly wrong throughout. A bot pinned
+	-- at exactly 1.000 down every straight is a bot.
+	bot.throttleAt += dt * B.ThrottleJitterRate
+	local jitter = math.sin(bot.throttleAt * 2.3) * B.ThrottleJitter * (2 - bot.skill)
+
+	c.touchThrottle = math.clamp(1 - ease + jitter, B.MinCornerSpeed, 1)
 
 	drawDebug(bot, aim, bend)
 
@@ -778,6 +819,13 @@ function BotService.fill()
 			-- line and sit inside each other down a straight.
 			lineBias = rng:NextNumber(-1, 1) * B.LineOffset,
 			lineAt = rng:NextNumber(0, 6),
+			-- Per-bot phase, so two of them never wander or jitter in step
+			-- with each other — synchronised imperfection looks more
+			-- mechanical than no imperfection at all.
+			noiseAt = rng:NextNumber(0, 20),
+			throttleAt = rng:NextNumber(0, 20),
+			sawSteer = {},
+			heldSteer = 0,
 			u = 0,
 			laps = 0,
 			driftDecided = false,

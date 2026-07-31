@@ -98,6 +98,34 @@ return {
 	SteerSlew = 9, -- how fast its steering input can move. This is what
 	-- stops a bot flicking to full lock instantly, which no human can do
 
+	--== DRIVING LIKE A PERSON =========================================
+	-- What makes a bot READ as a bot isn't its line, it's the input. A
+	-- computed steering value is exact, instant and updated sixty times a
+	-- second, and nothing alive drives like that.
+	--
+	-- None of this makes them slower. It makes the signal human-shaped:
+	-- late, approximate, and corrected in bursts rather than continuously.
+
+	-- Sees the world as it was this long ago. Human visual-motor lag is
+	-- roughly 150-250ms and it's the single biggest tell — a bot with
+	-- zero reaction time starts turning before a corner is visible.
+	ReactionTime = 0.19,
+
+	-- Won't bother correcting an error smaller than this. People don't
+	-- micro-adjust every frame; they let a small error sit, notice it,
+	-- then fix it. That cycle is most of what "driven" looks like.
+	SteerDeadzone = 0.07,
+
+	-- Slow wandering error on top. Not noise per frame — that reads as a
+	-- broken servo — but a drifting bias that has to be corrected for.
+	SteerNoise = 0.06,
+	SteerNoiseRate = 1.6,
+
+	-- Throttle isn't a smooth function of anything for a human. They
+	-- lift, reapply, and hold it slightly wrong the whole time.
+	ThrottleJitter = 0.05,
+	ThrottleJitterRate = 0.9,
+
 	-- Corners. The bot measures how much the road bends between here and
 	-- its lookahead point, and lifts off proportionally.
 	CornerLookahead = 2.2, -- nodes ahead to measure the bend over

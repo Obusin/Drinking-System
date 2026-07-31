@@ -350,6 +350,14 @@ That's the point. The usual way to make bots competitive is to cheat
 their handling, and it shows — they hold lines no player can hold, and
 losing feels arbitrary. Here a bot is quick only by driving well.
 
+**They drive like people, not like maths.** The thing that makes a bot
+read as a bot isn't its line — it's that its input is exact, instant and
+recomputed 60 times a second. So the signal is spoiled on purpose:
+`ReactionTime` (~0.19s) means it acts on what it saw a fifth of a second
+ago; `SteerDeadzone` means it lets a small error sit and then corrects it,
+rather than micro-adjusting every frame; `SteerNoise` is a slow drifting
+bias it has to catch. None of it makes them slower.
+
 **They're beatable by being imperfect, not slow.** Each rolls a `skill`
 once (`SkillMin`..`SkillMax`) which scales:
 
