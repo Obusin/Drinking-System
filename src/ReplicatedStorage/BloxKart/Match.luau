@@ -44,9 +44,24 @@ Match.ROUND = "Round" -- increments per race; clients watch it to reset
 Match.FINISH_PLACE = "FinishPlace"
 Match.FINISH_TIME = "FinishTime"
 
+-- SERVER TIME the kart leaves the world, set when it finishes or is
+-- eliminated. A timestamp rather than a countdown because the client has
+-- to know it too, and a countdown would need re-sending every second —
+-- and because os.clock() means nothing across the wire. Compare against
+-- workspace:GetServerTimeNow().
+Match.RETIRE_AT = "RetireAt"
+
+-- Out of the race. Distinct from a DNF: a DNF ran out of time, this one
+-- was put in the void while stunned.
+Match.ELIMINATED = "Eliminated"
+
 -- Remotes.
 Match.FINISH_REMOTE = "KartMatchFinish"
 Match.READY_REMOTE = "KartMatchReady"
+-- Client -> server: "I just fell in the void". The server decides
+-- whether that was an elimination, because only it knows when this kart
+-- was last hit and the client must not get a vote on being out.
+Match.VOID_REMOTE = "KartVoid"
 
 -- Attribute the server stamps with where this kart starts the round.
 Match.GRID_CF = "GridCF"

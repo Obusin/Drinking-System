@@ -50,6 +50,33 @@ return {
 
 	ResultsTime = 10,
 
+	--== AFTER THE FLAG ================================================
+	-- How long a finished racer keeps driving before it leaves the
+	-- world. The AI already has the kart by then, so this is a short
+	-- cutscene you watch rather than a pause you sit through.
+	--
+	-- It also exists for a plainer reason: a bot that finished used to
+	-- keep racing until the round ended, lapping the field two or three
+	-- more times and cluttering the track for everyone still trying to
+	-- finish. Finishing has to actually end the drive.
+	FinishDriveTime = 5,
+
+	--== ELIMINATION ===================================================
+	-- Touch the void within this many seconds of being hit and you are
+	-- OUT, rather than respawned.
+	--
+	-- The window is what makes it a consequence of the hit rather than
+	-- of the fall. Drive into a pit unprovoked and you respawn like
+	-- always; get missiled off a bridge and you are gone. Same geometry,
+	-- different story, and the difference is whether someone did it to
+	-- you.
+	--
+	-- Long enough to cover the spin, the lost grip and the actual fall.
+	-- Too short and the rule reads as random.
+	EliminationWindow = 6,
+	EliminationText = "ELIMINATED",
+
+
 	--== READY UP ======================================================
 	-- Everyone ready skips the rest of the intermission. Testing alone
 	-- this means you never wait 8 seconds.

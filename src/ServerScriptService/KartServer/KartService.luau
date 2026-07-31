@@ -47,6 +47,11 @@ local karts: { [any]: Model } = {}
 -- differently in Output.
 local reseats: { [any]: number } = {}
 local slots: { [any]: number } = {}
+-- Players whose avatar was despawned when their kart retired. They get
+-- it back at the next grid, which is the only moment a new kart is
+-- welcome — reloading them the instant they retire would put a fresh
+-- kart on the track in the middle of the race they just left.
+local retired: { [Player]: boolean } = {}
 
 -- Lowest free grid slot, so a leaver's position is reused rather than
 -- pushing the next joiner another row back. Slot decides both grid
@@ -455,6 +460,38 @@ function KartService.addBot(name: string): (any, Model)
 	return racer, kart
 end
 
+-- Takes ONE kart out of the world and out of the registry.
+--
+-- BOTH HALVES MATTER. Destroying the model without clearing the
+-- registry leaves `allKarts` returning a destroyed model forever, so
+-- racerCount never drops and the round waits for a racer that no longer
+-- exists — a hang, not a glitch.
+--
+-- The character is sent with it. A player seated in a kart that
+-- vanishes is left standing on the track as a loose avatar, visible to
+-- everyone, with no way back into a race they have already finished.
+function KartService.retire(kart: Model)
+	for racer, k in karts do
+		if k == kart then
+			karts[racer] = nil
+			slots[racer] = nil
+			if typeof(racer) == "Instance" and racer:IsA("Player") then
+				-- REMEMBERED, then removed. A player's kart is only ever
+				-- built from CharacterAdded, so destroying the character
+				-- without ever loading another one locks them out of the
+				-- game permanently — not for the round, for the session.
+				retired[racer] = true
+				local character = racer.Character
+				if character then
+					character:Destroy()
+				end
+			end
+			break
+		end
+	end
+	kart:Destroy()
+end
+
 function KartService.removeBots()
 	for racer, kart in karts do
 		if isBot(racer) then
@@ -484,6 +521,19 @@ end
 -- grid position is published as an attribute and the client's own
 -- Simulation:RespawnAt puts it there — the same path used by checkpoint
 -- respawns, so there's one way a kart gets teleported, not two.
+-- Brings back everyone whose avatar was despawned. Called at the grid,
+-- before places are assigned, so the reloaded character has time to
+-- spawn its kart through the normal CharacterAdded path rather than a
+-- second one written specially for this.
+function KartService.reviveRetired()
+	for player in retired do
+		retired[player] = nil
+		if player.Parent then
+			player:LoadCharacter()
+		end
+	end
+end
+
 function KartService.assignGrid()
 	local pad = Placement.findSpawn()
 	for player, kart in karts do

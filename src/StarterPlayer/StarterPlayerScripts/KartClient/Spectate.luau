@@ -95,6 +95,15 @@ local function candidates(): { Model }
 	return out
 end
 
+local function ownKart(): Model?
+	for _, kart in Standings.allKarts() do
+		if kart:GetAttribute(Names.OWNER) == Players.LocalPlayer.UserId then
+			return kart
+		end
+	end
+	return nil
+end
+
 -- Still racing, so worth defaulting to.
 local function racing(kart: Model): boolean
 	return kart:GetAttribute(Shared.FINISH_PLACE) == nil
@@ -120,6 +129,22 @@ end
 -- Prefer somebody still in the race; fall back to anyone at all so the
 -- camera always has a subject rather than freezing.
 function Spectate:_pickBest()
+	-- THE CUTSCENE. Your own kart is still driving — the AI took it over
+	-- when you crossed the line — and for the few seconds before it
+	-- leaves the world, that is what you watch. Finishing should look
+	-- like something rather than cutting straight to somebody else's
+	-- race.
+	--
+	-- Deliberately not in `candidates()`: that list is what Q/E cycles
+	-- through, and a kart that is about to be destroyed has no business
+	-- being a place you can deliberately return to.
+	local own = ownKart()
+	if own and own:GetAttribute(Shared.RETIRE_AT) then
+		self.target = own
+		self.pos, self.focus = nil, nil
+		return
+	end
+
 	local list = candidates()
 	for _, kart in list do
 		if racing(kart) then

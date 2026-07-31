@@ -28,12 +28,20 @@ local Players = game:GetService("Players")
 local Config = require(BloxKart:WaitForChild("Config"))
 local Util = require(BloxKart:WaitForChild("Util"))
 local TagZones = require(BloxKart:WaitForChild("TagZones"))
+local Shared = require(BloxKart:WaitForChild("Match"))
 
 local RS = Config.Respawn
 local H = Config.Hud
 
 local Respawn = {}
 Respawn.__index = Respawn
+
+-- Resolved once, lazily, rather than waited for at require time: this
+-- module loads before the server has finished building its remotes.
+Respawn.voidRemote = BloxKart:FindFirstChild(Shared.VOID_REMOTE)
+task.spawn(function()
+	Respawn.voidRemote = BloxKart:WaitForChild(Shared.VOID_REMOTE, 20)
+end)
 
 function Respawn.new()
 	local gui = Instance.new("ScreenGui")
@@ -140,6 +148,18 @@ function Respawn:Check(sim, race, input, dt: number): string?
 
 	if not reason then
 		return nil
+	end
+
+	-- TELL THE SERVER, AND RESPAWN ANYWAY.
+	--
+	-- Only the client can see this fall, but it gets no vote on the
+	-- verdict — the server owns the hit clock and decides whether this
+	-- was an elimination. So the report goes up and the respawn happens
+	-- regardless: if it was an elimination the kart is about to be
+	-- removed and the respawn is harmless, and if it was not, waiting
+	-- for a round trip would leave the player sitting in the void.
+	if reason == "void" and Respawn.voidRemote then
+		Respawn.voidRemote:FireServer()
 	end
 
 	local target = race:RespawnCFrame() or sim.spawnCF

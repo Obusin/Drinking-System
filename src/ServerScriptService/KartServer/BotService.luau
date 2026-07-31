@@ -1626,6 +1626,31 @@ end
 
 -- Gives a taken-over kart back, so the next round starts clean and its
 -- owner drives their own kart again.
+-- Unhooks the AI from ONE kart and cleans up everything it owned.
+-- Called when a kart retires — a bot whose model has been destroyed
+-- underneath it keeps stepping a Simulation against a part with no
+-- parent, which is a stream of errors rather than a visible bug.
+--
+-- Returns whether anything was actually driving it, so the caller can
+-- tell a bot's kart from a player's.
+function BotService.detach(kart: Model): boolean
+	for i = #bots, 1, -1 do
+		local bot = bots[i]
+		if bot.kart == kart then
+			bot.boxes:Destroy()
+			bot.drops:Destroy()
+			bot.hazards:Destroy()
+			clearDebug(bot)
+			if bot.rig then
+				bot.rig:Destroy()
+			end
+			table.remove(bots, i)
+			return true
+		end
+	end
+	return false
+end
+
 function BotService.releaseTakeOvers()
 	for i = #bots, 1, -1 do
 		local bot = bots[i]
@@ -1902,6 +1927,20 @@ function BotService.decayCaution(bot)
 end
 
 function BotService.revive(bot)
+	-- OUT, RATHER THAN BACK ON THE TRACK.
+	--
+	-- Same rule a player gets: fall in the void shortly after being hit
+	-- and you are eliminated instead of respawned. Checked here because
+	-- this is the one place a bot comes back from a fall, so there is no
+	-- second path to keep in step.
+	--
+	-- The bot is left to be cleaned up by the retire hook rather than
+	-- removed inline: removing it from `bots` while the caller is
+	-- mid-iteration over that list is how a loop skips an entry.
+	if bot.kart.Parent and MatchService.fellInVoid(bot.kart, bot.name) then
+		return
+	end
+
 	if not bot.kart.Parent then
 		local _, kart = KartService.addBot(bot.name)
 		bot.kart = kart

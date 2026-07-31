@@ -160,6 +160,7 @@ function RewardHud.preview(): { [string]: any }
 			score = kart:GetAttribute(Standings.ATTRIBUTE) or 0,
 			isSelf = mine,
 			dnf = typeof(place) ~= "number",
+			eliminated = kart:GetAttribute(Shared.ELIMINATED) == true,
 		}
 		if entry.dnf then
 			table.insert(running, entry)
@@ -199,6 +200,52 @@ function RewardHud.preview(): { [string]: any }
 	return {
 		standings = standings,
 		payout = { bolt = bolt, nitro = 0 },
+		record = if mine then { value = mine.score, isNew = myPlace == 1 } else nil,
+	}
+end
+
+-- THE SERVER'S BOARD, turned into rows. Preferred over preview() now
+-- that karts retire mid-race: by the time the results appear the early
+-- finishers have already left the world, so anything rebuilt from live
+-- karts is missing exactly the racers who did best — the winner would be
+-- absent from their own results screen.
+function RewardHud.fromServer(list, xpGained): { [string]: any }
+	local me = Players.LocalPlayer
+	local standings = {}
+	local myPlace = nil
+
+	for i, r in list do
+		local isMine = r.userId == me.UserId
+		if isMine and r.place then
+			myPlace = r.place
+		end
+		table.insert(standings, {
+			place = r.place or i,
+			name = r.name,
+			kart = "BLOXKART",
+			score = r.score or 0,
+			isSelf = isMine,
+			dnf = r.place == nil,
+			eliminated = r.eliminated == true,
+		})
+	end
+
+	local bolt = 0
+	if myPlace then
+		bolt = R.BoltForPlace[myPlace] or R.BoltFloor
+	end
+
+	local mine = nil
+	for _, e in standings do
+		if e.isSelf then
+			mine = e
+		end
+	end
+
+	return {
+		standings = standings,
+		payout = { bolt = bolt, nitro = 0 },
+		xpGained = xpGained,
 		record = if mine then { value = mine.score, isNew = myPlace == 1 } else nil,
 	}
 end
@@ -586,7 +633,11 @@ function RewardHud:Show(payload)
 		row.Who.Text = tostring(entry.name or "?")
 		row.Kart.Text = string.upper(tostring(entry.kart or ""))
 		row.Score.Text = tostring(entry.score or "")
-		row.Kart.Text = if entry.dnf then "DID NOT FINISH" else row.Kart.Text
+		if entry.eliminated then
+			row.Kart.Text = Config.Match.EliminationText
+		elseif entry.dnf then
+			row.Kart.Text = "DID NOT FINISH"
+		end
 		local c = if entry.isSelf then R.AccentColor else R.TextColor
 		row.Who.TextColor3 = c
 		row.Score.TextColor3 = c

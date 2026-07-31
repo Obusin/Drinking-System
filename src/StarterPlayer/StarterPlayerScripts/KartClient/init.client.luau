@@ -713,12 +713,22 @@ RunService.Heartbeat:Connect(function(dt)
 	if phase == Shared.Phase.Results then
 		if not shownForPhase then
 			shownForPhase = true
-			local payload = RewardHud.preview()
-			-- The server's half wins wherever the two overlap: it is the
-			-- only one that knows what was actually earned.
+			-- The server's board wins outright when it arrives. Karts
+			-- retire a few seconds after finishing, so by now the early
+			-- finishers have left the world and anything rebuilt from
+			-- live karts is missing the racers who did best. preview()
+			-- survives only as the fallback for a missing payload.
+			local payload
+			if serverReward and serverReward.standings then
+				payload = RewardHud.fromServer(serverReward.standings, serverReward.xpGained)
+			else
+				payload = RewardHud.preview()
+				if serverReward then
+					payload.xpGained = serverReward.xpGained
+				end
+			end
 			if serverReward then
 				payload.level = serverReward.level
-				payload.xpGained = serverReward.xpGained
 			end
 			-- Built BEFORE the wipe and shown behind it, so the panel is
 			-- already assembled the moment the band clears.

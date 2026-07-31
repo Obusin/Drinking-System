@@ -79,6 +79,29 @@ end
 -- exists.
 RaceService.onNonPlayerHit = nil
 
+-- WHEN EACH KART WAS LAST HIT, by server time.
+--
+-- This is the whole basis of elimination: falling in the void is a
+-- respawn normally and an elimination if someone put you there. Kept
+-- here because this is the one place every hit passes through, whoever
+-- threw it and whoever caught it.
+--
+-- Keyed by the kart rather than by a player, because bots have to be
+-- eliminable too and a bot has no account. Weak keys: a destroyed kart
+-- must not hold itself alive through this table.
+local lastHit: { [Model]: number } = setmetatable({}, { __mode = "k" }) :: any
+
+function RaceService.noteHit(kart: Model)
+	lastHit[kart] = workspace:GetServerTimeNow()
+end
+
+-- Was this kart hit recently enough that the void counts as somebody
+-- else's doing?
+function RaceService.wasRecentlyHit(kart: Model, window: number): boolean
+	local at = lastHit[kart]
+	return at ~= nil and (workspace:GetServerTimeNow() - at) <= window
+end
+
 -- Cheapest possible bound on the hit remote. Generous enough that no
 -- honest player will ever touch it — landing two items in a third of a
 -- second is not a thing that happens — and finite, which is the point.
@@ -111,10 +134,13 @@ function RaceService.relayHit(byName: string?, targetKart: Model, payload, byPla
 	local victimId = targetKart:GetAttribute(Names.OWNER)
 	local victim = victimId and Players:GetPlayerByUserId(victimId)
 
-	-- A takedown is a hit that actually costs the victim time. The game
-	-- has no elimination — nobody dies in a kart racer, they spin and
-	-- carry on — so this is the closest honest thing to one.
+	-- A takedown is a hit that actually costs the victim time. Note it
+	-- against the KART: if this racer ends up in the void in the next few
+	-- seconds, that is an elimination rather than a respawn.
 	local takedown = effect.spin > 0 or effect.stun > 0
+	if takedown then
+		RaceService.noteHit(targetKart)
+	end
 	-- Never pay for hitting yourself. A mine you drove into is still a
 	-- hit for the feed; it is not an achievement.
 	if byPlayer and byPlayer ~= victim then

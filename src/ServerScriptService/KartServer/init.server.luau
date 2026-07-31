@@ -22,6 +22,7 @@
 --]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Config = require(ReplicatedStorage.BloxKart.Config)
 local WorldFilter = require(ReplicatedStorage.BloxKart.WorldFilter)
 local Assets = require(script.Assets)
 local Skins = require(script.Skins)
@@ -75,8 +76,30 @@ MatchService.onGrid = BotService.onGrid
 MatchService.onFinished = function(kart, who)
 	BotService.takeOver(kart, who .. " (AI)")
 end
-MatchService.onRelease = BotService.releaseTakeOvers
+MatchService.onRelease = function()
+	BotService.releaseTakeOvers()
+	-- Anyone whose avatar was despawned when their kart retired gets it
+	-- back here, at the grid — the only moment a new kart is welcome.
+	KartService.reviveRetired()
+end
+-- A kart leaving the world, by either route. The AI is unhooked FIRST:
+-- a bot stepping a Simulation against a destroyed model is a stream of
+-- errors rather than a visible bug.
+-- Says it out loud. An elimination is the loudest thing that can happen
+-- to a racer and it was the one event with no feedback at all.
+MatchService.onEliminated = function(_kart, who)
+	RaceService.announce(Config.Match.EliminationText, nil, who)
+end
+MatchService.onRetire = function(kart)
+	BotService.detach(kart)
+	KartService.retire(kart)
+end
 -- A hit on a kart with no Player behind it goes to the bots. A hook
 -- rather than a require: RaceService is upstream of BotService and
 -- shouldn't have to know it exists.
 RaceService.onNonPlayerHit = BotService.applyHit
+-- The hit clock lives in RaceService, the elimination rule in
+-- MatchService, and RaceService already requires MatchService — so the
+-- answer is handed across rather than required back, which would be a
+-- cycle.
+MatchService.wasRecentlyHit = RaceService.wasRecentlyHit
