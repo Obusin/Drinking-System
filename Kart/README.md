@@ -32,7 +32,9 @@ Press Play. You spawn already seated; the match starts on its own.
 | | |
 |---|---|
 | [`SETUP.md`](SETUP.md) | what to tag in Studio to get a working track |
+| [`FINDINGS.md`](FINDINGS.md) | **what we've learned the hard way — read before changing bot steering, replication or the racing line** |
 | [`SPEC-match.md`](SPEC-match.md) | the round loop: grid, countdown, results |
+| [`SPEC-bots.md`](SPEC-bots.md) | AI racers, and the twelve-layer plan audited |
 | [`SPEC-hop-drift.md`](SPEC-hop-drift.md) | the drift state machine |
 | [`SPEC-nitro.md`](SPEC-nitro.md) | tanks and burn stages |
 
