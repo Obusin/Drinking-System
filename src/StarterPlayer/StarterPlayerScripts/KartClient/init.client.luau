@@ -93,6 +93,14 @@ local transition = Transition.new()
 local xpHud = XpHud.new()
 local tally = Tally.new()
 local questHud = QuestHud.new()
+-- Bound directly rather than through Input: this is UI, it must work
+-- while spectating and out of a kart, and Input's bindings are released
+-- the moment you stop driving.
+UserInputService.InputBegan:Connect(function(input, typing)
+	if not typing and input.KeyCode == Config.Level.QuestOpenKey then
+		questHud:Toggle()
+	end
+end)
 local hud = RaceHud.new()
 local controls = ControlsHud.new()
 local speedo = SpeedHud.new()

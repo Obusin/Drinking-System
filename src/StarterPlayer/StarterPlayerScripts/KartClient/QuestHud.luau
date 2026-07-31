@@ -16,6 +16,14 @@
 	Rows are pooled and rebuilt in place, because the panel is redrawn
 	whenever the server pushes and creating a dozen instances per push
 	is churn for a screen that mostly does not change.
+
+	BEHIND A TAB
+	------------
+	Closed by default. A racing HUD should show what you need while
+	driving and a quest list is not that — but collapsing it means you
+	stop looking at it, so the tab carries a badge when something is
+	finished and unclaimed. A reward you have earned and not noticed is
+	the same as no reward.
 --]]
 
 local Players = game:GetService("Players")
@@ -80,13 +88,54 @@ function QuestHud.new()
 	layout.SortOrder = Enum.SortOrder.LayoutOrder
 	layout.Parent = root
 
+	root.Visible = false
+
+	local tab = Instance.new("TextButton")
+	tab.Name = "Tab"
+	tab.BackgroundColor3 = L.QuestPanelColor
+	tab.BackgroundTransparency = 0.15
+	tab.BorderSizePixel = 0
+	tab.Position = L.QuestButtonPosition
+	tab.Size = UDim2.fromOffset(L.QuestButtonSize.X, L.QuestButtonSize.Y)
+	tab.FontFace = FONT
+	tab.TextSize = L.QuestTitleSize
+	tab.TextColor3 = R.TextColor
+	tab.Text = L.QuestButtonText
+	tab.AutoButtonColor = true
+	tab.Parent = gui
+
+	-- A dot rather than a count. The number of claimable quests is not
+	-- information anybody acts on differently; "there is something" is.
+	local badge = Instance.new("Frame")
+	badge.Name = "Badge"
+	badge.BackgroundColor3 = L.QuestBadgeColor
+	badge.BorderSizePixel = 0
+	badge.AnchorPoint = Vector2.new(1, 0.5)
+	badge.Position = UDim2.new(1, -8, 0.5, 0)
+	badge.Size = UDim2.fromOffset(10, 10)
+	badge.Visible = false
+	badge.Parent = tab
+	local badgeCorner = Instance.new("UICorner")
+	badgeCorner.CornerRadius = UDim.new(1, 0)
+	badgeCorner.Parent = badge
+
+	-- The list sits under the tab rather than on top of it.
+	root.Position = L.QuestButtonPosition + UDim2.fromOffset(0, L.QuestButtonSize.Y + 8)
+
 	local self = setmetatable({
 		gui = gui,
 		root = root,
+		tab = tab,
+		badge = badge,
+		open = false,
 		sections = {},
 		snapshot = nil,
 		remote = nil,
 	}, QuestHud)
+
+	tab.Activated:Connect(function()
+		self:Toggle()
+	end)
 
 	task.spawn(function()
 		local remote = BloxKart:WaitForChild(Names.QUEST_REMOTE, 20)
@@ -104,6 +153,20 @@ function QuestHud.new()
 	end)
 
 	return self
+end
+
+function QuestHud:Toggle(force: boolean?)
+	self.open = if force ~= nil then force else not self.open
+	self.root.Visible = self.open
+	-- Asked for on open rather than trusted to be current. The panel can
+	-- have been closed through a whole race.
+	if self.open and self.remote then
+		self.remote:FireServer("refresh")
+	end
+end
+
+function QuestHud:IsOpen(): boolean
+	return self.open
 end
 
 --=====================================================================
@@ -222,6 +285,20 @@ function QuestHud:Apply(snap)
 		return
 	end
 	self.snapshot = snap
+
+	-- Anything finished and unclaimed, across every layer — including
+	-- layers the panel is not currently showing, because an unclaimed
+	-- reward is worth surfacing wherever it lives.
+	local claimable = false
+	for _, data in snap do
+		for _, quest in (data.rows or {}) do
+			if quest.done and not quest.claimed then
+				claimable = true
+				break
+			end
+		end
+	end
+	self.badge.Visible = claimable
 
 	for order, layer in L.QuestLayers do
 		local data = snap[layer]

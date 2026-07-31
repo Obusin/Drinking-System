@@ -119,6 +119,7 @@ function Progress.award(player: Player?, amount: number, reason: string)
 	if Progress.onAward then
 		Progress.onAward(player, {
 			amount = amount,
+			kind = "xp",
 			reason = reason,
 			level = after,
 			leveledUp = gained > 0,
@@ -126,6 +127,17 @@ function Progress.award(player: Player?, amount: number, reason: string)
 		})
 	end
 end
+
+-- Anything that changes a total calls this. Quests use it to know when
+-- a bar has moved without polling every player every second for an
+-- answer that is usually "no change".
+function Progress.touch(player: Player?)
+	if player and Progress.onChanged then
+		Progress.onChanged(player)
+	end
+end
+
+Progress.onChanged = nil :: ((Player) -> ())?
 
 -- Told about every award, so the client can show it as it happens.
 -- A hook rather than a remote in here: this module is the grant path
@@ -201,7 +213,21 @@ function Progress.grant(player: Player?, kind: string, amount: number, reason: s
 	else
 		return
 	end
-	Ledger.record(player, kind, amount, if kind == "bolt" then e.bolt else e.crystals, reason, Progress.matchId)
+	local after = if kind == "bolt" then e.bolt else e.crystals
+	Ledger.record(player, kind, amount, after, reason, Progress.matchId)
+
+	-- ANNOUNCED, like XP is. Claiming a quest used to pay in silence —
+	-- the row said CLAIMED and nothing else moved, which is
+	-- indistinguishable from a reward that did not arrive.
+	if Progress.onAward then
+		Progress.onAward(player, {
+			amount = amount,
+			kind = kind,
+			reason = reason,
+			balance = after,
+		})
+	end
+	Progress.touch(player)
 end
 
 -- THE OTHER HALF OF THE SINGLE PATH.
@@ -253,6 +279,7 @@ function Progress.count(player: Player?, metric: string, n: number?)
 	end
 	local e = entry(player.UserId)
 	e.stats[metric] = (e.stats[metric] or 0) + by
+	Progress.touch(player)
 end
 
 -- A whole race's worth of client-reported driving counters, clamped.

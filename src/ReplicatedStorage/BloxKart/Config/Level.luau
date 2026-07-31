@@ -148,10 +148,22 @@ return {
 	QuestPanelTransparency = 0.25,
 	QuestDoneColor = Color3.fromRGB(120, 230, 130),
 
-	-- Which layers the panel shows, in order. Monthly is off by default:
-	-- three layers at once is a wall of text on a racing screen, and the
-	-- monthly is the one you check rarely.
-	QuestLayers = { "Daily", "Weekly" },
+	-- Which layers the panel shows, in order. All three now that the
+	-- panel is behind a button — the reason to cut Monthly was that
+	-- three layers at once crowded the racing screen, and nothing is on
+	-- the racing screen any more.
+	QuestLayers = { "Daily", "Weekly", "Monthly" },
+
+	-- The tab. Closed by default: a racing HUD should show what you need
+	-- while driving, and a quest list is not that.
+	QuestOpenKey = Enum.KeyCode.J,
+	QuestButtonPosition = UDim2.fromScale(0.012, 0.30),
+	QuestButtonSize = Vector2.new(132, 34),
+	QuestButtonText = "QUESTS",
+	-- Shown on the tab when something is finished and unclaimed. The
+	-- whole point of collapsing the panel is that you stop looking at
+	-- it, so it has to be able to get your attention back.
+	QuestBadgeColor = Color3.fromRGB(120, 230, 130),
 
 	--== FEED ==========================================================
 	-- The kill-feed line is "<attacker> [icon] <victim>". The icon

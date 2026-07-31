@@ -111,10 +111,29 @@ function XpHud:Award(info)
 	-- A reason with no label shows the reason. Better a raw string than
 	-- a blank line, and it makes a missing label obvious rather than
 	-- invisible.
-	local what = L.Labels[reason] or string.upper(reason)
+	--
+	-- A quest reason is "quest:<id>", which is right for the audit line
+	-- and wrong on screen. Strip it to the verb.
+	local what = L.Labels[reason]
+	if not what then
+		local quest = string.match(reason, "^quest:(.+)$")
+		what = if quest then "QUEST" else string.upper(reason)
+	end
+
+	-- CURRENCY AND XP LOOK DIFFERENT, because they are. Claiming a quest
+	-- used to pay in silence: the row said CLAIMED and nothing else
+	-- moved, which is indistinguishable from a reward that never
+	-- arrived.
+	local kind = tostring(info.kind or "xp")
+	local unit = if kind == "bolt" then "BOLT" elseif kind == "crystals" then "NITRO" else "XP"
+	local colour = if kind == "bolt"
+		then R.BoltColor
+		elseif kind == "crystals" then R.NitroColor
+		else R.AccentColor
 
 	table.insert(self.lines, 1, {
-		text = ("+%d XP   %s"):format(info.amount, what),
+		text = ("+%d %s   %s"):format(info.amount, unit, what),
+		colour = colour,
 		at = os.clock(),
 	})
 	while #self.lines > L.ToastRows do
@@ -149,6 +168,7 @@ function XpHud:Update()
 			continue
 		end
 		row.Text = line.text
+		row.TextColor3 = line.colour or R.AccentColor
 		local f = fadeOf(age, L.ToastHold, L.ToastFade)
 		row.TextTransparency = f
 		row.TextStrokeTransparency = H.StrokeTransparency + (1 - H.StrokeTransparency) * f

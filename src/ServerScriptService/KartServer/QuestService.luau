@@ -347,8 +347,37 @@ function QuestService.push(player: Player)
 	end
 end
 
+-- Players whose totals moved since the last push.
+--
+-- DEBOUNCED, not immediate: a single race fires hundreds of counter
+-- changes and a push per change would be a snapshot rebuilt hundreds of
+-- times for a panel that updates once a second at most.
+local dirty: { [Player]: boolean } = {}
+
+function QuestService.markDirty(player: Player)
+	dirty[player] = true
+end
+
 function QuestService.start()
 	buildPools()
+
+	-- Progress tells us when a total moved. Without this the panel only
+	-- ever refreshed on join and on claim, so a whole race of progress
+	-- was invisible until the player rejoined — which reads exactly like
+	-- quests not being wired up at all.
+	Progress.onChanged = QuestService.markDirty
+
+	task.spawn(function()
+		while true do
+			task.wait(1)
+			for player in dirty do
+				dirty[player] = nil
+				if player.Parent == Players then
+					QuestService.push(player)
+				end
+			end
+		end
+	end)
 
 	remote = Instance.new("RemoteEvent")
 	remote.Name = Names.QUEST_REMOTE
@@ -377,6 +406,7 @@ function QuestService.start()
 
 	Players.PlayerRemoving:Connect(function(player)
 		session[player.UserId] = nil
+		dirty[player] = nil
 	end)
 end
 
