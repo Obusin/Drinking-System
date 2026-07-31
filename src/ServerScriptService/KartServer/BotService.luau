@@ -335,7 +335,34 @@ local function drive(bot, dt: number)
 	local speed = math.abs(sim.speed)
 	local bend = bendAt(bot.u, B.CornerLookahead, sim.up)
 
-	----------------------------------------------------------------
+	-- Asymmetric, because a checkpoint is rarely centred on its road and
+	-- one averaged number is too generous on exactly the side with the
+	-- drop. Both sides are probed with rays, not read off the gate.
+	local roomL, roomR = Route.roomAt(bot.u)
+	roomL = math.max(roomL - B.EdgeMargin, 0)
+	roomR = math.max(roomR - B.EdgeMargin, 0)
+
+	-- LEARNED CAUTION. Every time this bot leaves the track it marks the
+	-- node it left, and thereafter it drives that stretch nearer the
+	-- middle and slower. See BotService.noteWentOff.
+	--
+	-- This is the whole of "learn from its mistake" and it is not
+	-- learning in any clever sense — it's a number that goes up when
+	-- something goes wrong and decays when it doesn't. That's enough,
+	-- because the failure it has to stop repeating is entirely local: one
+	-- corner, taken too wide, every lap.
+	local caution = bot.caution[math.floor(bot.u) % math.max(#Route.nodes(), 1)] or 0
+	if caution > 0 then
+		local pull = math.clamp(caution * B.CautionPull, 0, 1)
+		roomL *= 1 - pull
+		roomR *= 1 - pull
+	end
+
+	-- The narrower side, used only to judge whether the bot is still
+	-- meaningfully ON the road when recording a safe position.
+	local room = math.min(roomL, roomR)
+
+----------------------------------------------------------------
 	-- LINE
 	--
 	-- Not the centreline. Each bot holds an offset and wanders it, which
@@ -349,9 +376,18 @@ local function drive(bot, dt: number)
 	-- a straight and gets untidy through corners, so the wander follows
 	-- the bend rather than the clock.
 	local straightness = 1 - math.min(bend / math.max(B.WanderFullBend, 1e-3), 1)
-	local wanderRoom = B.LineOffset * (1 - bot.skill) * (B.WanderOnStraight + (1 - B.WanderOnStraight) * (1 - straightness))
+	-- Also a fraction of the road rather than a stud count, so a narrow
+	-- section tightens the wander instead of having it clamped off.
+	local wanderRoom = math.min(roomL, roomR)
+		* B.LineWander
+		* (1 - bot.skill)
+		* (B.WanderOnStraight + (1 - B.WanderOnStraight) * (1 - straightness))
 	local wander = math.sin(bot.lineAt) * wanderRoom
-	local offset = bot.lineBias + wander
+	-- Scaled to the room available on the side it is heading for. Done
+	-- here rather than at spawn because the road width changes along the
+	-- lap, and a line chosen once cannot know that.
+	local sideRoom = if bot.lineBias >= 0 then roomR else roomL
+	local offset = bot.lineBias * sideRoom * B.LineSpread + wander
 
 	----------------------------------------------------------------
 	-- TRAFFIC
@@ -385,7 +421,6 @@ local function drive(bot, dt: number)
 			end
 		end
 	end
-
 	----------------------------------------------------------------
 	-- STAY ON THE ROAD
 	--
@@ -403,32 +438,7 @@ local function drive(bot, dt: number)
 	-- Route.nodes), so this clamps against the track you actually built
 	-- rather than a number someone guessed.
 	----------------------------------------------------------------
-	-- Asymmetric, because a checkpoint is rarely centred on its road and
-	-- one averaged number is too generous on exactly the side with the
-	-- drop. Both sides are probed with rays, not read off the gate.
-	local roomL, roomR = Route.roomAt(bot.u)
-	roomL = math.max(roomL - B.EdgeMargin, 0)
-	roomR = math.max(roomR - B.EdgeMargin, 0)
 
-	-- LEARNED CAUTION. Every time this bot leaves the track it marks the
-	-- node it left, and thereafter it drives that stretch nearer the
-	-- middle and slower. See BotService.noteWentOff.
-	--
-	-- This is the whole of "learn from its mistake" and it is not
-	-- learning in any clever sense — it's a number that goes up when
-	-- something goes wrong and decays when it doesn't. That's enough,
-	-- because the failure it has to stop repeating is entirely local: one
-	-- corner, taken too wide, every lap.
-	local caution = bot.caution[math.floor(bot.u) % math.max(#Route.nodes(), 1)] or 0
-	if caution > 0 then
-		local pull = math.clamp(caution * B.CautionPull, 0, 1)
-		roomL *= 1 - pull
-		roomR *= 1 - pull
-	end
-
-	-- The narrower side, used only to judge whether the bot is still
-	-- meaningfully ON the road when recording a safe position.
-	local room = math.min(roomL, roomR)
 	offset = math.clamp(offset, -roomL, roomR)
 
 	----------------------------------------------------------------

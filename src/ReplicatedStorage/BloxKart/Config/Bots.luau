@@ -314,6 +314,22 @@ return {
 	-- Bots don't drive the centreline exactly; each holds an offset and
 	-- wanders it. This is most of what makes them look driven rather
 	-- than railed, and it's why they're overtakeable.
+	-- HOW FAR APART BOTS SIT, as a fraction of the road available.
+	--
+	-- Was a stud count, clamped to the tarmac afterwards — so on a narrow
+	-- section every bot's chosen line collapsed onto the same two edges
+	-- and they drove through each other in a heap. They cannot actually
+	-- collide, since a bot's hitbox is anchored, but a stack of
+	-- overlapping karts reads as nothing else.
+	--
+	-- As a fraction the spread scales with whatever road there is: a
+	-- tight section packs them closer rather than piling them up.
+	--
+	-- Under 1 so the outermost bot still has margin to the edge; the
+	-- clamp is a backstop, not the thing choosing the line.
+	LineSpread = 0.75,
+	LineWander = 0.35, -- and the wander on top, same units
+
 	LineOffset = 9, -- studs either side, at worst skill
 	LineDrift = 0.35, -- how fast the offset wanders
 

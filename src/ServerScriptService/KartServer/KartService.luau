@@ -105,16 +105,21 @@ function KartService.auditCollisions()
 	local bad = {}
 	for _, kart in CollectionService:GetTagged(KartFactory.TAG) do
 		for _, d in kart:GetDescendants() do
-			if d:IsA("BasePart") and d.CanCollide and d.CollisionGroup ~= RIG.CollisionGroup then
+			-- ANY collidable kart part, not just one outside the group.
+			--
+			-- The group only stops kart-versus-kart. A collidable panel
+			-- still meets the world, dropped items, hazards and anything
+			-- else in the default group — and a kinematic kart has no use
+			-- for physics contact at all.
+			if d:IsA("BasePart") and d.CanCollide then
 				table.insert(bad, ("%s (group %q)"):format(d:GetFullName(), d.CollisionGroup))
 			end
 		end
 	end
 	if #bad > 0 then
 		warn(
-			("[KartService] %d kart part(s) can still collide with the world outside the %q group — this is what makes karts bump: %s"):format(
+			("[KartService] %d kart part(s) still have CanCollide on. A kart is kinematic and should never collide with anything; this is what makes them bump. %s"):format(
 				#bad,
-				RIG.CollisionGroup,
 				table.concat(bad, ", ")
 			)
 		)

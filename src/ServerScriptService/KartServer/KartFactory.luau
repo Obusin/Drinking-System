@@ -261,9 +261,26 @@ function KartFactory.build(color: Color3?, visualName: string?): Model
 	-- One sweep at the end rather than remembering it at every
 	-- Instance.new. Karts don't collide with each other or with seated
 	-- racers; see KartService for the group setup.
+	--
+	-- NOTHING ON A KART COLLIDES WITH ANYTHING. The sweep used to set the
+	-- group and leave CanCollide alone, so authored art arrived with
+	-- whatever it was saved with — which is `true` unless somebody
+	-- remembered otherwise. The group stopped kart-versus-kart, and left
+	-- every other contact a piece of bodywork could make.
+	--
+	-- A kart is KINEMATIC: Simulation writes its position outright and
+	-- resolves its own collisions with queries. Physics contact is not
+	-- how this kart moves, so a collidable body panel can only ever be a
+	-- source of forces nothing asked for — and CanQuery is the flag that
+	-- actually decides what a kart hits (see FINDINGS).
+	--
+	-- The group STAYS as well. Belt and braces: it is what keeps a seated
+	-- driver's limbs out of the way, and CanCollide can be flipped back
+	-- on by anything that touches a part later.
 	for _, desc in kart:GetDescendants() do
 		if desc:IsA("BasePart") then
 			desc.CollisionGroup = RIG.CollisionGroup
+			desc.CanCollide = false
 		end
 	end
 
