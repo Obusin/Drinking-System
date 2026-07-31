@@ -139,11 +139,60 @@ function KartFactory.build(color: Color3?, visualName: string?): Model
 	--=================================================================
 	local drop = RIG.VisualOffset
 	if RIG.VisualAutoSit then
-		local pivot, size = visual:GetBoundingBox()
-		-- Bottom of the art, relative to its own pivot.
-		local bottom = (pivot.Position.Y - size.Y * 0.5) - visual:GetPivot().Position.Y
-		drop += Vector3.new(0, -Config.Handling.RideHeight - bottom, 0)
-		log("art sits %.2f studs off its pivot to reach the wheel line", drop.Y)
+		--=============================================================
+		--  MEASURE THE WHEELS, NOT THE BOUNDING BOX.
+		--
+		--  The first version took the lowest point of the whole model,
+		--  which sounds like the wheel line and is not. A kart's art
+		--  contains the SHIELD BUBBLE — a sphere wrapping the entire kart
+		--  — so the lowest point of the model is the bottom of the
+		--  bubble, well under the tyres. Sitting that on the road lifted
+		--  the kart until it hung at head height with the driver seated
+		--  underneath it.
+		--
+		--  Wheels are the parts that actually touch the ground, which
+		--  makes them the only honest answer to "where is the bottom of
+		--  this kart". They are already identifiable — the same tags and
+		--  names the Motor6D pass uses further down.
+		--=============================================================
+		local lowest: number? = nil
+		local function consider(part: BasePart)
+			local bottom = part.Position.Y - part.Size.Y * 0.5
+			if not lowest or bottom < lowest then
+				lowest = bottom
+			end
+		end
+
+		for _, d in visual:GetDescendants() do
+			if not d:IsA("BasePart") then
+				continue
+			end
+			if
+				CollectionService:HasTag(d, RIG.WheelFrontTag)
+				or CollectionService:HasTag(d, RIG.WheelRearTag)
+				or table.find(RIG.FrontWheelNames, d.Name)
+				or table.find(RIG.RearWheelNames, d.Name)
+			then
+				consider(d)
+			end
+		end
+
+		-- No wheels named or tagged. Fall back to the body, still skipping
+		-- anything decorative that wraps the kart — the bubble is the one
+		-- that matters and the reason this needs a filter at all.
+		if not lowest then
+			local shield = visual:FindFirstChild(Config.Effects.ShieldName, true)
+			for _, d in visual:GetDescendants() do
+				if d:IsA("BasePart") and not (shield and d:IsDescendantOf(shield)) and d ~= shield then
+					consider(d)
+				end
+			end
+		end
+
+		if lowest then
+			drop += Vector3.new(0, -Config.Handling.RideHeight - (lowest - visual:GetPivot().Position.Y), 0)
+			log("art dropped %.2f studs to put its wheels on the road", drop.Y)
+		end
 	end
 	visual:PivotTo(CFrame.new(drop))
 
