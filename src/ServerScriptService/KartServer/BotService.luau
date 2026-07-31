@@ -673,6 +673,26 @@ local function step(dt: number)
 			continue
 		end
 
+		----------------------------------------------------------------
+		-- IDLE — parked, wagging the wheel.
+		--
+		-- Steps the simulation with zero throttle, so the kart settles on
+		-- the ground properly rather than being frozen mid-air, and wags
+		-- the steering so the wheel turns and the driver's arms follow.
+		-- Rider does the rest; it reads the same attribute a racing bot
+		-- publishes.
+		----------------------------------------------------------------
+		if B.Idle then
+			bot.sim:Hold(false)
+			bot.controls.touchThrottle = 0
+			bot.controls.touchSteer = math.sin(now * B.IdleSteerRate * math.pi * 2) * B.IdleSteerAmount
+			bot.controls.driftHeld = false
+			bot.sim:Step(dt, bot.controls)
+			bot.kart:SetAttribute(Names.STEER, bot.sim.steer)
+			bot.kart:SetAttribute(Names.DRIFT, bot.sim.driftAngle)
+			continue
+		end
+
 		-- Held on the grid exactly like a player, so the countdown means
 		-- the same thing for everybody.
 		bot.sim:Hold(not racing)
@@ -764,7 +784,9 @@ function BotService.fill()
 	-- there is nothing else for them to follow — spawned anyway they'd
 	-- sit on the grid as statues, which reads as broken code rather than
 	-- as a track that isn't finished.
-	if #Route.nodes() == 0 then
+	-- A parked bot needs no racing line, and checking a rig on an
+	-- unfinished track is exactly what idle mode is for.
+	if #Route.nodes() == 0 and not B.Idle then
 		if #bots > 0 then
 			for _, bot in bots do
 				bot.boxes:Destroy()
@@ -875,10 +897,15 @@ function BotService.seatRig(bot)
 	if not (template and template:IsA("Model") and template:FindFirstChildOfClass("Humanoid")) then
 		if not warnedNoRig then
 			warnedNoRig = true
-			warn(("[BotService] no Model named %q with a Humanoid in ServerStorage — bots will drive empty karts."):format(B.RigName))
+			warn(
+				("[BotService] no Model named %q with a Humanoid in ServerStorage — bots will drive empty karts. "):format(
+					B.RigName
+				) .. "Any R6 or R15 rig works; drop one in and rename it."
+			)
 		end
 		return
 	end
+	log("seating %s in %s", B.RigName, bot.name)
 
 	local seat = bot.kart:FindFirstChild("Seat")
 	local rig = template:Clone()

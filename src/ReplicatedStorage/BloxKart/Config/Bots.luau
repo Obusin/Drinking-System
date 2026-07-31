@@ -31,8 +31,20 @@ return {
 	--== FIELD =========================================================
 	-- Filled up to this many RACERS in total, humans included. Three
 	-- means solo practice is a four-kart race.
-	FillTo = 4,
+	FillTo = 2, -- one human plus one bot
 	MaxBots = 7, -- never more than the grid has slots for
+
+	--== IDLE  (rig test) ==============================================
+	-- Parks the bots and just wags the wheel, so you can look at the
+	-- driver: rig seated, hands on the wheel, arms following the
+	-- steering. Nothing drives, nothing races.
+	--
+	-- Also drops the checkpoint requirement — a parked bot needs no
+	-- racing line, and the whole point is to check the rig on a track
+	-- that isn't finished.
+	Idle = true,
+	IdleSteerRate = 1.1, -- wags per second
+	IdleSteerAmount = 1, -- 1 is lock to lock
 
 	-- Every frame, and it has to be.
 	--
@@ -177,5 +189,5 @@ return {
 	-- The racing line is the one that settles arguments: if THAT cuts a
 	-- corner, no amount of bot tuning helps — it's RouteTension or more
 	-- checkpoints.
-	Debug = true,
+	Debug = false,
 }
