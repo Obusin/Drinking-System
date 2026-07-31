@@ -60,12 +60,29 @@ end
 -- The authored rocket, if the server published one. Nil means draw the
 -- plain part instead, which is a missile that looks basic rather than a
 -- missile that doesn't appear.
+local warnedNoRocket = false
+
 local function rocketTemplate(): Instance?
 	if IT.ProjectileModel == "" then
 		return nil
 	end
 	local assets = ReplicatedStorage:FindFirstChild("Assets")
-	return assets and assets:FindFirstChild(IT.ProjectileModel)
+	local model = assets and assets:FindFirstChild(IT.ProjectileModel)
+
+	-- SAY SO, ONCE. The fallback is deliberate and silent by design, and
+	-- that is precisely how a missing rocket goes unnoticed: the missile
+	-- still flies, still homes, still explodes, and just looks like a
+	-- neon box. Without this the only symptom is "the new asset isn't
+	-- in", with nothing anywhere to say why.
+	if not model and not warnedNoRocket then
+		warnedNoRocket = true
+		warn(
+			("[Projectiles] no %q in ReplicatedStorage.Assets — drawing the plain part. The server publishes it from ServerStorage at startup; check the Output for an [Assets] line."):format(
+				IT.ProjectileModel
+			)
+		)
+	end
+	return model
 end
 
 local function makePart(item): BasePart

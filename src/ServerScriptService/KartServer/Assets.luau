@@ -66,14 +66,31 @@ function Assets.start()
 			continue -- already published, e.g. a soft restart
 		end
 
-		local source = ServerStorage:FindFirstChild(name)
+		-- RECURSIVE, because art gets filed.
+		--
+		-- The first version looked only at the top level of ServerStorage
+		-- and quietly found nothing, because the rocket lives in the
+		-- Powerups folder with the rest of the item art — which is exactly
+		-- where a person would put it. Requiring a specific parent is
+		-- asking the human to remember an implementation detail, so this
+		-- just goes and finds it.
+		local source = ServerStorage:FindFirstChild(name, true)
 		if not source then
 			-- Not fatal: the client falls back to drawing a plain part, so
 			-- a missing model is a missile that looks basic rather than a
 			-- missile that doesn't exist.
 			warn(
-				("[Assets] no model named %q in ServerStorage — projectiles will use the plain fallback part. Put the model there, or set Items.ProjectileModel to \"\" to silence this."):format(
+				("[Assets] no model named %q anywhere in ServerStorage — projectiles will use the plain fallback part. Check the name matches exactly, or set Items.ProjectileModel to \"\" to silence this."):format(
 					name
+				)
+			)
+			continue
+		end
+		if not (source:IsA("Model") or source:IsA("BasePart")) then
+			warn(
+				("[Assets] %s is a %s, not a Model or BasePart — projectiles will use the plain fallback part."):format(
+					source:GetFullName(),
+					source.ClassName
 				)
 			)
 			continue
@@ -89,7 +106,10 @@ function Assets.start()
 			end
 		end
 		copy.Parent = into
-		log("published %s", name)
+		-- Says WHERE it was found, not just that it worked. "published
+		-- Rocket" is useless when the question is which of two models
+		-- named Rocket got picked up.
+		log("published %s from %s", name, source:GetFullName())
 	end
 end
 
