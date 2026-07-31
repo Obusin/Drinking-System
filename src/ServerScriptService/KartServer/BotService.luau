@@ -1163,6 +1163,12 @@ local function step(dt: number)
 				-- nowhere near enough to converge — throwing it away every
 				-- round means it never learns anything at all.
 				bot.laps = 0
+				-- Back to needing checkpoint 1 next. Without this a bot
+				-- carries last round's position in the sequence into the
+				-- new one and is credited a lap for reaching a gate it
+				-- passed before the restart.
+				bot.nextIdx = 1
+				bot.airFor = 0
 				bot.item = nil
 				bot.heldSteer = 0
 				table.clear(bot.sawSteer)
@@ -1228,6 +1234,51 @@ local function step(dt: number)
 		-- Fell off the world, or ended up somewhere the road isn't. No
 		-- character to re-seat, so it puts itself back on the racing line
 		-- — which it already knows how to find.
+		--------------------------------------------------------------
+		-- FLYING WATCHDOG.
+		--
+		-- A NET, NOT A CURE, and worth being honest about which. The
+		-- cause of a bot occasionally taking off is still unknown — it
+		-- is rare now rather than constant — so this does not pretend to
+		-- fix it. It bounds the damage: a kart that has been off the
+		-- ground implausibly long, or has climbed far above the racing
+		-- line it is supposed to be driving, is put back on that line.
+		--
+		-- Two tests because they catch different failures. A long air
+		-- time catches a slow floater that never comes down; height
+		-- above the route catches one launched hard, which can be back
+		-- on the ground quickly and a hundred studs up in between.
+		--
+		-- Both thresholds are set well beyond any legitimate jump, so a
+		-- real ramp is never interrupted. If this fires, the log line
+		-- says which test tripped and how far it got, which is the
+		-- evidence needed to actually diagnose it.
+		--------------------------------------------------------------
+		if bot.sim.grounded then
+			bot.airFor = 0
+		else
+			bot.airFor = (bot.airFor or 0) + dt
+		end
+
+		local above = 0
+		local onLine = Route.pointAt(bot.u)
+		if onLine then
+			above = bot.sim.pos.Y - onLine.Y
+		end
+
+		if (bot.airFor or 0) > B.MaxAirTime or above > B.MaxAboveRoute then
+			warn(
+				("[BotService] %s recovered by the flying watchdog — airborne %.1fs, %.0f studs above the racing line, speed %.0f. This is a safety net; the cause is still unknown."):format(
+					bot.name,
+					bot.airFor or 0,
+					above,
+					bot.sim.speed
+				)
+			)
+			bot.airFor = 0
+			BotService.revive(bot)
+		end
+
 		if bot.sim.pos.Y < Config.Rig.RespawnBelow then
 			-- Counted, because a bot that rejoins the line over and over is
 			-- not falling off the map — something is putting it back, and
@@ -1266,26 +1317,59 @@ local function step(dt: number)
 				-- Laps, from the route wrapping rather than from trigger
 				-- volumes: a bot is already tracked by `u`, so watching it
 				-- wrap is free and can't miss a gate at speed.
-				if bot.lastU and bot.u < bot.lastU - #Route.nodes() * 0.5 then
-					bot.laps += 1
-					-- A lap survived is evidence the caution worked, so let
-					-- it fade. Without this a single incident makes a bot
-					-- crawl that corner for the rest of the server's life.
-					BotService.decayCaution(bot)
+				-- CHECKPOINTS, IN ORDER, LIKE YOU HAVE TO.
+				--
+				-- A lap used to be credited purely on `u` wrapping past
+				-- half the track, which is not the same thing as visiting
+				-- the checkpoints at all. Anything that moved a bot a long
+				-- way — flying, a shortcut across the infield, a respawn —
+				-- wrapped `u` and paid out a lap it had not driven. You
+				-- have to pass every gate; bots were on a weaker rule, and
+				-- that is exactly as unfair as it sounds.
+				--
+				-- Now it must reach each node in sequence. Skipping one
+				-- means the counter simply stops advancing until it comes
+				-- back for it, so a bot that flies over half the track
+				-- gains nothing at all from the trip.
+				local n = #Route.nodes()
+				if n > 0 then
+					local at = math.floor(bot.u) % n
+					local want = bot.nextIdx % n
+					if at == want then
+						bot.nextIdx += 1
+						-- Node 0 is the line. Reaching it having taken every
+						-- other gate in order is a completed lap.
+						if want == 0 then
+							bot.laps += 1
+							-- A lap survived is evidence the caution worked,
+							-- so let it fade. Otherwise one incident makes a
+							-- bot crawl that corner for the rest of the
+							-- server's life.
+							BotService.decayCaution(bot)
 
-					-- CROSSING THE LINE. Without this a bot can complete
-					-- every lap and still not be counted as finished, so
-					-- `finishers` never reaches the size of the field and
-					-- the round runs to the time limit with everyone parked
-					-- on the start straight waiting for it.
-					--
-					-- Reported once. FINISH_PLACE guards it here and
-					-- MatchService checks it again, so a bot that keeps
-					-- driving after the flag can't take a second place.
-					if bot.laps >= Config.Race.TotalLaps and not bot.kart:GetAttribute(Match.FINISH_PLACE) then
-						local since = MatchService.racingSince()
-						if since then
-							MatchService.botFinished(bot.kart, bot.name, workspace:GetServerTimeNow() - since)
+							-- CROSSING THE LINE. Without this a bot can
+							-- complete every lap and never be counted, so
+							-- `finishers` never reaches the size of the
+							-- field and the round runs out the clock with
+							-- everyone parked on the start straight.
+							--
+							-- Reported once: FINISH_PLACE guards it here and
+							-- MatchService checks it again, so a bot still
+							-- driving after the flag can't take a second
+							-- place.
+							if
+								bot.laps >= Config.Race.TotalLaps
+								and not bot.kart:GetAttribute(Match.FINISH_PLACE)
+							then
+								local since = MatchService.racingSince()
+								if since then
+									MatchService.botFinished(
+										bot.kart,
+										bot.name,
+										workspace:GetServerTimeNow() - since
+									)
+								end
+							end
 						end
 					end
 				end
@@ -1447,6 +1531,13 @@ function BotService.fill()
 			needsGrid = true,
 			u = 0,
 			laps = 0,
+			-- The checkpoint it must reach next, counted upward and taken
+			-- mod the node count. Sequential, so skipping a gate stalls
+			-- progress until the bot comes back for it — the same rule a
+			-- player is held to.
+			nextIdx = 1,
+			-- Seconds off the ground, for the flying watchdog.
+			airFor = 0,
 			driftPlan = nil,
 			item = nil,
 			itemAt = 0,

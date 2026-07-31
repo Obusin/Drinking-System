@@ -331,6 +331,21 @@ return {
 	-- alone; small enough that leaving the slot is corrected immediately.
 	GridHoldTolerance = 3,
 
+	--== FLYING WATCHDOG ===============================================
+	-- A NET, NOT A CURE. Bots occasionally take off and the cause is not
+	-- known; this bounds the damage rather than pretending to fix it.
+	--
+	-- Both thresholds sit well beyond any legitimate jump, so a real ramp
+	-- is never interrupted. When one trips, the log says which and how
+	-- far the bot got — that is the evidence for diagnosing it properly.
+	--
+	-- Two tests, because they catch different failures. A long air time
+	-- catches a slow floater that never comes down; height above the
+	-- racing line catches one launched hard, which can be back on the
+	-- ground quickly and a very long way up in between.
+	MaxAirTime = 4, -- seconds off the ground before it is put back
+	MaxAboveRoute = 60, -- studs above the racing line, same
+
 	-- Studs of road to leave between the bot's chosen line and the edge.
 	--
 	-- LineOffset, the wander and AvoidStrength can add up to nearly thirty
