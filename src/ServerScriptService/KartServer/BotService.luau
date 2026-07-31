@@ -811,12 +811,20 @@ local function drive(bot, dt: number)
 	-- target directly and bypasses throttle entirely, so a bot on boost
 	-- goes properly quick — same as you.
 	----------------------------------------------------------------
+	-- Proper hysteresis, held in a flag rather than inferred from speed.
+	--
+	-- The first version put throttle to MinCornerSpeed (0.42) inside the
+	-- band, which — by the very rule written above — is still wide open.
+	-- 0.42 targets MaxSpeed exactly as hard as 1.0 does, so bots surged
+	-- back to full speed the instant they dipped under cruise, and the
+	-- cap did almost nothing. I made the mistake I had just documented.
 	if speed > bot.cruise then
+		bot.coasting = true
+	elseif speed < bot.cruise * B.CruiseBand then
+		bot.coasting = false
+	end
+	if bot.coasting then
 		c.touchThrottle = 0
-	elseif speed > bot.cruise * B.CruiseBand then
-		-- In the band: hold whatever was decided, don't re-apply full
-		-- power just for dipping a fraction under.
-		c.touchThrottle = math.min(c.touchThrottle, B.MinCornerSpeed)
 	end
 
 	drawDebug(bot, aim, bend)
@@ -886,9 +894,32 @@ local function drive(bot, dt: number)
 	-- Spent on straights, where a player would. Holding out for three
 	-- full tanks is optimal and inhuman, so mostly they don't.
 	----------------------------------------------------------------
-	if sim.tanks >= B.NitroMinTanks and bend <= B.NitroStraight and sim.burnStage == 0 then
-		if rng:NextNumber() > B.NitroHoldChance * (1 - bot.skill) then
+	-- A CHANCE PER SECOND, NOT PER STEP.
+	--
+	-- This is why they were uncatchable. The old roll ran every step — 75
+	-- times a second — so a "40% chance to hold" was really a 40% chance
+	-- to hold FOR ONE SEVENTY-FIFTH OF A SECOND. It fired essentially
+	-- immediately, every time, meaning bots burned nitro the instant they
+	-- banked a tank and were on a straight.
+	--
+	-- And nitro bypasses the cruise cap entirely, because a burn sets the
+	-- speed target directly: stage 1 is MaxSpeed + 18, stage 3 is
+	-- MaxSpeed + 80. So the one thing that could beat the pace limit was
+	-- also the thing running permanently.
+	--
+	-- Scaled by dt it means what it reads like, and a cooldown afterwards
+	-- stops a bot chaining tanks back-to-back down one straight.
+	if
+		sim.tanks >= B.NitroMinTanks
+		and bend <= B.NitroStraight
+		and sim.burnStage == 0
+		and os.clock() >= (bot.nitroReadyAt or 0)
+	then
+		-- Better drivers spend it a little more readily.
+		local odds = B.NitroUsePerSecond * (0.6 + 0.4 * bot.skill) * dt
+		if rng:NextNumber() < odds then
 			c._nitroTaps += 1
+			bot.nitroReadyAt = os.clock() + B.NitroCooldown
 		end
 	end
 end

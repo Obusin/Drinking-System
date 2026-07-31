@@ -90,9 +90,11 @@ return {
 	-- a bot still cannot do anything you couldn't, and you catch one by
 	-- carrying more speed rather than by waiting for a handicap.
 	--
-	-- At MaxSpeed 95 these are about 74 and 85 studs/s, against your 95.
-	CruiseMin = 0.78,
-	CruiseMax = 0.90,
+	-- At MaxSpeed 95 these are about 65 and 76 studs/s, against your 95.
+	-- Lowered once already: the first pass was too close to your own top
+	-- speed to leave any closing rate worth the name.
+	CruiseMin = 0.68,
+	CruiseMax = 0.80,
 
 	-- Fraction of cruise below which full power comes back. Stops a bot
 	-- chattering on the threshold; it settles into a speed instead.
@@ -424,7 +426,22 @@ return {
 	-- full three tanks is optimal and inhuman; they mostly don't.
 	NitroStraight = 0.18, -- bend below this counts as a straight
 	NitroMinTanks = 1,
-	NitroHoldChance = 0.4, -- chance it saves a tank for later anyway
+
+	-- Odds PER SECOND of spending a tank once on a straight with one
+	-- banked. Not per step — the old version rolled every frame, so a
+	-- "40% chance to hold" was a 40% chance to hold for one seventy-fifth
+	-- of a second and bots burned nitro the moment they had any.
+	--
+	-- That mattered more than any other number here, because a burn sets
+	-- the speed target directly and so ignores the cruise cap completely:
+	-- stage 1 is MaxSpeed + 18, stage 3 is MaxSpeed + 80. Permanent nitro
+	-- is exactly "I can't chase them".
+	--
+	-- 0.3 means a bot on a long straight usually spends one within a few
+	-- seconds, and often doesn't bother at all on a short one.
+	NitroUsePerSecond = 0.3,
+	NitroCooldown = 7, -- seconds before it will consider another, so a bot
+	-- can't chain three tanks down one straight
 
 	--== ITEMS =========================================================
 	-- Reaction time before using what it picks up. The single biggest
