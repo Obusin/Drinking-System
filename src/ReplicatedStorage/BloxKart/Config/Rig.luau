@@ -148,6 +148,21 @@ return {
 	-- problem we don't need, and our movement is query-based anyway.
 	CollisionGroup = "Karts",
 
+	-- Seconds between checks that each seated player still OWNS their own
+	-- kart on the network.
+	--
+	-- "I'm driving but everyone else sees me parked" is always this. The
+	-- client writes the CFrame, and that only reaches anyone else if the
+	-- client owns the part; ownership is granted once when they sit down,
+	-- and once is not enough — the grant can fail, land mid-respawn, or be
+	-- taken back by the engine when a part sleeps. Re-asserting costs a
+	-- comparison per seated player.
+	OwnershipCheck = 2,
+
+	-- Seconds before auditing kart parts for anything still collidable
+	-- outside the kart group. Delayed because art streams in.
+	CollisionAuditDelay = 6,
+
 	-- Steering wheel. Built so the hands have something to grab; the
 	-- Rider module spins it and solves the arms onto it. If your
 	-- KartVisual already contains a part named "SteeringWheel", that

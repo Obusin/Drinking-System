@@ -9,6 +9,7 @@
 	on a part it owns, and it can't own an anchored one.
 --]]
 
+local CollectionService = game:GetService("CollectionService")
 local PhysicsService = game:GetService("PhysicsService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -84,6 +85,41 @@ local function setupCollisionGroup()
 	if not ok then
 		warn("[KartService] could not set up collision group " .. RIG.CollisionGroup)
 	end
+end
+
+-- Names anything that could still make two karts touch.
+--
+-- Karts are meant to pass through each other completely: the hitbox is
+-- CanCollide false, every part is put in a collision group that is set
+-- non-collidable with itself, and Simulation's movement queries exclude
+-- every tagged kart. On paper there is no path left.
+--
+-- "On paper" is why this exists. Reading the code three times and
+-- concluding it cannot happen is not evidence, and a part that slipped
+-- out of the group — art added after the sweep, a model welded on later,
+-- a mesh that arrived with CanCollide on — would produce exactly the
+-- bumping being reported while every line still looks correct.
+--
+-- So it reports rather than argues, and it names the part.
+function KartService.auditCollisions()
+	local bad = {}
+	for _, kart in CollectionService:GetTagged(KartFactory.TAG) do
+		for _, d in kart:GetDescendants() do
+			if d:IsA("BasePart") and d.CanCollide and d.CollisionGroup ~= RIG.CollisionGroup then
+				table.insert(bad, ("%s (group %q)"):format(d:GetFullName(), d.CollisionGroup))
+			end
+		end
+	end
+	if #bad > 0 then
+		warn(
+			("[KartService] %d kart part(s) can still collide with the world outside the %q group — this is what makes karts bump: %s"):format(
+				#bad,
+				RIG.CollisionGroup,
+				table.concat(bad, ", ")
+			)
+		)
+	end
+	return bad
 end
 
 -- A seated racer's limbs are still collidable, so two karts passing
@@ -415,6 +451,70 @@ function KartService.start()
 	-- Fell off the world? Rebuild it on the pad.
 	-- Collected first, then respawned: spawnKartFor mutates `karts`, and
 	-- mutating a table mid-iteration is undefined in Luau.
+	--=================================================================
+	--  NETWORK OWNERSHIP WATCHDOG
+	--
+	--  "I'm driving but everyone else sees me parked" is this, every
+	--  time. A player's kart is unanchored and their CLIENT writes the
+	--  CFrame — which only replicates to anyone else if that client
+	--  actually OWNS the part. Without ownership the server keeps
+	--  authority, the client's writes stay local, and the driver has a
+	--  perfectly normal race that nobody else can see.
+	--
+	--  Ownership is granted once, from the Occupant signal. Once is not
+	--  enough: SetNetworkOwner can throw (it already has a pcall around
+	--  it, which means it was expected to), the signal can land while a
+	--  character is still assembling, and Roblox reclaims ownership by
+	--  itself when a part sleeps or is repositioned by the server.
+	--  Any of those leaves a player stranded for the rest of the round
+	--  with no error and no way to tell from inside the kart.
+	--
+	--  So it is re-asserted. Cheap — a comparison per seated player, a
+	--  couple of times a second — and it converts a race-ruining desync
+	--  into a hiccup nobody notices.
+	--=================================================================
+	task.spawn(function()
+		while true do
+			task.wait(RIG.OwnershipCheck)
+			for racer, kart in karts do
+				if isBot(racer) then
+					continue
+				end
+				local hitbox = kart.PrimaryPart
+				local seat = kart:FindFirstChild("Seat") :: VehicleSeat?
+				if not (hitbox and seat and seat.Occupant and not hitbox.Anchored) then
+					continue
+				end
+				local driver = Players:GetPlayerFromCharacter(seat.Occupant.Parent)
+				if not driver then
+					continue
+				end
+				local ok, owner = pcall(function()
+					return hitbox:GetNetworkOwner()
+				end)
+				if ok and owner ~= driver then
+					local set = pcall(function()
+						hitbox:SetNetworkOwner(driver)
+					end)
+					-- Loud, because this should be rare. If it repeats for
+					-- one player every few seconds, something is taking
+					-- ownership back and that is the real bug.
+					warn(
+						("[KartService] %s did not own their own kart (owner was %s) — reassigned%s. They would have been driving on their screen only."):format(
+							driver.Name,
+							owner and owner.Name or "the server",
+							if set then "" else " BUT THE REASSIGN FAILED"
+						)
+					)
+				end
+			end
+		end
+	end)
+
+	-- Delayed: karts, bots and their art all stream in, and auditing on
+	-- the first frame reports a world that isn't built yet.
+	task.delay(RIG.CollisionAuditDelay, KartService.auditCollisions)
+
 	RunService.Heartbeat:Connect(function()
 		-- Only ever non-nil in TestMode now, so this rebuild can't
 		-- resurrect the spare kart in a normal round.
