@@ -261,11 +261,15 @@ function DataService.start()
 	-- MOCK IN STUDIO BY DEFAULT. A test that writes to a real profile is
 	-- indistinguishable from a bug that does, and the mock store behaves
 	-- the same in every way that matters here.
-	if D.Mock or RunService:IsStudio() then
+	local useMock = D.Mock or (RunService:IsStudio() and not D.LiveInStudio)
+	if useMock then
 		store = result.Mock
 		warn("[DataService] MOCK store — nothing written here survives the session.")
 	else
 		store = result
+		if RunService:IsStudio() then
+			warn("[DataService] LIVE store in Studio — this writes REAL profile data. Config.Data.LiveInStudio.")
+		end
 	end
 
 	Players.PlayerAdded:Connect(function(player)

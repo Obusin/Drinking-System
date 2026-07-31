@@ -33,25 +33,59 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local BloxKart = ReplicatedStorage:WaitForChild("BloxKart")
 local Config = require(BloxKart:WaitForChild("Config"))
 local Ledger = require(script.Parent.Ledger)
+local DataService = require(script.Parent.DataService)
 
 local L = Config.Level
 
 local Progress = {}
 
--- userId -> { xp, bolt, hits, takedowns, eliminations, races, stats }
-local state: { [number]: any } = {}
+-- WHERE A PLAYER'S TOTALS LIVE.
+--
+-- The profile when there is one, a session table when there is not.
+-- Same shape either way, so nothing below this line knows or cares which
+-- it got — flipping Config.Data.Enabled changes where the numbers are
+-- kept and nothing else.
+local session: { [number]: any } = {}
 
 local function blank()
-	return { xp = 0, bolt = 0, crystals = 0, hits = 0, takedowns = 0, eliminations = 0, races = 0, stats = {} }
+	return { xp = 0, bolt = 0, crystals = 0, stats = {} }
 end
 
-local function entry(userId: number)
-	local e = state[userId]
+local function entry(player: Player)
+	local data = DataService.get(player)
+	if data then
+		-- Reconcile fills these from the template on load, but a profile
+		-- can be read on the frame it arrives.
+		data.stats = data.stats or {}
+		return data
+	end
+	local e = session[player.UserId]
 	if not e then
 		e = blank()
-		state[userId] = e
+		session[player.UserId] = e
 	end
 	return e
+end
+
+-- ANYTHING EARNED BEFORE THE PROFILE ARRIVED HAS TO FOLLOW IT IN.
+--
+-- Loading is a yield, and a player can finish a race inside it. Without
+-- this the session table quietly keeps those numbers and the profile
+-- saves a smaller total — a loss that surfaces as "my XP went backwards"
+-- and is impossible to reproduce on demand.
+local function absorbSession(player: Player, data)
+	local e = session[player.UserId]
+	if not e then
+		return
+	end
+	session[player.UserId] = nil
+	data.xp = (data.xp or 0) + e.xp
+	data.bolt = (data.bolt or 0) + e.bolt
+	data.crystals = (data.crystals or 0) + e.crystals
+	data.stats = data.stats or {}
+	for metric, n in e.stats do
+		data.stats[metric] = (data.stats[metric] or 0) + n
+	end
 end
 
 --=====================================================================
@@ -93,7 +127,7 @@ function Progress.award(player: Player?, amount: number, reason: string)
 	if not player or amount <= 0 then
 		return
 	end
-	local e = entry(player.UserId)
+	local e = entry(player)
 	local before = Progress.levelOf(e.xp)
 	e.xp += amount
 	local after = Progress.levelOf(e.xp)
@@ -148,11 +182,11 @@ function Progress.hit(player: Player?, takedown: boolean)
 	if not player then
 		return
 	end
-	local e = entry(player.UserId)
-	e.hits += 1
+	-- ONE COUNTER, NOT TWO. These used to increment a named field AND a
+	-- stats key holding the same number — the project's oldest recurring
+	-- bug in a new hat, and only one of the two would have persisted.
 	Progress.count(player, "hits")
 	if takedown then
-		e.takedowns += 1
 		Progress.count(player, "takedowns")
 		Progress.award(player, L.XpPerTakedown, "takedown")
 	else
@@ -166,7 +200,6 @@ function Progress.eliminated(player: Player?)
 	if not player then
 		return
 	end
-	entry(player.UserId).eliminations += 1
 	Progress.count(player, "eliminations")
 	Progress.award(player, L.XpPerElimination, "elimination")
 end
@@ -179,8 +212,7 @@ function Progress.finished(player: Player?, place: number, gridSlot: number?)
 	if not player then
 		return
 	end
-	local e = entry(player.UserId)
-	e.races += 1
+	Progress.count(player, "races")
 	Progress.count(player, "finishes")
 	if place == 1 then
 		Progress.count(player, "wins")
@@ -205,7 +237,7 @@ function Progress.grant(player: Player?, kind: string, amount: number, reason: s
 	if not player or amount <= 0 then
 		return
 	end
-	local e = entry(player.UserId)
+	local e = entry(player)
 	if kind == "bolt" then
 		e.bolt += amount
 	elseif kind == "crystals" then
@@ -242,7 +274,7 @@ function Progress.spend(player: Player?, kind: string, cost: number, reason: str
 	if not player or cost <= 0 then
 		return false
 	end
-	local e = entry(player.UserId)
+	local e = entry(player)
 	local have = if kind == "bolt" then e.bolt elseif kind == "crystals" then e.crystals else nil
 	if not have or have < cost then
 		return false
@@ -277,7 +309,7 @@ function Progress.count(player: Player?, metric: string, n: number?)
 	if by <= 0 then
 		return
 	end
-	local e = entry(player.UserId)
+	local e = entry(player)
 	e.stats[metric] = (e.stats[metric] or 0) + by
 	Progress.touch(player)
 end
@@ -330,7 +362,7 @@ function Progress.report(player: Player?, batch)
 end
 
 function Progress.statsOf(player: Player)
-	return entry(player.UserId).stats
+	return entry(player).stats
 end
 
 --=====================================================================
@@ -339,16 +371,17 @@ end
 
 -- What the results panel needs, in the shape it renders.
 function Progress.summary(player: Player)
-	local e = entry(player.UserId)
+	local e = entry(player)
+	local stats = e.stats
 	local level, into, cost = Progress.levelOf(e.xp)
 	return {
 		n = level,
 		max = L.MaxLevel,
 		progress = into / math.max(cost, 1),
 		xp = e.xp,
-		hits = e.hits,
-		takedowns = e.takedowns,
-		eliminations = e.eliminations,
+		hits = stats.hits or 0,
+		takedowns = stats.takedowns or 0,
+		eliminations = stats.eliminations or 0,
 		bolt = e.bolt,
 		crystals = e.crystals,
 	}
@@ -360,16 +393,19 @@ end
 local marks: { [number]: number } = {}
 
 function Progress.mark(player: Player)
-	marks[player.UserId] = entry(player.UserId).xp
+	marks[player.UserId] = entry(player).xp
 end
 
 function Progress.since(player: Player): number
-	return entry(player.UserId).xp - (marks[player.UserId] or 0)
+	return entry(player).xp - (marks[player.UserId] or 0)
 end
 
 Players.PlayerRemoving:Connect(function(player)
-	state[player.UserId] = nil
+	session[player.UserId] = nil
 	marks[player.UserId] = nil
 end)
+
+-- Merge anything earned while the profile was still loading.
+DataService.onLoaded(absorbSession)
 
 return Progress

@@ -27,8 +27,22 @@ return {
 	-- migrate — that is a deletion with extra steps.
 	StoreName = "BloxKart_Profile_v1",
 
-	-- Force the mock store even in a published place. Studio uses the
-	-- mock automatically regardless, so this is only for testing a live
-	-- server without touching live data.
+	-- Force the mock store even in a published place. Only for testing a
+	-- live server without touching live data.
 	Mock = false,
+
+	-- LET STUDIO WRITE TO THE REAL DATASTORE.
+	--
+	-- Off by default, and that default is deliberate: a test that writes
+	-- to a real profile is indistinguishable from a bug that does, and
+	-- the mock store behaves the same in every way except surviving.
+	--
+	-- But "does it actually store" is not a question the mock can
+	-- answer, and it is a question worth answering before launch. Turn
+	-- this on, play, rejoin, and check the numbers came back — then turn
+	-- it off again.
+	--
+	-- It writes to the SAME KEYS a published server would, so anything
+	-- saved here is real player data on your own account.
+	LiveInStudio = true,
 }
