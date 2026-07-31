@@ -1486,9 +1486,15 @@ local function makeBot(name: string, racer: any, kart: Model, hitbox: BasePart, 
 		-- on the DRIVER — see the cruise block in drive() — not on the
 		-- kart, which is identical to yours and always will be.
 		cruise = Config.Handling.MaxSpeed * (B.CruiseMin + (B.CruiseMax - B.CruiseMin) * skill),
-		-- A fixed bias plus wander, so two bots don't drive the same
-		-- line and sit inside each other down a straight.
-		lineBias = rng:NextNumber(-1, 1) * B.LineOffset,
+		-- WHERE ON THE ROAD THIS BOT SITS, as a fraction from -1 (left
+		-- edge) to +1 (right edge). NOT studs.
+		--
+		-- drive() multiplies it by the road width available on that side,
+		-- so the spread scales with the tarmac instead of being clamped
+		-- to the edges on a narrow section. Leaving LineOffset in here
+		-- made the product nine times too large — every bot pinned to an
+		-- edge, which is worse than the stacking it was meant to fix.
+		lineBias = rng:NextNumber(-1, 1),
 		lineAt = rng:NextNumber(0, 6),
 		-- Per-bot phase, so two of them never wander or jitter in step
 		-- with each other — synchronised imperfection looks more

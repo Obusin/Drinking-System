@@ -330,7 +330,11 @@ return {
 	LineSpread = 0.75,
 	LineWander = 0.35, -- and the wander on top, same units
 
-	LineOffset = 9, -- studs either side, at worst skill
+	-- LineOffset is GONE, not renamed. It was a stud count, and the line
+	-- is chosen as a fraction of the road now (LineSpread / LineWander
+	-- above). Leaving a plausible-looking studs value in here is how it
+	-- got multiplied INTO the fraction by mistake — nine times too large,
+	-- pinning every bot to an edge.
 	LineDrift = 0.35, -- how fast the offset wanders
 
 	-- Same fix as SteerNoise, one level up: the lateral TARGET used to
