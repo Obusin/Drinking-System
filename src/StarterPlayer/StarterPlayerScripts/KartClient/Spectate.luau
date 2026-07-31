@@ -1,37 +1,39 @@
 --[[
-	Spectate — watch the rest of the race after you've finished.
+	Spectate — watching once you're out of the race.
 
-	WHY IT HAS TO EXIST
-	-------------------
-	Crossing the line used to leave you sitting in a kart the AI is now
-	driving, staring at your own bonnet while the race you care about
-	happens somewhere else. The last thirty seconds of a round are the
-	most interesting part of it and the person who won was the only one
-	who couldn't watch.
+	TWO MODES, and they answer different questions:
 
-	WHAT IT WATCHES
-	---------------
-	Anyone still racing, cheapest first: a kart with no finish place is
-	still fighting for one. Cycle through them; when the last of them
-	finishes there is nothing left to watch and it falls back to whoever
-	is nearest the front.
+	  FOLLOW  orbit a racer who is still fighting for a place. Cycle
+	          between them. This is what you want 95% of the time.
+	  FREE    fly the camera anywhere. For looking at the track, watching
+	          a corner rather than a driver, or getting a shot.
 
-	It never follows YOUR kart. That is not spectating, that is the game
-	you were already playing, and your kart is being driven by the AI now
-	anyway.
+	WHY THE FIRST VERSION WAS BUGGY, since it's instructive:
+
+	  It tracked its subject by INDEX into a list re-sorted by race
+	  position every frame. Positions change constantly, so the index
+	  pointed at a different kart from one frame to the next and cycling
+	  landed somewhere arbitrary. It now holds the Model and cycles by
+	  finding that model's place in a STABLE order.
+
+	  It also stopped dead the moment the phase left Racing, so the
+	  results screen — the part you most want to watch the end of — cut
+	  back to a camera pointed at your own parked kart.
+
+	  And with nobody left to watch it simply froze, still Scriptable,
+	  with no way out.
 
 	CAMERA OWNERSHIP
 	----------------
-	This takes the camera outright while active, and gives it back
-	untouched when it stops. It deliberately does not go through
-	CameraRig: that one is built around a Simulation it can read every
-	frame, and a kart somebody else is driving gives us nothing but a
-	CFrame. Chasing that CFrame is a different job with a different
-	failure mode, so it is a different module.
+	Takes the camera outright while active and gives it back exactly as
+	found. It deliberately does not go through CameraRig: that is built
+	around a Simulation it can read every frame, and a kart somebody else
+	drives gives us nothing but a CFrame.
 --]]
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
 
 local BloxKart = ReplicatedStorage:WaitForChild("BloxKart")
 local Config = require(BloxKart:WaitForChild("Config"))
@@ -48,70 +50,100 @@ Spectate.__index = Spectate
 function Spectate.new()
 	return setmetatable({
 		active = false,
+		free = false,
+		-- The kart itself, never an index. See the header.
 		target = nil :: Model?,
-		index = 0,
-		pos = nil :: Vector3?, -- smoothed camera position
+		pos = nil :: Vector3?,
+		yaw = 0,
+		pitch = math.rad(-12),
+		dist = SP.Distance,
+		-- Free-cam state, kept separate so switching modes and back
+		-- returns you where you were rather than snapping.
+		freePos = nil :: Vector3?,
 		saved = nil :: Enum.CameraType?,
+		looking = false,
 	}, Spectate)
 end
 
--- Everyone worth watching: still racing, not us, and real.
+--=====================================================================
+--  WHO THERE IS TO WATCH
+--
+--  Sorted by NAME, not by race position. Position changes every frame,
+--  and a cycle order that reshuffles under you sends "next" somewhere
+--  unpredictable — which was most of what made the first version feel
+--  broken.
+--=====================================================================
 local function candidates(): { Model }
 	local out = {}
 	for _, kart in Standings.allKarts() do
 		if kart:GetAttribute(Names.OWNER) == Players.LocalPlayer.UserId then
-			continue
-		end
-		if kart:GetAttribute(Shared.FINISH_PLACE) then
-			continue -- already home; nothing left to watch them do
+			continue -- your own kart isn't spectating, it's the game you just played
 		end
 		table.insert(out, kart)
 	end
-	-- Leaders first, so the default view is the race for the lead rather
-	-- than whoever happens to be first in the tag list.
 	table.sort(out, function(a, b)
-		return (a:GetAttribute(Standings.ATTRIBUTE) or 0) > (b:GetAttribute(Standings.ATTRIBUTE) or 0)
+		return a.Name < b.Name
 	end)
 	return out
 end
 
-function Spectate:_pick(step: number)
+-- Still racing, so worth defaulting to.
+local function racing(kart: Model): boolean
+	return kart:GetAttribute(Shared.FINISH_PLACE) == nil
+end
+
+function Spectate:_cycle(step: number)
 	local list = candidates()
 	if #list == 0 then
 		self.target = nil
 		return
 	end
-	self.index = (self.index + step - 1) % #list + 1
-	self.target = list[self.index]
-	-- Jump rather than sweep across the map when switching subject.
+	local at = 0
+	for i, kart in list do
+		if kart == self.target then
+			at = i
+			break
+		end
+	end
+	self.target = list[(at + step - 1) % #list + 1]
+	self.pos = nil -- cut rather than sweep across the map
+end
+
+-- Prefer somebody still in the race; fall back to anyone at all so the
+-- camera always has a subject rather than freezing.
+function Spectate:_pickBest()
+	local list = candidates()
+	for _, kart in list do
+		if racing(kart) then
+			self.target = kart
+			self.pos = nil
+			return
+		end
+	end
+	self.target = list[1]
 	self.pos = nil
 end
 
-function Spectate:Next()
-	if self.active then
-		self:_pick(1)
-	end
-end
-
-function Spectate:Prev()
-	if self.active then
-		self:_pick(-1)
-	end
-end
-
+--=====================================================================
+--  MODE
+--=====================================================================
 function Spectate:_start()
 	self.active = true
 	local cam = workspace.CurrentCamera
 	if cam then
 		self.saved = cam.CameraType
 		cam.CameraType = Enum.CameraType.Scriptable
+		-- Start the free cam where the view already is, so toggling into
+		-- it never teleports you somewhere disorienting.
+		self.freePos = cam.CFrame.Position
 	end
-	self.index = 0
-	self:_pick(1)
+	self:_pickBest()
 end
 
 function Spectate:_stop()
 	self.active = false
+	self.free = false
+	self.looking = false
 	self.target = nil
 	self.pos = nil
 	local cam = workspace.CurrentCamera
@@ -121,11 +153,73 @@ function Spectate:_stop()
 	end
 end
 
--- `finished` is whether OUR kart has crossed the line this round.
-function Spectate:Update(dt: number, phase: string?, finished: boolean)
-	-- Only during a race we're out of. Results has its own board and the
-	-- lobby has nothing to look at.
-	local want = finished and phase == P.Racing
+function Spectate:Next()
+	if self.active and not self.free then
+		self:_cycle(1)
+	end
+end
+
+function Spectate:Prev()
+	if self.active and not self.free then
+		self:_cycle(-1)
+	end
+end
+
+function Spectate:ToggleFree()
+	if not self.active then
+		return
+	end
+	self.free = not self.free
+	if self.free then
+		local cam = workspace.CurrentCamera
+		self.freePos = cam and cam.CFrame.Position or self.freePos
+	else
+		self.pos = nil -- re-acquire the subject cleanly
+	end
+end
+
+-- Mouse or right-stick look. Fed in from the client so this module owns
+-- no input bindings of its own.
+function Spectate:Look(delta: Vector2)
+	if not self.active then
+		return
+	end
+	self.yaw -= delta.X * SP.LookSensitivity
+	self.pitch = math.clamp(self.pitch - delta.Y * SP.LookSensitivity, math.rad(SP.PitchMin), math.rad(SP.PitchMax))
+end
+
+function Spectate:Zoom(amount: number)
+	if self.active and not self.free then
+		self.dist = math.clamp(self.dist - amount * SP.ZoomStep, SP.DistanceMin, SP.DistanceMax)
+	end
+end
+
+-- Held right-mouse look. Owned here rather than by the caller so the
+-- flag can't be left true after spectating ends.
+function Spectate:SetLooking(on: boolean)
+	self.looking = on and self.active
+end
+
+function Spectate:IsLooking(): boolean
+	return self.active and self.looking
+end
+
+function Spectate:IsActive(): boolean
+	return self.active
+end
+
+function Spectate:IsFree(): boolean
+	return self.active and self.free
+end
+
+--=====================================================================
+--  FRAME
+--=====================================================================
+function Spectate:Update(dt: number, phase: string?, finished: boolean, move: Vector3)
+	-- Racing AND Results. The end of the round is the part most worth
+	-- watching, and cutting away at the flag was the single worst thing
+	-- about the first version.
+	local want = finished and (phase == P.Racing or phase == P.Results)
 	if want ~= self.active then
 		if want then
 			self:_start()
@@ -137,45 +231,74 @@ function Spectate:Update(dt: number, phase: string?, finished: boolean)
 		return
 	end
 
-	-- The one we're on may have finished, been destroyed, or the field
-	-- may have emptied since last frame.
-	if not (self.target and self.target.Parent and not self.target:GetAttribute(Shared.FINISH_PLACE)) then
-		self:_pick(1)
+	local cam = workspace.CurrentCamera
+	if not cam then
+		return
+	end
+
+	----------------------------------------------------------------
+	-- FREE CAM
+	----------------------------------------------------------------
+	if self.free then
+		local look = CFrame.fromEulerAnglesYXZ(self.pitch, self.yaw, 0)
+		local speed = SP.FreeSpeed * (if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then SP.FreeBoost else 1)
+		local world = look:VectorToWorldSpace(move)
+		self.freePos = (self.freePos or cam.CFrame.Position) + world * speed * dt
+		cam.CFrame = CFrame.new(self.freePos) * look
+		return
+	end
+
+	----------------------------------------------------------------
+	-- FOLLOW
+	----------------------------------------------------------------
+	-- Subject gone, destroyed, or we never had one.
+	if not (self.target and self.target.Parent and self.target.PrimaryPart) then
+		self:_pickBest()
 	end
 	local kart = self.target
-	local cam = workspace.CurrentCamera
-	if not (kart and cam) then
-		return
-	end
-	local hitbox = kart.PrimaryPart
+	local hitbox = kart and kart.PrimaryPart
 	if not hitbox then
+		-- Nothing at all to watch. Hold the last view rather than freezing
+		-- at the origin, and stay usable — free cam still works from here.
 		return
 	end
 
-	-- A plain chase: behind and above, looking at the kart. Deliberately
-	-- simple — a spectator camera that tries to be clever about corners
-	-- is a spectator camera that loses the subject.
-	local cf = hitbox.CFrame
-	local want3 = cf.Position - cf.LookVector * SP.Distance + Vector3.yAxis * SP.Height
+	-- Orbit around the kart. Yaw is relative to the kart's own heading,
+	-- so an untouched camera sits behind it and stays there through
+	-- corners rather than being left facing a wall.
+	local base = hitbox.CFrame
+	local flat = Vector3.new(base.LookVector.X, 0, base.LookVector.Z)
+	flat = if flat.Magnitude > 1e-3 then flat.Unit else Vector3.new(0, 0, -1)
+	local heading = math.atan2(-flat.X, -flat.Z)
 
-	-- Smoothed so replication steps don't jitter the view. Nil on a
-	-- switch, so changing subject cuts instead of flying across the map.
+	local offset = CFrame.fromEulerAnglesYXZ(self.pitch, heading + self.yaw, 0)
+	local focus = base.Position + Vector3.yAxis * SP.LookHeight
+	local want3 = focus - offset.LookVector * self.dist
+
 	self.pos = if self.pos then self.pos:Lerp(want3, math.min(SP.Follow * dt, 1)) else want3
-	cam.CFrame = CFrame.lookAt(self.pos, cf.Position + Vector3.yAxis * SP.LookHeight)
+	cam.CFrame = CFrame.lookAt(self.pos, focus)
 end
 
--- Who we're watching, for the HUD. Nil when not spectating.
-function Spectate:TargetName(): string?
-	if not (self.active and self.target) then
+-- For the HUD. Nil when not spectating.
+function Spectate:StatusText(): string?
+	if not self.active then
 		return nil
 	end
-	local id = self.target:GetAttribute(Names.OWNER)
-	local player = id and Players:GetPlayerByUserId(id)
-	if player then
-		return player.DisplayName
+	if self.free then
+		return "FREE CAM   WASD move   RMB look   F follow"
 	end
-	local named = self.target:GetAttribute(Names.RACER_NAME)
-	return if typeof(named) == "string" and named ~= "" then named else "Racer"
+	local kart = self.target
+	if not kart then
+		return "SPECTATING   nobody left   F free cam"
+	end
+	local id = kart:GetAttribute(Names.OWNER)
+	local player = id and Players:GetPlayerByUserId(id)
+	local name = if player then player.DisplayName else kart:GetAttribute(Names.RACER_NAME)
+	if typeof(name) ~= "string" or name == "" then
+		name = "Racer"
+	end
+	local tag = if racing(kart) then "" else "  (finished)"
+	return ("SPECTATING  %s%s   Q/E switch   F free cam"):format(name:upper(), tag)
 end
 
 function Spectate:Destroy()

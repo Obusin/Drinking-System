@@ -155,16 +155,16 @@ end
 
 local function startGrid()
 	round += 1
-	-- Topped up before the grid is assigned, so new bots get a slot and a
-	-- start position with everybody else.
-	if MatchService.onGrid then
-		MatchService.onGrid()
-	end
-	-- Karts handed to the AI last round go back to their owners BEFORE
-	-- the grid is assigned, or a player would line up in a kart the
+	-- RELEASE FIRST, then top up. Karts handed to the AI last round are
+	-- still counted as bots until they're given back, so filling the
+	-- field before releasing them would size it against a bot count that
+	-- is about to shrink — and a player would line up in a kart the
 	-- server is still driving.
 	if MatchService.onRelease then
 		MatchService.onRelease()
+	end
+	if MatchService.onGrid then
+		MatchService.onGrid()
 	end
 	clearFinishes()
 	clearHazards()

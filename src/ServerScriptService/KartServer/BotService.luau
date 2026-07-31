@@ -1607,9 +1607,16 @@ function BotService.releaseTakeOvers()
 		local bot = bots[i]
 		if bot.kart.Parent and bot.kart:GetAttribute(Names.AI_DRIVEN) then
 			bot.kart:SetAttribute(Names.AI_DRIVEN, nil)
-			-- Left ANCHORED and unowned on purpose. KartService re-grants
-			-- ownership and unanchors from the seat's Occupant signal the
-			-- moment the round restarts, and doing it here would race that.
+			-- HANDED BACK EXPLICITLY.
+			--
+			-- The first version left it anchored and unowned, on the
+			-- assumption that KartService's Occupant signal would pick it
+			-- up when the round restarted. It never would: that signal
+			-- fires when the occupant CHANGES, and the finished player sat
+			-- in the kart the entire time. The kart would have stayed
+			-- anchored and server-owned forever, with its driver unable to
+			-- move — for the rest of the server's life.
+			KartService.restoreOwnership(bot.kart)
 			bot.boxes:Destroy()
 			bot.drops:Destroy()
 			bot.hazards:Destroy()

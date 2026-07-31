@@ -495,6 +495,83 @@ if feedRemote then
 	end)
 end
 
+-- SPECTATOR INPUT. Plain UserInputService for the same reason as
+-- ready-up below: ContextActions are bound only while driving, and
+-- spectating is by definition what you do when you aren't.
+--
+-- Every binding checks IsActive() first, so none of it does anything
+-- while you still have a race to drive.
+UserInputService.InputBegan:Connect(function(input, processed)
+	if processed or not spectate:IsActive() then
+		return
+	end
+	local key = input.KeyCode
+	if key == Enum.KeyCode.E or key == Enum.KeyCode.Right or key == Enum.KeyCode.ButtonR1 then
+		spectate:Next()
+	elseif key == Enum.KeyCode.Q or key == Enum.KeyCode.Left or key == Enum.KeyCode.ButtonL1 then
+		spectate:Prev()
+	elseif key == Enum.KeyCode.F or key == Enum.KeyCode.ButtonY then
+		spectate:ToggleFree()
+	elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
+		spectate:SetLooking(true)
+	end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton2 then
+		spectate:SetLooking(false)
+	end
+end)
+
+UserInputService.InputChanged:Connect(function(input, processed)
+	if processed or not spectate:IsActive() then
+		return
+	end
+	if input.UserInputType == Enum.UserInputType.MouseMovement then
+		-- Held right mouse rather than a locked cursor: this shares the
+		-- screen with the results board, and stealing the pointer would
+		-- make that unusable.
+		if spectate:IsLooking() then
+			spectate:Look(Vector2.new(input.Delta.X, input.Delta.Y))
+		end
+	elseif input.UserInputType == Enum.UserInputType.MouseWheel then
+		spectate:Zoom(input.Position.Z)
+	elseif input.KeyCode == Enum.KeyCode.Thumbstick2 then
+		-- Gamepad look, scaled to feel like the mouse rather than to
+		-- match its raw units.
+		spectate:Look(Vector2.new(input.Position.X, -input.Position.Y) * 12)
+	end
+end)
+
+-- Free-cam movement, polled rather than event-driven: holding a key is a
+-- state, and reading it once a frame is simpler than tracking presses
+-- and releases for six keys.
+local function readSpectateMove(): Vector3
+	if not spectate:IsFree() then
+		return Vector3.zero
+	end
+	local v = Vector3.zero
+	if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+		v += Vector3.new(0, 0, -1)
+	end
+	if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+		v += Vector3.new(0, 0, 1)
+	end
+	if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+		v += Vector3.new(-1, 0, 0)
+	end
+	if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+		v += Vector3.new(1, 0, 0)
+	end
+	if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+		v += Vector3.new(0, 1, 0)
+	end
+	if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
+		v += Vector3.new(0, -1, 0)
+	end
+	return if v.Magnitude > 1e-3 then v.Unit else v
+end
+
 RunService.Heartbeat:Connect(function(dt)
 	matchHud:Update(match)
 	feedHud:Update()
@@ -507,30 +584,12 @@ RunService.Heartbeat:Connect(function(dt)
 	-- the kart over, which is the exact instant this has to start.
 	local mine = sim and sim.model
 	local done = mine ~= nil and mine:GetAttribute(Shared.FINISH_PLACE) ~= nil
-	spectate:Update(dt, match:Phase(), done)
-	matchHud:SetSpectating(spectate:TargetName())
+	spectate:Update(dt, match:Phase(), done, readSpectateMove())
+	matchHud:SetSpectating(spectate:StatusText())
 	-- Outside step() on purpose: the pad has to keep fading after you
 	-- leave the kart, and step() returns early once there's no simulation.
 	if touch then
 		touch:Update(dt)
-	end
-end)
-
--- Cycling spectator targets. Plain UserInputService for the same reason
--- as ready-up below: ContextActions are bound only while driving, and
--- spectating is by definition what you do when you aren't.
-UserInputService.InputBegan:Connect(function(input, processed)
-	if processed then
-		return
-	end
-	if input.KeyCode == Enum.KeyCode.E or input.KeyCode == Enum.KeyCode.Right then
-		spectate:Next()
-	elseif input.KeyCode == Enum.KeyCode.Q or input.KeyCode == Enum.KeyCode.Left then
-		spectate:Prev()
-	elseif input.KeyCode == Enum.KeyCode.ButtonR1 then
-		spectate:Next()
-	elseif input.KeyCode == Enum.KeyCode.ButtonL1 then
-		spectate:Prev()
 	end
 end)
 

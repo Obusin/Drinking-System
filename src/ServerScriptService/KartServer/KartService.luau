@@ -185,6 +185,35 @@ local function bindOwnership(kart: Model, botKart: boolean?)
 	end)
 end
 
+-- Gives a kart back to whoever is sitting in it.
+--
+-- Needed because bindOwnership only ever fires on the seat's Occupant
+-- CHANGING, and a taken-over kart never changes occupant — the finished
+-- player sat in it the whole time. So nothing would ever have handed it
+-- back: it would stay anchored and server-owned for the rest of the
+-- server's life, with its driver unable to move.
+function KartService.restoreOwnership(kart: Model)
+	local seat = kart:FindFirstChild("Seat") :: VehicleSeat?
+	local hitbox = kart.PrimaryPart
+	if not (seat and hitbox) then
+		return
+	end
+	local occupant = seat.Occupant
+	local driver = occupant and Players:GetPlayerFromCharacter(occupant.Parent)
+	if not driver then
+		return
+	end
+	-- Unanchor BEFORE granting: you cannot own an anchored part, and the
+	-- grant silently does nothing if you try.
+	hitbox.Anchored = false
+	local ok, err = pcall(function()
+		hitbox:SetNetworkOwner(driver)
+	end)
+	if not ok then
+		warn("[KartService] could not give " .. driver.Name .. " their kart back: " .. tostring(err))
+	end
+end
+
 --=====================================================================
 --  SPAWNING
 --=====================================================================
