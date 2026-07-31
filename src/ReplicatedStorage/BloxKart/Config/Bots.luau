@@ -184,6 +184,60 @@ return {
 	-- the checkpoint volume's half-width minus this.
 	EdgeMargin = 4,
 
+	--== NOT DRIVING OFF THE EDGE ======================================
+	-- The cached road widths describe the centreline, which is right
+	-- until a bot gets knocked off, spun or respawned somewhere the line
+	-- doesn't run. Then it's steering over ground nothing ever checked.
+	--
+	-- So it also looks where it's going: a ray under the point it's
+	-- steering at, and one just ahead of its own nose.
+	LedgeLook = 10, -- studs ahead of the nose to probe
+	LedgeLookPerSpeed = 0.22, -- plus this much per stud/s. At speed you
+	-- need to see further, for the same reason the lookahead scales
+	LedgeThrottle = 0.35, -- throttle cap while there's nothing ahead.
+	-- Allowed below MinCornerSpeed — that floor stops bots crawling round
+	-- corners and must not stop one slowing for a drop
+	LedgeHold = 0.4, -- seconds to stay in the correction after the ground
+	-- comes back, so a bot skimming an edge doesn't flicker
+
+	--== NOT FIGHTING THE LINE =========================================
+	-- LineCorrect is per stud and there was no ceiling on it, so twelve
+	-- studs off the line was already full lock. Past that the term
+	-- saturates: it stops meaning "how far off am I" and becomes a
+	-- constant maximum yank that drowns out where the road actually goes.
+	-- The bot stops driving the track and starts fighting to be on a
+	-- line, which is a different job and a visibly robotic one.
+	--
+	-- Lowering the gain doesn't fix that — same fight, slower. These do.
+
+	-- Fraction of the available room that counts as "close enough".
+	-- Being a few studs off the middle of a wide road is not an error and
+	-- a person would not correct it; constant micro-correction is most of
+	-- what reads as a machine driving.
+	LineDeadband = 0.35,
+
+	-- Ceiling on the correction, so it can never be the only voice. Where
+	-- the road GOES keeps a say even while the bot is off line, and that
+	-- is what stops the overshoot that starts a respawn loop.
+	--
+	-- Suspended entirely on a ledge: that's a real emergency and getting
+	-- back to known road outranks looking smooth.
+	LineAuthority = 0.6,
+
+	--== LEARNING FROM GOING OFF =======================================
+	-- One number per checkpoint, up when the bot leaves the track there,
+	-- decaying on a clean lap. High means drive this bit nearer the
+	-- middle and slower.
+	--
+	-- Not clever, and doesn't need to be: a bot doesn't go off "in
+	-- general", it goes off at turn four the same way every lap. One
+	-- number attached to turn four fixes turn four.
+	CautionMax = 4, -- ceiling, or a bad stretch eventually stops it dead
+	CautionDecay = 0.5, -- shed per clean lap past that checkpoint
+	CautionPull = 0.22, -- how much of the road width it gives up per point
+	CautionLift = 0.12, -- throttle shed per point
+	CautionLiftMax = 0.4, -- and never more than this in total
+
 	--== DRIFTING ======================================================
 	-- Drifts when the corner is sharp enough and it's quick enough to
 	-- benefit, same as a player would.

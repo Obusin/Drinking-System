@@ -112,17 +112,29 @@ return {
 	-- permanent corner to anything measuring how much the road bends.
 	RouteDropProbe = 40,
 
-	-- ROAD WIDTH, taken from the checkpoint volumes themselves — a gate is
-	-- already a slab spanning the track, so its width is the road's.
+	-- ROAD WIDTH, felt for with rays sideways from the racing line.
 	--
-	-- Anything that drives off the centreline needs this. Bots hold a
-	-- personal line offset and move over for traffic, and with no idea
-	-- where the tarmac ends they aim beside the road and drive off it,
-	-- every lap. That isn't a tuning problem: without this there is no
-	-- number to tune against.
+	-- NOT taken from the checkpoint volumes. That was the first attempt
+	-- and it's wrong on any real track: gates get drawn generously so
+	-- nobody squeezes past one, so they hang out over the void at exactly
+	-- the corners where being wrong is fatal. It told bots there was
+	-- tarmac where there was nothing.
 	--
-	-- The fallback is for checkpoints that aren't road-shaped — a small
-	-- marker cube, say. Set it to roughly your track's half-width.
+	-- Measured once per checkpoint and cached with the rest of the node,
+	-- so the ray cost is paid at track load and never again.
+	RouteEdgeStep = 2, -- studs between samples going outward. Smaller is a
+	-- finer edge and more rays; 2 is well under a kart's width
+	RouteMaxHalfWidth = 60, -- stop looking past this. Only a ceiling on
+	-- the search, not a claim about your track
+	RouteEdgeProbeUp = 6, -- start each probe this far above the road, so a
+	-- kerb or a slight rise doesn't read as a gap
+	RouteEdgeDrop = 30, -- and look this far down
+	RouteEdgeStepDrop = 5, -- a surface further than this BELOW the road is
+	-- a different surface. This is what makes a ledge with ground far
+	-- underneath read as a fall rather than as more road
+
+	-- Used where nothing could be measured — no route, or a probe that
+	-- found nothing at all. Set it to roughly your track's half-width.
 	RouteDefaultHalfWidth = 18,
 	RouteMinHalfWidth = 6, -- never trust a measurement tighter than a kart
 

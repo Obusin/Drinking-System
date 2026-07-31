@@ -221,10 +221,13 @@ local function drawRacingLine()
 			local across = tangent:Cross(Vector3.yAxis)
 			if across.Magnitude > 1e-4 then
 				across = across.Unit
-				local room = math.max(node.halfWidth - B.EdgeMargin, 0)
-				for _, s in { -1, 1 } do
-					marker(node.position + across * room * s + Vector3.yAxis * 1.5, 1.6, Color3.fromRGB(120, 230, 140), false)
-				end
+				-- Each side its own distance. A checkpoint is rarely centred
+				-- on its road, and one averaged number is too tight where
+				-- there's room and too generous over the drop.
+				local l = math.max(node.leftWidth - B.EdgeMargin, 0)
+				local r = math.max(node.rightWidth - B.EdgeMargin, 0)
+				marker(node.position - across * l + Vector3.yAxis * 1.5, 1.6, Color3.fromRGB(120, 230, 140), false)
+				marker(node.position + across * r + Vector3.yAxis * 1.5, 1.6, Color3.fromRGB(120, 230, 140), false)
 			end
 		end
 
@@ -233,7 +236,7 @@ local function drawRacingLine()
 		end
 	end
 	print(
-		("[BotService] racing line drawn: %d checkpoints. Green markers are the road edge bots stay inside; narrowest is %.0f studs wide at checkpoint %d. If green sits off the tarmac anywhere, that gate volume is the wrong size — bots will drive off there."):format(
+		("[BotService] racing line drawn: %d checkpoints. Green markers are the road edge, FELT FOR with rays rather than read off the gate volumes — so they should land on tarmac, not on the checkpoint. Narrowest measured stretch is %.0f studs at checkpoint %d. Green over the void now means the probe found a floor that isn't road (raise Race.RouteEdgeStepDrop), not that a gate is oversized."):format(
 			#nodes,
 			narrowest * 2,
 			narrowestAt
@@ -280,7 +283,13 @@ local function drawDebug(bot, aim: Vector3?, bend: number)
 	-- across the track rather than from a log line.
 	local bar = debugPart(bot, "throttle", Color3.fromRGB(90, 240, 130))
 	local t = bot.controls.touchThrottle
-	bar.Color = if bend > 0.2 then Color3.fromRGB(255, 90, 90) else Color3.fromRGB(90, 240, 130)
+	-- Orange beats red: a bot that has seen a drop is doing something
+	-- quite different from one that has merely seen a corner, and the two
+	-- were indistinguishable when both showed as "slowing down".
+	bar.Color = if (bot.ledgeFor or 0) > 0
+		then Color3.fromRGB(255, 170, 60)
+		elseif bend > 0.2 then Color3.fromRGB(255, 90, 90)
+		else Color3.fromRGB(90, 240, 130)
 	bar.Size = Vector3.new(0.6, math.max(t, 0.05) * 8, 0.6)
 	bar.CFrame = CFrame.new(from + bot.sim.up * (4 + math.max(t, 0.05) * 4))
 	bar.Transparency = 0.2
@@ -369,8 +378,31 @@ local function drive(bot, dt: number)
 	-- Route.nodes), so this clamps against the track you actually built
 	-- rather than a number someone guessed.
 	----------------------------------------------------------------
-	local room = math.max(Route.halfWidthAt(bot.u) - B.EdgeMargin, 0)
-	offset = math.clamp(offset, -room, room)
+	-- Asymmetric, because a checkpoint is rarely centred on its road and
+	-- one averaged number is too generous on exactly the side with the
+	-- drop. Both sides are probed with rays, not read off the gate.
+	local roomL, roomR = Route.roomAt(bot.u)
+	roomL = math.max(roomL - B.EdgeMargin, 0)
+	roomR = math.max(roomR - B.EdgeMargin, 0)
+
+	-- LEARNED CAUTION. Every time this bot leaves the track it marks the
+	-- node it left, and thereafter it drives that stretch nearer the
+	-- middle and slower. See BotService.noteWentOff.
+	--
+	-- This is the whole of "learn from its mistake" and it is not
+	-- learning in any clever sense — it's a number that goes up when
+	-- something goes wrong and decays when it doesn't. That's enough,
+	-- because the failure it has to stop repeating is entirely local: one
+	-- corner, taken too wide, every lap.
+	local caution = bot.caution[math.floor(bot.u) % math.max(#Route.nodes(), 1)] or 0
+	if caution > 0 then
+		local pull = math.clamp(caution * B.CautionPull, 0, 1)
+		roomL *= 1 - pull
+		roomR *= 1 - pull
+	end
+
+	local room = math.min(roomL, roomR) -- for the cross-track deadband below
+	offset = math.clamp(offset, -roomL, roomR)
 
 	----------------------------------------------------------------
 	-- STEERING
@@ -396,6 +428,45 @@ local function drive(bot, dt: number)
 		if across.Magnitude > 1e-4 then
 			aim += across.Unit * offset
 		end
+	end
+
+	----------------------------------------------------------------
+	-- IS THERE ROAD WHERE I'M POINTING?
+	--
+	-- The cached widths describe the road AT THE CENTRELINE, which is
+	-- the right answer right up until a bot gets knocked off, spun, or
+	-- respawned somewhere the line doesn't run. Then it's steering across
+	-- ground nothing has ever checked.
+	--
+	-- So: two rays. One under the point it's steering at, one just ahead
+	-- of its own nose. The nose ray is the important one — it's the only
+	-- thing that can catch a bot already halfway off.
+	--
+	-- Finding nothing does NOT mean brake and hope. It means aim at the
+	-- centreline, which is the one place on the map known to have road,
+	-- and lift so the correction has time to work. A bot that lifts and
+	-- turns in looks like a driver catching a mistake. One that only
+	-- brakes goes off the edge slowly.
+	----------------------------------------------------------------
+	local ledge = false
+	if not Route.hasGround(aim, sim.up) then
+		ledge = true
+	else
+		local nose = sim.pos + sim.forward * (B.LedgeLook + speed * B.LedgeLookPerSpeed)
+		ledge = not Route.hasGround(nose, sim.up)
+	end
+
+	if ledge then
+		local centre = Route.pointAt(aheadU)
+		if centre then
+			aim = centre
+		end
+		bot.ledgeFor = B.LedgeHold
+	else
+		-- Held briefly after the ground comes back, or a bot skimming an
+		-- edge flickers in and out of the correction and never commits to
+		-- either line.
+		bot.ledgeFor = math.max((bot.ledgeFor or 0) - dt, 0)
 	end
 
 	-- Signed error across the kart's own right, so this stays correct
@@ -452,7 +523,45 @@ local function drive(bot, dt: number)
 	bot.lastCrossErr = crossErr
 	bot.crossRate = Util.approach(bot.crossRate or 0, closing, 12, dt)
 
-	wantSteer += math.clamp(crossErr * B.LineCorrect + bot.crossRate * B.LineDamp, -1, 1)
+	----------------------------------------------------------------
+	-- THE LINE IS A SUGGESTION. THE ROAD IS THE CONSTRAINT.
+	--
+	-- This is the bug you could see from across the track: the bot
+	-- treating every point on the racing line as something it must not
+	-- miss, hauling itself back onto it, overshooting, and eventually
+	-- sawing itself off a ledge and into a respawn loop.
+	--
+	-- The cause is that LineCorrect is 0.07 per stud with nothing above
+	-- it. Twelve studs off the line is already full lock. So anywhere
+	-- outside a narrow band the term SATURATES: it stops being "how far
+	-- off am I" and becomes a constant maximum-effort yank that drowns
+	-- out the lookahead entirely. The bot stops driving the road and
+	-- starts fighting to be on a line, which are not the same job.
+	--
+	-- Two changes, and neither lowers the gain — lowering it just makes
+	-- the same fight slower:
+	--
+	--   a deadband, because being a few studs off the centre of a wide
+	--   road is not an error and a person would not correct it. Constant
+	--   micro-correction is most of what reads as robotic.
+	--
+	--   a ceiling below full lock, so the term can never be the only
+	--   voice. Where the road GOES has to keep a say even while it's off
+	--   line, and that's what stops the overshoot that starts the loop.
+	--
+	-- On a ledge both are suspended. Then it genuinely is an emergency
+	-- and getting back to known road outranks looking smooth.
+	----------------------------------------------------------------
+	local pull
+	if (bot.ledgeFor or 0) > 0 then
+		pull = math.clamp(crossErr * B.LineCorrect + bot.crossRate * B.LineDamp, -1, 1)
+	else
+		local slack = room * B.LineDeadband
+		local err = if math.abs(crossErr) <= slack then 0 else crossErr - math.sign(crossErr) * slack
+		pull = math.clamp(err * B.LineCorrect + bot.crossRate * B.LineDamp, -B.LineAuthority, B.LineAuthority)
+	end
+
+	wantSteer += pull
 	wantSteer = math.clamp(wantSteer, -1, 1)
 
 	----------------------------------------------------------------
@@ -509,6 +618,21 @@ local function drive(bot, dt: number)
 	local jitter = math.sin(bot.throttleAt * 2.3) * B.ThrottleJitter * (2 - bot.skill)
 
 	c.touchThrottle = math.clamp(1 - ease + jitter, B.MinCornerSpeed, 1)
+
+	-- Slower where it has gone off before. Same number that pulls the line
+	-- in — a corner you keep running wide at is one you were carrying too
+	-- much speed into, and a driver arrives at that conclusion too.
+	if caution > 0 then
+		c.touchThrottle *= 1 - math.clamp(caution * B.CautionLift, 0, B.CautionLiftMax)
+	end
+
+	-- Off the edge of the world beats every other consideration. Allowed
+	-- below MinCornerSpeed, which nothing else is: that floor exists so
+	-- bots don't crawl round corners, and it must not stop one from
+	-- slowing for a drop.
+	if (bot.ledgeFor or 0) > 0 then
+		c.touchThrottle = math.min(c.touchThrottle, B.LedgeThrottle)
+	end
 
 	drawDebug(bot, aim, bend)
 
@@ -817,6 +941,11 @@ local function step(dt: number)
 				bot.safeU = bot.u
 				bot.safeCF = grid
 				bot.revives = 0
+				bot.ledgeFor = 0
+				-- Caution SURVIVES the restart on purpose. It's what the
+				-- bot has learned about this track, and three laps is
+				-- nowhere near enough to converge — throwing it away every
+				-- round means it never learns anything at all.
 				bot.laps = 0
 				bot.item = nil
 				bot.heldSteer = 0
@@ -876,6 +1005,7 @@ local function step(dt: number)
 					)
 				)
 			end
+			BotService.noteWentOff(bot)
 			BotService.revive(bot)
 		end
 
@@ -892,6 +1022,10 @@ local function step(dt: number)
 				-- wrap is free and can't miss a gate at speed.
 				if bot.lastU and bot.u < bot.lastU - #Route.nodes() * 0.5 then
 					bot.laps += 1
+					-- A lap survived is evidence the caution worked, so let
+					-- it fade. Without this a single incident makes a bot
+					-- crawl that corner for the rest of the server's life.
+					BotService.decayCaution(bot)
 				end
 				bot.lastU = bot.u
 			end
@@ -1032,6 +1166,19 @@ function BotService.fill()
 			item = nil,
 			itemAt = 0,
 			lastU = nil,
+			-- Where it last had wheels on measured road, and the checkpoint
+			-- that goes with it. revive() keeps the second and deliberately
+			-- throws away the first — see the comment there.
+			safeU = nil,
+			safeCF = nil,
+			-- Seconds left of "there's no road that way". Held briefly
+			-- rather than read per frame, or a bot skimming an edge
+			-- flickers between two lines and commits to neither.
+			ledgeFor = 0,
+			-- checkpoint index -> how much this bot has learned to distrust
+			-- that stretch. Per bot: it's a driver learning a circuit, not
+			-- a fact about the circuit.
+			caution = {},
 			dbg = {},
 			boxes = TagZones.new(Config.Items.BoxTag, { cooldown = Config.Items.PickupCooldown, forceQueryable = true }),
 			drops = TagZones.new(Config.Items.DropTag, { cooldown = 0.5, forceQueryable = true }),
@@ -1166,6 +1313,59 @@ function BotService.seatRig(bot)
 	end)
 end
 
+--=====================================================================
+--  LEARNING FROM IT
+--
+--  Not machine learning, and deliberately not. A number per checkpoint
+--  that goes up when the bot leaves the track there and decays when it
+--  doesn't. High caution means: drive this bit nearer the middle and
+--  slower.
+--
+--  That is the entire mechanism, and it is enough, because the failure
+--  it has to stop repeating is completely local. A bot doesn't go off
+--  "in general" — it goes off at turn four, the same way, every lap. One
+--  number attached to turn four fixes turn four and leaves the rest of
+--  the track alone.
+--
+--  It also converges in the right direction by construction: caution can
+--  only rise on evidence, and only decays on a clean lap past the same
+--  spot. Worst case a bot ends up crawling round one corner, which is
+--  slow but never broken.
+--
+--  PER BOT, not per track. It's a driver learning a circuit, so a fresh
+--  bot starts naive — and if this is ever persisted (see SPEC-bots
+--  Layer 8) it should be keyed by track, because three laps is nowhere
+--  near enough to converge on anything.
+--=====================================================================
+-- On the module rather than a local, because step() calls it and step is
+-- defined above this point. A `local function` here would be nil there.
+function BotService.noteWentOff(bot)
+	local nodes = #Route.nodes()
+	if nodes == 0 then
+		return
+	end
+	-- The node it was last SAFE at, not the one nearest the wreck. Where
+	-- it left is the useful fact; where it landed is noise.
+	local key = math.floor(bot.safeU or bot.u or 0) % nodes
+	bot.caution[key] = math.min((bot.caution[key] or 0) + 1, B.CautionMax)
+
+	-- The approach matters as much as the corner — a bot that goes off at
+	-- four was usually already too fast at three.
+	local before = (key - 1) % nodes
+	bot.caution[before] = math.min((bot.caution[before] or 0) + 0.5, B.CautionMax)
+end
+
+-- Called once per completed lap. Caution earned on a lap that then went
+-- cleanly is caution that has done its job, so it fades — otherwise a bot
+-- that goes off once drives that corner timidly for the rest of the
+-- server's life.
+function BotService.decayCaution(bot)
+	for key, value in bot.caution do
+		local next = value - B.CautionDecay
+		bot.caution[key] = if next > 0 then next else nil
+	end
+end
+
 function BotService.revive(bot)
 	if not bot.kart.Parent then
 		local _, kart = KartService.addBot(bot.name)
@@ -1179,17 +1379,33 @@ function BotService.revive(bot)
 		BotService.seatRig(bot)
 	end
 
-	-- Back to the last spot it was demonstrably ON the road — recorded in
-	-- drive(), not derived from where it came to rest.
+	-- Back to where it last was on the road — but on the CENTRELINE there,
+	-- not on the exact spot it occupied.
 	--
-	-- Projecting the crash site onto the racing line is what put bots at
-	-- the checkpoint AFTER the one they left: fall off a right-hand bend
-	-- and the nearest line point is the straight you were aiming at.
-	if bot.safeCF then
-		bot.sim:RespawnAt(bot.safeCF + bot.safeCF.UpVector * 3)
-		bot.u = bot.safeU or bot.u
-		bot.lastU = nil
-		return
+	-- Two separate mistakes, fixed together:
+	--
+	-- Projecting the crash site onto the line put bots at the checkpoint
+	-- AFTER the one they left. Fall off the outside of a right-hander and
+	-- the nearest point on the line is the straight you were aiming at.
+	--
+	-- Then respawning at the exact recorded spot replaced that with a
+	-- loop, and this one was mine. The last place a bot was legally on the
+	-- road is, by definition, the last inch before it left — so putting it
+	-- back there points it at the same edge, at the same angle, and it
+	-- drives off again. Forever. It looked like flying to the checkpoint;
+	-- it was a bot being helpfully returned to the scene of the accident.
+	--
+	-- So keep the progress (u is right, and it earned it) and discard the
+	-- position. Back to the middle of the road, facing along it.
+	if bot.safeU then
+		local at = Route.pointAt(bot.safeU)
+		local tangent = Route.tangentAt(bot.safeU)
+		if at and tangent then
+			bot.sim:RespawnAt(CFrame.lookAt(at + Vector3.yAxis * 4, at + tangent + Vector3.yAxis * 4))
+			bot.u = bot.safeU
+			bot.lastU = nil
+			return
+		end
 	end
 
 	-- Never got a clean lap position — spun off the grid, say. Only now is

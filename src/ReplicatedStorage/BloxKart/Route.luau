@@ -36,9 +36,16 @@ export type Node = {
 	order: number,
 	position: Vector3,
 	parts: { BasePart },
-	-- Studs of road either side of the centreline here. Anything choosing
-	-- a line off-centre has to be clamped to this or it drives off the
-	-- track; see the measuring pass in Route.nodes.
+	-- Studs of ROAD either side of the centreline here, felt for with
+	-- rays rather than read off the checkpoint volume — gates routinely
+	-- overhang the tarmac, and a confident wrong answer to "may I drive
+	-- here" is worse than no answer.
+	--
+	-- Separate sides because a checkpoint is rarely centred on its road.
+	-- halfWidth is the narrower of the two, for callers that only want
+	-- one number.
+	leftWidth: number,
+	rightWidth: number,
 	halfWidth: number,
 }
 
@@ -77,6 +84,34 @@ local function dropToRoad(at: Vector3, part: BasePart): Vector3
 	local from = at + up * (part.Size.Y * 0.5 + 2)
 	local hit = workspace:Raycast(from, -up * (part.Size.Y + R.RouteDropProbe), dropParams)
 	return if hit then hit.Position else at
+end
+
+-- Walks sideways from the centreline until the floor stops.
+--
+-- "Stops" means one of two things, and both matter: no hit at all (thin
+-- air), or a hit far enough BELOW the road to be a different surface.
+-- The second case is the one that catches bots out — a ledge with ground
+-- thirty studs down isn't a wide road, it's a fall, and a plain
+-- did-the-ray-hit test calls it drivable.
+local function edgeDistance(from: Vector3, dir: Vector3, up: Vector3): number
+	dropParams.FilterDescendantsInstances = Triggers.collect({})
+
+	local base = from:Dot(up)
+	local last = 0
+	local d = R.RouteEdgeStep
+	while d <= R.RouteMaxHalfWidth do
+		local at = from + dir * d
+		local hit = workspace:Raycast(at + up * R.RouteEdgeProbeUp, -up * (R.RouteEdgeProbeUp + R.RouteEdgeDrop), dropParams)
+		-- Measured along the local up, not world Y, so this survives a
+		-- banked corner and a loop.
+		if not hit or math.abs(hit.Position:Dot(up) - base) > R.RouteEdgeStepDrop then
+			break
+		end
+		last = d
+		d += R.RouteEdgeStep
+	end
+
+	return math.max(last, R.RouteMinHalfWidth)
 end
 
 --=====================================================================
@@ -121,22 +156,32 @@ function Route.nodes(): { Node }
 			position = dropToRoad(sum / #group, group[1]),
 			parts = group,
 			halfWidth = R.RouteDefaultHalfWidth,
+			leftWidth = R.RouteDefaultHalfWidth,
+			rightWidth = R.RouteDefaultHalfWidth,
 		})
 	end
 
-	-- HOW WIDE THE ROAD IS. Measured in a second pass, because it needs
-	-- the direction of travel and that needs the neighbours placed first.
+	-- WHERE THE ROAD ACTUALLY ENDS. Second pass, because it needs the
+	-- direction of travel and that needs the neighbours placed first.
 	--
-	-- This exists because nothing used to know it, and everything that
-	-- steers off the centreline was therefore guessing. A bot holds a
-	-- random line offset and moves over for traffic; with no idea where
-	-- the tarmac ends it will happily aim at a point beside the road and
-	-- drive straight off, every lap, forever. That is not a tuning
-	-- problem — there was no number to tune against.
+	-- This is FELT FOR, not read off the checkpoint volume.
 	--
-	-- Taken from the checkpoint volume rather than probed, because a gate
-	-- is already a slab spanning the track: its width IS the road's, it
-	-- was placed by hand on purpose, and reading it costs nothing.
+	-- Measuring it from the gate was the obvious free answer — a gate is a
+	-- slab spanning the track, so surely its width is the road's. It
+	-- isn't. Gates get drawn generously so nobody can squeeze past one,
+	-- and on a real track they hang out over the void at exactly the
+	-- corners where it matters. Trusting them told bots there was tarmac
+	-- where there was nothing, which is worse than not knowing at all: it
+	-- gave a confident wrong answer to "may I drive here".
+	--
+	-- So: step outward from the centreline and raycast down until the
+	-- floor stops being there. Costs a few dozen rays per node, once, on a
+	-- table that's already cached for the life of the track.
+	--
+	-- LEFT AND RIGHT SEPARATELY, because a checkpoint is rarely centred on
+	-- its road. One symmetric number splits the difference and is wrong on
+	-- both sides — too tight where there's room, too generous over the
+	-- drop, and it's the generous side that kills bots.
 	for i, node in nodes do
 		local prev = nodes[if i > 1 then i - 1 else #nodes]
 		local nxt = nodes[if i < #nodes then i + 1 else 1]
@@ -144,24 +189,18 @@ function Route.nodes(): { Node }
 		if forward.Magnitude < 1e-3 then
 			continue
 		end
-		forward = forward.Unit
 
-		local part = node.parts[1]
-		local across = forward:Cross(part.CFrame.UpVector)
+		-- Same convention as lateralAt, or every sign downstream flips.
+		local up = node.parts[1].CFrame.UpVector
+		local across = forward.Unit:Cross(up)
 		if across.Magnitude < 1e-4 then
 			continue
 		end
 		across = across.Unit
 
-		-- The volume's extent along `across`: a box projected onto an
-		-- arbitrary axis, so this is right at any rotation rather than only
-		-- for gates left square to the world.
-		local cf, size = part.CFrame, part.Size
-		local extent = math.abs(cf.RightVector:Dot(across)) * size.X
-			+ math.abs(cf.UpVector:Dot(across)) * size.Y
-			+ math.abs(cf.LookVector:Dot(across)) * size.Z
-
-		node.halfWidth = math.max(extent * 0.5, R.RouteMinHalfWidth)
+		node.leftWidth = edgeDistance(node.position, -across, up)
+		node.rightWidth = edgeDistance(node.position, across, up)
+		node.halfWidth = math.min(node.leftWidth, node.rightWidth)
 	end
 
 	cache = nodes
@@ -169,19 +208,44 @@ function Route.nodes(): { Node }
 	return nodes
 end
 
--- Road half-width at a point along the line, blended between nodes so it
--- doesn't step at every gate.
-function Route.halfWidthAt(u: number): number
+-- How much room there is on each side of the line here, blended between
+-- nodes so it doesn't step at every gate.
+--
+-- Signed like lateralAt: right is positive. A bot's chosen offset is
+-- clamped between these, which is the whole reason they exist.
+function Route.roomAt(u: number): (number, number)
 	local nodes = Route.nodes()
 	local n = #nodes
 	if n == 0 then
-		return R.RouteDefaultHalfWidth
+		return R.RouteDefaultHalfWidth, R.RouteDefaultHalfWidth
 	end
 	local i = math.floor(u) % n
 	local t = u - math.floor(u)
-	local a = nodes[i + 1].halfWidth or R.RouteDefaultHalfWidth
-	local b = nodes[(i + 1) % n + 1].halfWidth or R.RouteDefaultHalfWidth
-	return a + (b - a) * t
+	local a, b = nodes[i + 1], nodes[(i + 1) % n + 1]
+	local function mix(x: number?, y: number?): number
+		local p = x or R.RouteDefaultHalfWidth
+		local q = y or R.RouteDefaultHalfWidth
+		return p + (q - p) * t
+	end
+	return mix(a.leftWidth, b.leftWidth), mix(a.rightWidth, b.rightWidth)
+end
+
+-- The narrower of the two. Kept because plenty of callers only want "how
+-- much room is there", and it's the safe answer for both sides.
+function Route.halfWidthAt(u: number): number
+	local left, right = Route.roomAt(u)
+	return math.min(left, right)
+end
+
+-- Is there road at this point? The live version of the same question the
+-- width pass answers offline — used by bots to check the ground under
+-- where they are about to steer, which no cached width can cover once
+-- they have been knocked off the line.
+function Route.hasGround(at: Vector3, up: Vector3): boolean
+	dropParams.FilterDescendantsInstances = Triggers.collect({})
+	local from = at + up * R.RouteEdgeProbeUp
+	local hit = workspace:Raycast(from, -up * (R.RouteEdgeProbeUp + R.RouteEdgeDrop), dropParams)
+	return hit ~= nil
 end
 
 --=====================================================================
