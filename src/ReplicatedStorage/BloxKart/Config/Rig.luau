@@ -81,11 +81,27 @@ return {
 	-- Set SkinTest false once the answer is known; the loop is a probe,
 	-- not a feature. Skins.applyTo is the real entry point.
 	SkinTest = true,
-	SkinPart = "Body", -- the MeshPart to swap, found recursively
 	SkinTestInterval = 3,
-	SkinTestIds = {
-		"rbxassetid://72597967734984",
-		"rbxassetid://89589911208680",
+	-- A SKIN IS A SET, NOT A PART. Swapping the body alone leaves the
+	-- old wheels on the new shell, so the unit that has to swap
+	-- atomically is the whole set — which is also the unit a player
+	-- buys. Each entry below is one skin: part name -> mesh id, parts
+	-- found recursively so the artist can refile them freely.
+	--
+	-- FWheel and RWheel are separate keys even where they share an id,
+	-- because they will not always: the rear is the wider pair on most
+	-- karts, and the front is the one that steers.
+	SkinTestSkins = {
+		{
+			Body = "rbxassetid://72597967734984",
+			FWheel = "rbxassetid://136481236962745",
+			RWheel = "rbxassetid://136481236962745",
+		},
+		{
+			Body = "rbxassetid://89589911208680",
+			FWheel = "rbxassetid://124866750857410",
+			RWheel = "rbxassetid://124866750857410",
+		},
 	},
 
 	--== PAINT =========================================================

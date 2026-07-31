@@ -1,30 +1,41 @@
 --[[
-	Skins — proving a kart skin is just a mesh id.
+	Skins — proving a kart skin is just a set of mesh ids.
 
 	WHAT THIS IS ACTUALLY TESTING
 	-----------------------------
-	If a skin can be applied by swapping the mesh on an existing part,
-	then cosmetics need no new karts, no new models in ServerStorage, and
-	no change to KartFactory — a skin becomes a row in a table and an
-	asset id. That is the difference between a cosmetics system you can
+	If a skin can be applied by swapping meshes on parts that already
+	exist, then cosmetics need no new karts, no new models in
+	ServerStorage, and no change to KartFactory — a skin becomes a row in
+	a table. That is the difference between a cosmetics system you can
 	ship and one you have to build.
 
 	It also has to hold WITHOUT touching handling, and here it does by
-	construction: the mesh sits on a part inside the visual, and the
+	construction: the meshes sit on parts inside the visual, and the
 	visual is art. Simulation reads the Hitbox and the Seat and nothing
 	else, so a skin cannot change how a kart drives even by accident.
+
+	A SKIN IS A SET, NOT A PART
+	---------------------------
+	Swapping the body alone leaves the old wheels on the new shell. The
+	unit that has to swap atomically is the whole set, which is also the
+	unit a player buys, so that is the unit this cycles.
+
+	The wheels are the interesting case. They are MeshParts hung off
+	Motor6Ds — the front steers and rolls, the rear only rolls — and the
+	joints are built from each wheel's own pivot at spawn. Swapping the
+	MESH under a live joint leaves the joint alone, so the wheels keep
+	turning through the swap. If a swapped wheel ever spins about the
+	wrong point, that is the new mesh's pivot differing from the old
+	one's, not the joint breaking.
 
 	MeshPart.MeshId IS NOT ASSIGNABLE AT RUNTIME
 	--------------------------------------------
 	It never has been — it is set when the part is created and read-only
-	afterwards. The newer `MeshContent` property is the one that can be
-	written, so that is the path this uses, with MeshId attempted as a
-	fallback purely so the failure is reported rather than silent.
-
-	Which of the two worked is printed once. That answer is the entire
-	point of the exercise, and it decides how cosmetics get built.
+	afterwards. Three routes are tried in order and the report names
+	which one took, because that answer is the point of the exercise.
 --]]
 
+local AssetService = game:GetService("AssetService")
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -35,27 +46,17 @@ local RIG = Config.Rig
 
 local Skins = {}
 
--- Reported once rather than per kart per swap, which at a few seconds an
--- id would bury Output within a minute.
-local said = false
-
 -- Swaps the mesh on an existing MeshPart, and says how.
---
--- THREE ROUTES, tried in order, because which one exists depends on the
--- engine version and only one of them is the documented answer:
 --
 --   1. MeshContent = Content.fromUri(id)
 --        The newer Content property. Direct, no yield, no extra part.
 --   2. AssetService:CreateMeshPartAsync + ApplyMesh
 --        The DOCUMENTED runtime path: build a MeshPart from the id and
---        transplant its mesh onto ours. Yields, so this runs inside the
---        loop's own thread.
+--        transplant its mesh onto ours. Yields, so callers must not be
+--        on a path that cannot.
 --   3. MeshId = id
---        Attempted last and expected to fail. MeshPart.MeshId has never
---        been assignable at runtime; it is here only so "nothing worked"
---        is stated rather than inferred.
-local AssetService = game:GetService("AssetService")
-
+--        Attempted last and expected to fail. Here only so "nothing
+--        worked" is stated rather than inferred.
 local function apply(part: BasePart, id: string): (boolean, string)
 	if pcall(function()
 		(part :: any).MeshContent = Content.fromUri(id)
@@ -82,15 +83,72 @@ local function apply(part: BasePart, id: string): (boolean, string)
 	return false, "nothing"
 end
 
+-- Applies one skin — the whole set — to one kart. Returns how many
+-- parts were found and how many actually took, so a caller can tell
+-- "the wheels are not named that" from "the swap does not work here".
+local function applySet(kart: Model, skin: { [string]: string }): (number, number, string)
+	local found, changed, how = 0, 0, "nothing"
+	for name, id in skin do
+		-- Recursive: the part lives wherever the artist filed it, and
+		-- requiring a fixed path is how the rocket lookup silently
+		-- found nothing.
+		local part = kart:FindFirstChild(name, true)
+		if part and part:IsA("MeshPart") and id ~= "" then
+			found += 1
+			local ok, route = apply(part, id)
+			if ok then
+				changed += 1
+				how = route
+			end
+		end
+	end
+	return found, changed, how
+end
+
+-- Reported once rather than per kart per swap, which at a few seconds a
+-- set would bury Output within a minute.
+local said = false
+
+-- Names the parts that were never found, and any found under the right
+-- name but of the wrong class — the two failures that otherwise look
+-- identical to a swap that silently did nothing.
+local function diagnose(kart: Model, skin: { [string]: string })
+	local missing, wrong = {}, {}
+	for name in skin do
+		local part = kart:FindFirstChild(name, true)
+		if not part then
+			table.insert(missing, name)
+		elseif not part:IsA("MeshPart") then
+			table.insert(wrong, ("%s is a %s"):format(name, part.ClassName))
+		end
+	end
+	table.sort(missing)
+	table.sort(wrong)
+	if #missing > 0 then
+		warn(
+			("[Skins] no MeshPart named %s in %s. The lookup is recursive, so the folder does not matter — only the name."):format(
+				table.concat(missing, ", "),
+				kart:GetFullName()
+			)
+		)
+	end
+	if #wrong > 0 then
+		warn(
+			("[Skins] %s — only a MeshPart has a mesh to swap. A Part with a SpecialMesh inside is a different thing and needs a different write."):format(
+				table.concat(wrong, ", ")
+			)
+		)
+	end
+end
+
 function Skins.start()
-	if not RIG.SkinTest or #RIG.SkinTestIds < 2 then
+	if not RIG.SkinTest or #RIG.SkinTestSkins < 2 then
 		return
 	end
 
 	warn(
-		("[Skins] TEST MODE: cycling %s between %d mesh ids every %.1fs. Rig.SkinTest = false to stop."):format(
-			RIG.SkinPart,
-			#RIG.SkinTestIds,
+		("[Skins] TEST MODE: cycling %d skin sets every %.1fs. Rig.SkinTest = false to stop."):format(
+			#RIG.SkinTestSkins,
 			RIG.SkinTestInterval
 		)
 	)
@@ -100,64 +158,47 @@ function Skins.start()
 		while true do
 			task.wait(RIG.SkinTestInterval)
 			at += 1
-			local id = RIG.SkinTestIds[(at - 1) % #RIG.SkinTestIds + 1]
+			local skin = RIG.SkinTestSkins[(at - 1) % #RIG.SkinTestSkins + 1]
 
 			local karts, found, changed = 0, 0, 0
-			local how = "nothing"
+			local how, sample = "nothing", nil
 			for _, kart in CollectionService:GetTagged("Kart") do
-				karts += 1
-				-- Recursive: the part lives wherever the artist filed it,
-				-- and requiring a fixed path is how the rocket lookup
-				-- silently found nothing.
-				local part = kart:FindFirstChild(RIG.SkinPart, true)
-				if part and part:IsA("MeshPart") then
-					found += 1
-					local ok, route = apply(part, id)
-					if ok then
-						changed += 1
+				if kart:IsA("Model") then
+					karts += 1
+					sample = sample or kart
+					local f, c, route = applySet(kart, skin)
+					found += f
+					changed += c
+					if c > 0 then
 						how = route
 					end
-				elseif part and not said then
-					said = true
-					warn(
-						("[Skins] found %s but it is a %s, not a MeshPart — only a MeshPart has a mesh to swap."):format(
-							part:GetFullName(),
-							part.ClassName
-						)
-					)
 				end
 			end
 
-			-- SAID ONCE, and it says what was actually seen. The first
-			-- version reported only the write, so a part that was never
-			-- found produced no output at all — which is
-			-- indistinguishable from a swap that silently did nothing,
-			-- and is the likelier of the two.
-			-- Nothing to report on yet. The first tick lands a few seconds
-			-- in and karts may not exist, and reporting "found nothing in
-			-- 0 karts" would burn the one report on a question nobody
-			-- asked.
+			-- SAID ONCE, and it says what was actually seen. Waits for a
+			-- kart to exist first: the first tick lands a few seconds in
+			-- and spending the one report on "found nothing in 0 karts"
+			-- would answer a question nobody asked.
 			if karts > 0 and not said then
 				said = true
+				local want = 0
+				for _ in skin do
+					want += 1
+				end
+				if found < karts * want and sample then
+					diagnose(sample, skin)
+				end
 				if found == 0 then
-					warn(
-						("[Skins] no MeshPart named %q in any of %d kart(s). Check the name matches exactly — it is looked up recursively, so its folder does not matter."):format(
-							RIG.SkinPart,
-							karts
-						)
-					)
+					warn(("[Skins] nothing to swap in %d kart(s) — see above for which names missed."):format(karts))
 				elseif changed == 0 then
 					warn(
-						("[Skins] found %d %q part(s) but no runtime mesh swap worked on this engine. Skins need a separate model per skin, applied through Rig.VisualName."):format(
-							found,
-							RIG.SkinPart
-						)
+						"[Skins] parts found but no runtime mesh swap worked on this engine. Skins need a separate model per skin, applied through Rig.VisualName."
 					)
 				else
 					print(
-						("[Skins] swapping %d %q mesh(es) via %s — skins CAN be pure asset ids."):format(
+						("[Skins] swapping %d mesh(es) across %d kart(s) via %s — skins CAN be pure asset ids."):format(
 							changed,
-							RIG.SkinPart,
+							karts,
 							how
 						)
 					)
@@ -167,15 +208,11 @@ function Skins.start()
 	end)
 end
 
--- The real entry point for later: one kart, one id, no loop. The test
+-- The real entry point for later: one kart, one skin, no loop. The test
 -- above exists to prove this line is possible; this is the line.
-function Skins.applyTo(kart: Model, id: string): boolean
-	local part = kart:FindFirstChild(RIG.SkinPart, true)
-	if not (part and part:IsA("MeshPart") and id ~= "") then
-		return false
-	end
-	local ok = apply(part, id)
-	return ok
+function Skins.applyTo(kart: Model, skin: { [string]: string }): boolean
+	local _, changed = applySet(kart, skin)
+	return changed > 0
 end
 
 return Skins
