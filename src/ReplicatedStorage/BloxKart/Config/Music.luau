@@ -21,17 +21,34 @@
 	to be noticed, and background music being noticed is the failure case.
 --]]
 
+-- THE MAIN THEME. One set of tracks for the whole session.
+--
+-- Declared once and handed to BOTH playlists ON PURPOSE, and the shared
+-- table matters rather than being a tidiness thing: Music switches lists
+-- by table identity, so two separate tables holding the same ids would
+-- count as a change and restart the music on every phase transition.
+-- Sharing one means the soundtrack plays straight through the lobby, the
+-- countdown, the race and the results without ever cutting.
+--
+-- To give the race its own energy later, replace Race with its own list
+-- and they start crossfading at the lights.
+local MAIN = {
+	"rbxassetid://102543294099617",
+	"rbxassetid://125858112035500",
+	"rbxassetid://116052568337332",
+	"rbxassetid://125091741122022",
+}
+
 return {
 	--== PLAYLISTS =====================================================
 	-- Played during the countdown and the race itself. The countdown is
 	-- included deliberately: the music should already be going when the
 	-- lights go out, or the start feels like the music missed its cue.
-	Race = {},
+	Race = MAIN,
 
-	-- Waiting, intermission and results. Quieter, calmer, and allowed to
-	-- be a shorter list — nobody is in the lobby long enough to notice a
-	-- loop, and they are in the race long enough to notice everything.
-	Lobby = {},
+	-- Waiting, intermission and results. The same set for now — see MAIN
+	-- above for why they share one table rather than two copies.
+	Lobby = MAIN,
 
 	--== LEVELS ========================================================
 	-- Under the engine and well under the tyres. Music is the floor of
