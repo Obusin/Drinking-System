@@ -104,6 +104,23 @@ return {
 	HopMinSpeed = 8, -- below this the hop is cosmetic
 	HopMinAir = 0.05, -- minimum air time before a landing counts
 
+	--== BEING SPUN ===================================================
+	-- How far a spinout knocks you off line, on top of the speed it
+	-- costs. Applied once, at the moment of the hit.
+	--
+	-- A spinout used to be cosmetic plus a speed penalty — the body
+	-- thrashed but the heading never moved, so you came out pointing
+	-- exactly where you went in and recovery was holding the throttle
+	-- and waiting. There was nothing to actually do about it.
+	--
+	-- KEEP THESE SMALL. The reason a spin is recoverable at all is that
+	-- you never lose your bearings; past roughly 40 degrees it stops
+	-- being "reposition the kart" and starts being "which way am I
+	-- facing", which is disorienting rather than difficult. This should
+	-- cost a corner, not a lap.
+	SpinYaw = 22, -- degrees the nose is knocked round, random direction
+	SpinShove = 3.5, -- studs sideways, the same direction as the yaw
+
 	--== DRIFT =========================================================
 	-- Drifting turns TIGHTER than steering. That's the whole reward —
 	-- it's why you drift instead of just cornering.

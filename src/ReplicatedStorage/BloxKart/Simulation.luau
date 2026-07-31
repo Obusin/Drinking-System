@@ -314,6 +314,44 @@ function Simulation:Spinout(duration: number, keep: number, stun: number?): bool
 	self.speed *= math.clamp(keep, 0, 1)
 	self.spinUntil = os.clock() + duration
 	self.spinFrom = os.clock()
+
+	-- KNOCKED OFF LINE, not just slowed.
+	--
+	-- A spinout used to be purely cosmetic plus a speed penalty: the body
+	-- thrashed, but `forward` never moved, so you came out of it pointing
+	-- exactly where you went in. Recovery was holding the throttle and
+	-- waiting — nothing to actually do.
+	--
+	-- Now the heading is knocked round and the kart shoved sideways, so
+	-- you finish the spin off your line and pointing slightly wrong, and
+	-- getting back on it is a real correction.
+	--
+	-- Deliberately small. The reason the spin was recoverable in the
+	-- first place is that you never lost your bearings, and a big enough
+	-- rotation turns "reposition" into "which way am I facing" — which is
+	-- disorienting rather than difficult. This is meant to cost you a
+	-- corner, not a lap.
+	--
+	-- Rotated about OUR up and shoved along OUR right, so it behaves the
+	-- same upside-down on a loop as it does on the flat.
+	-- Only for something that actually SPINS you. Scramble comes through
+	-- here with a zero duration — it inverts your steering rather than
+	-- spinning the kart — and knocking it off line as well would be a
+	-- second, unrelated punishment nobody asked that item for.
+	if duration > 0 then
+		local dir = if math.random() < 0.5 then -1 else 1
+		local yaw = math.rad(H.SpinYaw) * dir
+		self.forward = Util.rotateAbout(self.forward, self.up, yaw)
+		-- `travel` comes with it. Leaving it behind would launch the kart
+		-- sideways at full speed, which is a crash rather than a spin.
+		self.travel = Util.rotateAbout(self.travel, self.up, yaw)
+		self.forward, self.up = Util.orthonormal(self.forward, self.up)
+
+		local right = self.forward:Cross(self.up)
+		if right.Magnitude > 1e-4 then
+			self.pos += right.Unit * H.SpinShove * dir
+		end
+	end
 	self.state = STATE_GRIP
 	self.driftDir, self.driftBlend, self.tier = 0, 0, 0
 	self.burnStage = 0
