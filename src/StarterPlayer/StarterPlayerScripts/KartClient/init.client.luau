@@ -57,6 +57,8 @@ local Projectiles = require(script.Projectiles)
 local TouchHud = require(script.TouchHud)
 local Rider = require(script.Rider)
 local RemoteKarts = require(script.RemoteKarts)
+local RemoteAudio = require(script.RemoteAudio)
+local Music = require(script.Music)
 
 local H = Config.Hud
 local HAP = Config.Haptics
@@ -86,6 +88,9 @@ local respawn = Respawn.new()
 -- Made once rather than per kart: it holds motor state, not kart state,
 -- and rebuilding it on every respawn would drop a rumble mid-decay.
 local haptics = Haptics.new()
+-- Outlives any kart: the soundtrack shouldn't restart because you
+-- respawned.
+local music = Music.new()
 -- Mobile only, and nil everywhere else — every call site is guarded, so
 -- desktop carries no touch code at all rather than an inert copy of it.
 local touch = if TouchHud.wanted() then TouchHud.new() else nil
@@ -440,6 +445,10 @@ Projectiles.start()
 -- are, we decide what to draw in between.
 RemoteKarts.start()
 
+-- Everyone else's engines and tyres, worked out from how their karts
+-- move. Without it a race is silent except for your own kart.
+RemoteAudio.start()
+
 -- Checkpoint sanity check, once. Delayed rather than immediate: tagged
 -- parts stream in with the rest of Workspace, so counting them on the
 -- first frame reports a track that looks half-built.
@@ -470,6 +479,9 @@ end
 RunService.Heartbeat:Connect(function(dt)
 	matchHud:Update(match)
 	feedHud:Update()
+	-- Here rather than in step() because the soundtrack has to play in
+	-- the lobby, and step() returns early whenever there is no kart.
+	music:Update(dt, match:Phase())
 	-- Outside step() on purpose: the pad has to keep fading after you
 	-- leave the kart, and step() returns early once there's no simulation.
 	if touch then

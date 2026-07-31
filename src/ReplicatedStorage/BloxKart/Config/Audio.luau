@@ -80,4 +80,36 @@ return {
 	EngineMaxPitch = 1.85, -- pitch at MaxSpeed
 	EngineBoostPitch = 2.15, -- pitch while boosting
 	EnginePitchRate = 7, -- how fast pitch chases speed
+
+	--== OTHER PEOPLE'S KARTS =========================================
+	-- Every sound above is built on the client and parented to YOUR
+	-- kart, and client-made instances never replicate — so all of it was
+	-- audible to exactly one person. A race sounded like driving alone.
+	--
+	-- RemoteAudio gives every other kart an engine and a set of tyres,
+	-- worked out from the only thing that does replicate: where the kart
+	-- is. Speed is how far it moved; slip is the angle between the way it
+	-- moved and the way it faces, which is not an approximation of
+	-- drifting but the definition of it.
+	--
+	-- No extra replication, which matters — publishing "am I drifting"
+	-- per kart per frame is exactly the SetAttribute traffic this file is
+	-- careful about everywhere else.
+	RemoteEnabled = true,
+
+	-- Quieter than your own, both of them. You should hear the pack
+	-- without losing your own kart in it, and eight engines at full
+	-- volume is a wall rather than a race.
+	RemoteEngineShare = 0.45,
+	RemoteScreechShare = 0.7, -- tyres carry further than engines, and a
+	-- drift beside you is worth hearing
+
+	RemoteRollOff = 140, -- studs. Short enough that the field ahead is a
+	-- hint rather than a crowd in your ear
+
+	-- How fast the estimated speed follows the measured one. Replication
+	-- arrives in steps, so the raw frame delta is zero on frames with no
+	-- update and double on the frame after — unsmoothed, every remote
+	-- engine warbles.
+	RemoteSmoothing = 8,
 }
