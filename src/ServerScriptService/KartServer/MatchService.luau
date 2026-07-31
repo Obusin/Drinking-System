@@ -57,6 +57,18 @@ local function racerCount(): number
 	return n
 end
 
+-- Racers with a person behind them. The field can be mostly bots, and
+-- anything asking "is everyone ready" means everyone who can answer.
+local function humanRacers(): number
+	local n = 0
+	for _, player in Players:GetPlayers() do
+		if KartService.kartFor(player) then
+			n += 1
+		end
+	end
+	return n
+end
+
 -- Players who have left still sit in `ready` until PlayerRemoving fires;
 -- checking Parent means a leaver can never make the lobby look readier
 -- than it is.
@@ -206,7 +218,13 @@ local function tick()
 	end
 
 	if phase == P.Intermission then
-		local everyoneReady = M.AllowReadySkip and racers > 0 and readyCount() >= racers
+		-- Ready is compared against the HUMANS, not the field. Bots have
+		-- no way to press ready and are always willing, so counting them
+		-- as unready made the skip impossible to satisfy the moment any
+		-- bot existed — one human in a five-kart lobby could never start
+		-- early, and it looked like the button had stopped working.
+		local waiting = humanRacers()
+		local everyoneReady = M.AllowReadySkip and waiting > 0 and readyCount() >= waiting
 		if everyoneReady or Match.timeLeft(endsAt) <= 0 then
 			startGrid()
 		else

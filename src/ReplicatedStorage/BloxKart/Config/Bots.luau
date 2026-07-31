@@ -31,7 +31,10 @@ return {
 	--== FIELD =========================================================
 	-- Filled up to this many RACERS in total, humans included. Three
 	-- means solo practice is a four-kart race.
-	FillTo = 2, -- one human plus one bot
+	-- Counts HUMANS TOO, so this is the size of the field and not the
+	-- number of bots. Five means solo practice is you plus four bots, and
+	-- a four-player lobby only gets one.
+	FillTo = 5,
 	MaxBots = 7, -- never more than the grid has slots for
 
 	--== IDLE  (rig test) ==============================================
