@@ -167,6 +167,10 @@ local function launch(part: BasePart, vel: Vector3, lifetime: number)
 		-- say where it started and how hard it left.
 		from = part.Position,
 		speed = vel.Magnitude,
+		-- Where it was last frame, for the swept ground test in
+		-- stepSettling. Without this the only way to know it had landed
+		-- was to ask physics, which never noticed.
+		last = part.Position,
 	})
 
 	if Config.Items.ThrowDebug then
@@ -245,33 +249,36 @@ end
 -- was, which for a bomb still in flight is in the air. "Doesn't stick to
 -- its landing point" is that: it never reached a landing point, and it
 -- was stopped anyway.
+-- Plants the part flush on a surface it has been shown to have reached.
+--
+-- Sits it half its own height above the contact point and keeps its yaw,
+-- so a thrown model settles upright rather than snapping to face
+-- somewhere new on landing.
+--
+-- RE-ARMS THE OWNER GRACE. That grace starts when the item is THROWN and
+-- a forward throw spends most of it in the air, so by the time the thing
+-- is a trap on the road the person who threw it has almost no protection
+-- left. Restarting it here covers the part that matters. Guarded on the
+-- attribute existing, so scattered drops — which have no arming — are
+-- untouched.
+local function plant(part: BasePart, at: Vector3, normal: Vector3)
+	local _, y, _ = part.CFrame:ToEulerAnglesYXZ()
+	part.CFrame = CFrame.new(at + normal * (part.Size.Y * 0.5)) * CFrame.Angles(0, y, 0)
+	part.Anchored = true
+	part.CanCollide = false
+	if part:GetAttribute(Names.ARM_AT) then
+		part:SetAttribute(Names.ARM_AT, workspace:GetServerTimeNow() + Config.Items.HazardOwnerGrace)
+	end
+	landingRing(at, normal, part.Color)
+end
+
 local function groundOut(part: BasePart): boolean
 	local from = part.Position + Vector3.yAxis * Config.Items.SettleProbeUp
 	local hit = workspace:Raycast(from, Vector3.yAxis * -Config.Items.SettleProbeDown, WorldFilter.rayParams)
 	if not hit then
 		return false
 	end
-	-- Sat ON the surface: half the part's height above the contact point,
-	-- keeping its yaw so a thrown model doesn't snap around on landing.
-	local _, y, _ = part.CFrame:ToEulerAnglesYXZ()
-	part.CFrame = CFrame.new(hit.Position + hit.Normal * (part.Size.Y * 0.5)) * CFrame.Angles(0, y, 0)
-	part.Anchored = true
-	part.CanCollide = false
-	-- RE-ARMED ON LANDING.
-	--
-	-- The grace starts when the item is THROWN, and a forward throw
-	-- spends most of it in the air — so by the time the thing is actually
-	-- on the road, the person who threw it is already driving at it with
-	-- almost no protection left. Restarting the clock here means the
-	-- grace covers the part that matters: the moment it becomes a trap.
-	--
-	-- Only for hazards; drops and other settling parts have no arming.
-	if part:GetAttribute(Names.ARM_AT) then
-		part:SetAttribute(Names.ARM_AT, workspace:GetServerTimeNow() + Config.Items.HazardOwnerGrace)
-	end
-
-	-- Says "it landed HERE", to everybody.
-	landingRing(hit.Position, hit.Normal, part.Color)
+	plant(part, hit.Position, hit.Normal)
 	return true
 end
 
@@ -286,6 +293,45 @@ local function stepSettling()
 			table.remove(settling, i)
 			continue
 		end
+		----------------------------------------------------------------
+		-- DID IT CROSS THE GROUND SINCE LAST FRAME?
+		--
+		-- Asking physics whether it landed does not work, and the numbers
+		-- say why: an item leaves the kart at over 200 studs/s, which is
+		-- 3.7 studs per physics step, while oil is a 0.2-stud plate and a
+		-- mine is 1.2. Both pass entirely through the road between one
+		-- step and the next, so there is no contact to detect — the thing
+		-- simply keeps going and falls out of the world.
+		--
+		-- So the ground test is a SWEPT one: a ray along the segment the
+		-- part actually travelled this frame. Thickness and speed stop
+		-- mattering, because a segment cannot skip over a surface the way
+		-- a moving box can.
+		--
+		-- This is also why the previous fix didn't hold. Probing straight
+		-- down from where the part ended up is fine for something resting
+		-- on the road and useless for something already beneath it.
+		----------------------------------------------------------------
+		local travelled = part.Position - (f.last or part.Position)
+		f.last = part.Position
+		if travelled.Magnitude > 1e-3 then
+			local hit = workspace:Raycast(part.Position - travelled, travelled, WorldFilter.rayParams)
+			if hit then
+				plant(part, hit.Position, hit.Normal)
+				if Config.Items.ThrowDebug then
+					print(
+						("[Throw] %s LANDED at %s, %.0f studs from where it was thrown"):format(
+							part.Name,
+							tostring(hit.Position),
+							(hit.Position - f.from).Magnitude
+						)
+					)
+				end
+				table.remove(settling, i)
+				continue
+			end
+		end
+
 		-- NOT AIRBORNE. Velocity alone is not "landed" — a lob passes
 		-- through a slow moment at the top of its arc, and freezing it
 		-- there is a bomb hanging in the sky. So the part must also have
