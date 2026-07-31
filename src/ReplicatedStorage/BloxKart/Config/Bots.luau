@@ -223,12 +223,34 @@ return {
 	-- one that always lobs everything up the road.
 	ForwardChance = 0.65,
 
-	-- Draws the racing line (blue checkpoints, yellow spline between
-	-- them), a white line to where each bot is steering, and a throttle
-	-- bar above it that turns red when it thinks it's cornering.
+	-- WHAT THE COLOURS MEAN
 	--
-	-- The racing line is the one that settles arguments: if THAT cuts a
-	-- corner, no amount of bot tuning helps — it's RouteTension or more
-	-- checkpoints.
-	Debug = false,
+	--   blue balls    your checkpoints, dropped onto the road
+	--   yellow trail  the spline between them. THIS is the path bots
+	--                 follow — checkpoints are only the control points
+	--   green pairs   the road edge, measured from your checkpoint
+	--                 volumes. Bots are clamped inside these
+	--   white line    where that bot is steering RIGHT NOW
+	--   bar above     throttle. Red means it thinks it's cornering
+	--
+	-- READ THEM IN THIS ORDER, because each one only makes sense if the
+	-- one before it is right:
+	--
+	-- 1. Does GREEN sit on the tarmac? If it's out in the scenery, a gate
+	--    volume is wider than the road and bots will drive off there. If
+	--    it's well inside the kerb, they'll drive a needlessly tight line.
+	--    Nothing below matters until this is right — it's the box every
+	--    bot is confined to.
+	--
+	-- 2. Does YELLOW stay on the road? If the spline itself cuts a corner,
+	--    no amount of bot tuning helps: that's RouteTension, or more
+	--    checkpoints on that bend.
+	--
+	-- 3. Does WHITE point somewhere sensible? If it aims across an apex,
+	--    the lookahead is too long for that corner. If it saws side to
+	--    side, that's SteerGain or LineDamp.
+	--
+	-- Cheap enough to leave on while testing; turn it off before anyone
+	-- else plays, because everything it draws is a real part.
+	Debug = true,
 }
