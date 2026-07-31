@@ -32,5 +32,6 @@ return {
 	Rewards = require(script.Rewards), -- end-of-race results and payout
 	Level = require(script.Level), -- XP, the curve, and what earns it
 	Quests = require(script.Quests), -- the daily/weekly/monthly pools
+	Data = require(script.Data), -- persistence, off by default
 	Hud = require(script.Hud), -- shared on-screen styling
 }

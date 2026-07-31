@@ -33,6 +33,7 @@ local ProjectileService = require(script.ProjectileService)
 local BotService = require(script.BotService)
 local Progress = require(script.Progress)
 local Ledger = require(script.Ledger)
+local DataService = require(script.DataService)
 
 -- FIRST, before anything queries the world.
 --
@@ -75,6 +76,9 @@ Skins.start()
 -- written retroactively, so the recording goes in before the thing it
 -- records does.
 Ledger.start()
+-- Profiles. Gated by Config.Data.Enabled and mocked in Studio, so this
+-- is safe to leave wired while the trust seams are still open.
+DataService.start()
 MatchService.onGrid = BotService.onGrid
 -- A finished player's kart is handed to the AI for the rest of the
 -- round, and handed back before the next grid. Hooks rather than
