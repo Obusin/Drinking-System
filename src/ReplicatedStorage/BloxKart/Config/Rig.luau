@@ -52,6 +52,21 @@ return {
 	-- the AI is visibly in different karts reads as a demo rather than a
 	-- race. "" puts them in the placeholder.
 	BotVisual = "Kart",
+	-- Drops the art so its lowest point is on the road, whatever its
+	-- pivot happens to be.
+	--
+	-- PivotTo puts a model's PIVOT at the hitbox origin, and a pivot is
+	-- wherever the modeller left it — usually the bounding-box centre.
+	-- It is not the wheel line, so the kart floated or sank by however
+	-- far those two differ. That is a property of the ART, so it changes
+	-- every time the model is edited, and hand-tuning VisualOffset to
+	-- match is a fix that has to be redone silently forever.
+	--
+	-- Off if a kart genuinely should hover.
+	VisualAutoSit = true,
+
+	-- Deliberate trim on top of the automatic sit, for art that should
+	-- ride proud or tucked for a reason. Zero is correct for most models.
 	VisualOffset = Vector3.new(0, 0, 0),
 
 	--== PAINT =========================================================

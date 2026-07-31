@@ -116,7 +116,36 @@ function KartFactory.build(color: Color3?, visualName: string?): Model
 	end
 
 	visual.Parent = kart
-	visual:PivotTo(CFrame.new(RIG.VisualOffset))
+	--=================================================================
+	--  SIT THE ART ON ITS WHEELS.
+	--
+	--  PivotTo puts the model's PIVOT at the hitbox origin, and a model's
+	--  pivot is wherever the person who built it happened to leave it —
+	--  usually the centre of the bounding box, sometimes the origin of
+	--  whatever part was made first. It is not the wheel line, and there
+	--  is no reason it would be.
+	--
+	--  So the kart floated or sank by however far those two differ, which
+	--  is a property of the ART and therefore changes every time anybody
+	--  edits the model. Hand-tuning VisualOffset per kart is the kind of
+	--  fix that has to be redone silently forever.
+	--
+	--  Measured instead. The hitbox origin rides RideHeight above the
+	--  road, so the art's LOWEST point belongs exactly that far below the
+	--  origin — that is what "on its wheels" means, for any model.
+	--
+	--  VisualOffset survives as a deliberate trim on top, for art that
+	--  wants to sit proud or tucked for a reason.
+	--=================================================================
+	local drop = RIG.VisualOffset
+	if RIG.VisualAutoSit then
+		local pivot, size = visual:GetBoundingBox()
+		-- Bottom of the art, relative to its own pivot.
+		local bottom = (pivot.Position.Y - size.Y * 0.5) - visual:GetPivot().Position.Y
+		drop += Vector3.new(0, -Config.Handling.RideHeight - bottom, 0)
+		log("art sits %.2f studs off its pivot to reach the wheel line", drop.Y)
+	end
+	visual:PivotTo(CFrame.new(drop))
 
 	-- STRIPPED AFTER PivotTo, and the order is load-bearing.
 	--
