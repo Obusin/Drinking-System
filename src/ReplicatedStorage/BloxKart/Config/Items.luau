@@ -142,6 +142,17 @@ return {
 	DropSize = 3,
 	DropBillboard = 4.5, -- studs across, the icon shown above it
 
+	-- How far the icon floats above the part it belongs to.
+	--
+	-- A billboard is centred on its adornee and the part rests with its
+	-- bottom on the road, so without this half the icon is underground
+	-- and the pickup looks sunk into the tarmac rather than lying on it.
+	--
+	-- Half the billboard plus a margin: enough to clear the surface
+	-- completely, low enough that the icon still reads as belonging to
+	-- the thing on the ground rather than hovering unrelated above it.
+	DropLift = 3,
+
 	--== PROJECTILE REPLICATION ========================================
 	-- Missiles are simulated on the server for hits and drawn by each
 	-- client for looks (see ProjectileService / KartClient.Projectiles).

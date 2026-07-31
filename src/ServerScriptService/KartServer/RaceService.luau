@@ -739,6 +739,19 @@ function RaceService.start()
 
 				local bb = Instance.new("BillboardGui")
 				bb.Size = UDim2.fromScale(IT.DropBillboard, IT.DropBillboard)
+				-- LIFTED CLEAR OF THE ROAD.
+				--
+				-- A BillboardGui is centred on its adornee, and the part it
+				-- hangs off sits with its BOTTOM on the tarmac — so half the
+				-- icon was below the surface. With AlwaysOnTop false the road
+				-- occludes it honestly, which reads as the pickup being sunk
+				-- into the ground rather than lying on it.
+				--
+				-- Offset rather than AlwaysOnTop on purpose: an icon that
+				-- draws through walls stops being a thing in the world and
+				-- becomes a HUD element that happens to have a position, and
+				-- you can no longer tell what is round the next corner.
+				bb.StudsOffset = Vector3.new(0, IT.DropLift, 0)
 				bb.AlwaysOnTop = false
 				bb.LightInfluence = 0
 				bb.Parent = drop
