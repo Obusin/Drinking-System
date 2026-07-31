@@ -788,7 +788,14 @@ local function drive(bot, dt: number)
 	-- to lift is overruled — including the corner-braking above, which
 	-- reads a ramp's approach as a bend and would take the pace off at
 	-- exactly the wrong moment.
-	if bot.jumping then
+	-- Only while the wheels are still down. Throttle is what carries speed
+	-- UP the ramp; once airborne it has no honest job, and pinning it
+	-- there is what turned "commits to the jump" into "flies". Simulation
+	-- now refuses engine power in the air anyway (AirKeepsSpeed), so this
+	-- is belt and braces — but a bot asking for something it cannot have
+	-- is a lie in the debug readout, and the throttle bar is how these get
+	-- diagnosed.
+	if bot.jumping and sim.grounded then
 		c.touchThrottle = math.max(c.touchThrottle, B.JumpThrottle)
 	elseif (bot.ledgeFor or 0) > 0 then
 		-- Off the edge of the world beats every other consideration.

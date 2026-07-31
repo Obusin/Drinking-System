@@ -70,6 +70,23 @@ return {
 	MaxSlip = 32, -- degrees travel may lag the nose. Hard cap, so the
 	-- kart can never end up driving sideways or backwards
 
+	-- A kart in the air keeps the speed it launched with — no engine, no
+	-- brakes, no coasting.
+	--
+	-- Nothing used to check this, so full throttle accelerated you in
+	-- mid-air toward MaxSpeed. That's free speed for holding a button,
+	-- and it's what made bots fly off ramps once their jump logic started
+	-- pinning the throttle to clear a gap.
+	--
+	-- Held rather than decayed deliberately: coasting to zero in the air
+	-- would be equally invented, and makes every jump feel like a
+	-- punishment. Boost and nitro still apply while airborne — those are
+	-- thrust, not traction.
+	--
+	-- Set false to go back to the old behaviour if a track turns out to
+	-- depend on air acceleration.
+	AirKeepsSpeed = true,
+
 	TurnRate = 2.5, -- rad/s at full lock, low speed
 	TurnRateTop = 1.6, -- rad/s at full lock, top speed
 	TurnRampSpeed = 14, -- studs/s at which steering reaches full

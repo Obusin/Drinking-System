@@ -563,6 +563,31 @@ function Simulation:Step(dt: number, input): { [string]: any }
 	else
 		target, rate = 0, H.CoastRate
 	end
+	-- NO WHEELS, NO ENGINE — AND NO BRAKES EITHER.
+	--
+	-- Nothing above ever asked whether the kart was touching anything, so
+	-- a kart at full throttle accelerated in mid-air, all the way toward
+	-- MaxSpeed. Off a long jump that is free speed for holding a button,
+	-- and it made bots visibly fly: the ramp logic pins throttle at 1 to
+	-- clear a gap, which then kept accelerating them for the whole
+	-- flight instead of only up the ramp.
+	--
+	-- Speed is HELD, not decayed. Coasting to zero would be just as
+	-- invented in the opposite direction — there's no drag worth
+	-- modelling here, and a kart that sheds speed in the air makes every
+	-- jump feel like a punishment. You keep exactly what you launched
+	-- with.
+	--
+	-- Boost and nitro are exempt on purpose: those are thrust, not
+	-- traction, and a burn cut short by a ramp would feel broken.
+	--
+	-- `grounded` is last frame's value here — it's recomputed further
+	-- down in section 6. One frame of lag on a jump is not worth
+	-- restructuring Step for.
+	if not self.grounded and not boosting and not stage and H.AirKeepsSpeed then
+		target, rate = self.speed, 0
+	end
+
 	self.speed = Util.approach(self.speed, target, rate, dt)
 
 	if drifting then
