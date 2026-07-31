@@ -63,6 +63,13 @@ ProjectileService.start()
 -- they fill the grid on the match's cue rather than at startup.
 BotService.start()
 MatchService.onGrid = BotService.onGrid
+-- A finished player's kart is handed to the AI for the rest of the
+-- round, and handed back before the next grid. Hooks rather than
+-- requires, so MatchService never learns BotService exists.
+MatchService.onFinished = function(kart, who)
+	BotService.takeOver(kart, who .. " (AI)")
+end
+MatchService.onRelease = BotService.releaseTakeOvers
 -- A hit on a kart with no Player behind it goes to the bots. A hook
 -- rather than a require: RaceService is upstream of BotService and
 -- shouldn't have to know it exists.

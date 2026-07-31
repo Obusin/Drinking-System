@@ -1442,6 +1442,170 @@ function BotService.onGrid()
 	end
 end
 
+-- Builds the bot state for a kart that already exists.
+--
+-- Lifted out of fill() so a HUMAN'S kart can be handed to the AI on
+-- exactly the same terms. A takeover that built its own slightly
+-- different bot would drift out of step with the real one the first time
+-- either changed, and the whole point is that a taken-over kart drives
+-- like every other bot.
+local function makeBot(name: string, racer: any, kart: Model, hitbox: BasePart, seat: Instance)
+	-- Rolled before the table, so cruise can be derived from it.
+	local skill = rng:NextNumber(B.SkillMin, B.SkillMax)
+
+	local bot = {
+		name = name,
+		racer = racer,
+		kart = kart,
+		sim = Simulation.new(kart, hitbox, seat),
+		controls = bindControls(newControls()),
+		-- One roll, and it scales everything. A low-skill bot is a
+		-- worse driver, not a slower one.
+		skill = skill,
+		-- The speed it settles at on a straight, in studs/s. A limit
+		-- on the DRIVER — see the cruise block in drive() — not on the
+		-- kart, which is identical to yours and always will be.
+		cruise = Config.Handling.MaxSpeed * (B.CruiseMin + (B.CruiseMax - B.CruiseMin) * skill),
+		-- A fixed bias plus wander, so two bots don't drive the same
+		-- line and sit inside each other down a straight.
+		lineBias = rng:NextNumber(-1, 1) * B.LineOffset,
+		lineAt = rng:NextNumber(0, 6),
+		-- Per-bot phase, so two of them never wander or jitter in step
+		-- with each other — synchronised imperfection looks more
+		-- mechanical than no imperfection at all.
+		noiseAt = rng:NextNumber(0, 20),
+		throttleAt = rng:NextNumber(0, 20),
+		sawSteer = {},
+		heldSteer = 0,
+		lastCrossErr = nil,
+		crossRate = 0,
+		-- Placed on the grid by its first step, so a bot joining
+		-- mid-intermission still starts from the line.
+		needsGrid = true,
+		u = 0,
+		laps = 0,
+		-- The checkpoint it must reach next, counted upward and taken
+		-- mod the node count. Sequential, so skipping a gate stalls
+		-- progress until the bot comes back for it — the same rule a
+		-- player is held to.
+		nextIdx = 1,
+		-- Seconds off the ground, for the flying watchdog.
+		airFor = 0,
+		driftPlan = nil,
+		item = nil,
+		itemAt = 0,
+		lastU = nil,
+		-- Where it last had wheels on measured road, and the checkpoint
+		-- that goes with it. revive() keeps the second and deliberately
+		-- throws away the first — see the comment there.
+		safeU = nil,
+		safeCF = nil,
+		-- Seconds left of "there's no road that way". Held briefly
+		-- rather than read per frame, or a bot skimming an edge
+		-- flickers between two lines and commits to neither.
+		ledgeFor = 0,
+		-- True while the route carries on across a gap ahead: a ramp,
+		-- not a cliff. Overrides every reason to lift.
+		jumping = false,
+		-- checkpoint index -> how much this bot has learned to distrust
+		-- that stretch. Per bot: it's a driver learning a circuit, not
+		-- a fact about the circuit.
+		caution = {},
+		dbg = {},
+		boxes = TagZones.new(Config.Items.BoxTag, { cooldown = Config.Items.PickupCooldown, forceQueryable = true }),
+		drops = TagZones.new(Config.Items.DropTag, { cooldown = 0.5, forceQueryable = true }),
+		-- Bots drove straight over mines and oil without noticing:
+		-- hazards are detected by whoever hits them, and nothing was
+		-- doing that on their behalf.
+		hazards = TagZones.new(Config.Items.HazardTag, { cooldown = 0.5, forceQueryable = true }),
+	}
+	return bot
+end
+
+--=====================================================================
+--  TAKEOVER
+--
+--  Hands a finished player's kart to the AI so the race behind them
+--  still has a full field to fight through.
+--
+--  WHY THIS WORKS AT ALL, given the framework: a bot IS a kart with a
+--  server-side Simulation and an anchored hitbox, and a player's kart is
+--  a kart with a client-side Simulation and a client-owned hitbox. The
+--  takeover is just moving it from the second arrangement to the first.
+--
+--  ONE AUTHORITY, and that is the whole risk. Network ownership has to
+--  be revoked and the hitbox anchored BEFORE the bot starts stepping it,
+--  or the driver's client and the server both write the CFrame and the
+--  kart tears itself apart — the same two-authorities failure that made
+--  bot karts float earlier in the project.
+--
+--  The kart is marked so nothing else tries to give it back: the
+--  ownership watchdog re-asserts a driver's ownership every couple of
+--  seconds and would otherwise undo this immediately.
+--=====================================================================
+function BotService.takeOver(kart: Model, name: string): boolean
+	if not B.TakeOverOnFinish or not kart or not kart.Parent then
+		return false
+	end
+	-- Already driving itself, or already a bot's.
+	if kart:GetAttribute(Names.AI_DRIVEN) then
+		return false
+	end
+	for _, bot in bots do
+		if bot.kart == kart then
+			return false
+		end
+	end
+
+	local hitbox = kart.PrimaryPart
+	local seat = kart:FindFirstChild("Seat")
+	if not (hitbox and seat) then
+		return false
+	end
+
+	-- ORDER IS LOAD-BEARING. Mark first so the watchdog can never race
+	-- us, then take ownership back, then anchor. Anchoring while a client
+	-- still owns the part is the one ordering that visibly breaks.
+	kart:SetAttribute(Names.AI_DRIVEN, true)
+	pcall(function()
+		hitbox:SetNetworkOwner(nil)
+	end)
+	hitbox.Anchored = true
+
+	local bot = makeBot(name, { Name = name, Bot = true }, kart, hitbox, seat)
+	-- It inherits the race in progress rather than starting a fresh one:
+	-- the position, lap and checkpoint it had when its driver finished
+	-- are still true, and resetting them would drop it to last.
+	bot.laps = Route.passedFrom(kart:GetAttribute(Standings.ATTRIBUTE))
+	bot.u = Route.nearestU(bot.sim.pos)
+	bot.nextIdx = math.floor(bot.u) + 1
+	bot.safeU = bot.u
+	-- No rig: the finished player is still sitting in it, which is
+	-- exactly what it should look like.
+	table.insert(bots, bot)
+	log("%s handed to the AI", name)
+	return true
+end
+
+-- Gives a taken-over kart back, so the next round starts clean and its
+-- owner drives their own kart again.
+function BotService.releaseTakeOvers()
+	for i = #bots, 1, -1 do
+		local bot = bots[i]
+		if bot.kart.Parent and bot.kart:GetAttribute(Names.AI_DRIVEN) then
+			bot.kart:SetAttribute(Names.AI_DRIVEN, nil)
+			-- Left ANCHORED and unowned on purpose. KartService re-grants
+			-- ownership and unanchors from the seat's Occupant signal the
+			-- moment the round restarts, and doing it here would race that.
+			bot.boxes:Destroy()
+			bot.drops:Destroy()
+			bot.hazards:Destroy()
+			clearDebug(bot)
+			table.remove(bots, i)
+		end
+	end
+end
+
 -- Tops the field up to FillTo. Refuses mid-race: adding a bot to a race
 -- in progress puts a kart on the track from nowhere, and removing one
 -- deletes a racer somebody may be about to overtake.
@@ -1497,75 +1661,7 @@ function BotService.fill()
 			break
 		end
 
-		-- Rolled before the table, so cruise can be derived from it.
-		local skill = rng:NextNumber(B.SkillMin, B.SkillMax)
-
-		local bot = {
-			name = name,
-			racer = racer,
-			kart = kart,
-			sim = Simulation.new(kart, hitbox, seat),
-			controls = bindControls(newControls()),
-			-- One roll, and it scales everything. A low-skill bot is a
-			-- worse driver, not a slower one.
-			skill = skill,
-			-- The speed it settles at on a straight, in studs/s. A limit
-			-- on the DRIVER — see the cruise block in drive() — not on the
-			-- kart, which is identical to yours and always will be.
-			cruise = Config.Handling.MaxSpeed * (B.CruiseMin + (B.CruiseMax - B.CruiseMin) * skill),
-			-- A fixed bias plus wander, so two bots don't drive the same
-			-- line and sit inside each other down a straight.
-			lineBias = rng:NextNumber(-1, 1) * B.LineOffset,
-			lineAt = rng:NextNumber(0, 6),
-			-- Per-bot phase, so two of them never wander or jitter in step
-			-- with each other — synchronised imperfection looks more
-			-- mechanical than no imperfection at all.
-			noiseAt = rng:NextNumber(0, 20),
-			throttleAt = rng:NextNumber(0, 20),
-			sawSteer = {},
-			heldSteer = 0,
-			lastCrossErr = nil,
-			crossRate = 0,
-			-- Placed on the grid by its first step, so a bot joining
-			-- mid-intermission still starts from the line.
-			needsGrid = true,
-			u = 0,
-			laps = 0,
-			-- The checkpoint it must reach next, counted upward and taken
-			-- mod the node count. Sequential, so skipping a gate stalls
-			-- progress until the bot comes back for it — the same rule a
-			-- player is held to.
-			nextIdx = 1,
-			-- Seconds off the ground, for the flying watchdog.
-			airFor = 0,
-			driftPlan = nil,
-			item = nil,
-			itemAt = 0,
-			lastU = nil,
-			-- Where it last had wheels on measured road, and the checkpoint
-			-- that goes with it. revive() keeps the second and deliberately
-			-- throws away the first — see the comment there.
-			safeU = nil,
-			safeCF = nil,
-			-- Seconds left of "there's no road that way". Held briefly
-			-- rather than read per frame, or a bot skimming an edge
-			-- flickers between two lines and commits to neither.
-			ledgeFor = 0,
-			-- True while the route carries on across a gap ahead: a ramp,
-			-- not a cliff. Overrides every reason to lift.
-			jumping = false,
-			-- checkpoint index -> how much this bot has learned to distrust
-			-- that stretch. Per bot: it's a driver learning a circuit, not
-			-- a fact about the circuit.
-			caution = {},
-			dbg = {},
-			boxes = TagZones.new(Config.Items.BoxTag, { cooldown = Config.Items.PickupCooldown, forceQueryable = true }),
-			drops = TagZones.new(Config.Items.DropTag, { cooldown = 0.5, forceQueryable = true }),
-			-- Bots drove straight over mines and oil without noticing:
-			-- hazards are detected by whoever hits them, and nothing was
-			-- doing that on their behalf.
-			hazards = TagZones.new(Config.Items.HazardTag, { cooldown = 0.5, forceQueryable = true }),
-		}
+		local bot = makeBot(name, racer, kart, hitbox, seat)
 		table.insert(bots, bot)
 		BotService.seatRig(bot)
 		log("%s joined, skill %.2f", name, bot.skill)

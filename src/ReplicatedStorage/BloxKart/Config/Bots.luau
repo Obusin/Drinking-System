@@ -37,6 +37,18 @@ return {
 	FillTo = 5,
 	MaxBots = 7, -- never more than the grid has slots for
 
+	-- When a player crosses the line, the AI takes their kart over for
+	-- the rest of the round.
+	--
+	-- Without it a finished racer's kart simply parks on the track and
+	-- everyone still racing loses a rival — the field thins out exactly
+	-- when the fight for the remaining places is at its most interesting.
+	--
+	-- It inherits the position and lap it had at the flag rather than
+	-- starting fresh, so it carries on from where its driver left it
+	-- instead of dropping to last.
+	TakeOverOnFinish = true,
+
 	--== IDLE  (rig test) ==============================================
 	-- Parks the bots and just wags the wheel, so you can look at the
 	-- driver: rig seated, hands on the wheel, arms following the

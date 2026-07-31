@@ -137,6 +137,21 @@ function MatchHud:Go()
 	}):Play()
 end
 
+-- Who you're watching, on the status line.
+--
+-- Reuses the status label rather than adding a second one: while you're
+-- spectating there is no lap time to show and nothing else wants that
+-- row, so a second label would just be one more thing to keep in sync.
+--
+-- Nil clears it and hands the row back to Update().
+function MatchHud:SetSpectating(name: string?)
+	self.spectating = name
+	if name then
+		self.status.Text = ("SPECTATING  %s"):format(name:upper())
+		self.status.TextColor3 = M.StatusColor
+	end
+end
+
 --=====================================================================
 --  RESULTS
 --=====================================================================
@@ -220,6 +235,12 @@ end
 --  FRAME
 --=====================================================================
 function MatchHud:Update(match)
+	-- Spectating owns the status row while it's on; letting the normal
+	-- readout write here too would make the two flicker against each
+	-- other every frame.
+	if self.spectating then
+		return
+	end
 	local phase = match:Phase()
 
 	if phase == P.Waiting then

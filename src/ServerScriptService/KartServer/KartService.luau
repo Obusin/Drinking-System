@@ -157,6 +157,12 @@ local function bindOwnership(kart: Model, botKart: boolean?)
 		if botKart then
 			return
 		end
+		-- Same reason as the watchdog: a taken-over kart belongs to the
+		-- server until the round ends, and the driver is still sitting in
+		-- it, so this signal would otherwise hand it straight back.
+		if kart:GetAttribute(Names.AI_DRIVEN) then
+			return
+		end
 		local occupant = seat.Occupant
 		local driver = occupant and Players:GetPlayerFromCharacter(occupant.Parent)
 
@@ -229,6 +235,13 @@ local function createKart(name: string, slot: number, player: any?): Model
 	)
 	local kart = KartFactory.build(KartFactory.colorFor(slot), wanted)
 	kart.Name = name
+	-- Who is driving, as text, for anything that has to SHOW it — the
+	-- results board and the spectator line. Players could be resolved
+	-- through OWNER, but a bot has no UserId and no presence on the
+	-- client at all, so both read this instead.
+	if player then
+		kart:SetAttribute(Names.RACER_NAME, player.Name)
+	end
 	kart:PivotTo(Placement.cframeFor(pad, slot))
 	kart.Parent = workspace
 	bindOwnership(kart, isBot(player))
@@ -478,6 +491,13 @@ function KartService.start()
 			task.wait(RIG.OwnershipCheck)
 			for racer, kart in karts do
 				if isBot(racer) then
+					continue
+				end
+				-- Handed to the AI when its driver finished. Giving
+				-- ownership back here would put the client and the server
+				-- both in charge of one kart, which is the failure this
+				-- whole watchdog exists to avoid.
+				if kart:GetAttribute(Names.AI_DRIVEN) then
 					continue
 				end
 				local hitbox = kart.PrimaryPart

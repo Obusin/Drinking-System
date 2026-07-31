@@ -29,6 +29,19 @@ Names.KART_TAG = "Kart"
 
 -- On a kart. Maps a model back to the player who owns it, which is how
 -- every system that starts from a kart finds the human.
+-- Set while a finished player's kart is being driven by the AI.
+--
+-- Read by three places that would otherwise undo the takeover: the
+-- ownership watchdog (which re-grants a driver their kart every couple
+-- of seconds), KartService's seat handler, and the driver's own client,
+-- which has to stop simulating a kart it no longer owns.
+Names.AI_DRIVEN = "AiDriven"
+
+-- Who is driving, as text. Players resolve through OWNER, but a bot has
+-- no UserId and no existence on the client at all, so anything that has
+-- to DISPLAY a name reads this instead of guessing.
+Names.RACER_NAME = "RacerName"
+
 Names.OWNER = "OwnerUserId"
 
 -- On a power-up box. Server-owned: set when collected, cleared when it

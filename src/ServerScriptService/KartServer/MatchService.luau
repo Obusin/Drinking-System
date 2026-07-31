@@ -147,6 +147,12 @@ local function startGrid()
 	if MatchService.onGrid then
 		MatchService.onGrid()
 	end
+	-- Karts handed to the AI last round go back to their owners BEFORE
+	-- the grid is assigned, or a player would line up in a kart the
+	-- server is still driving.
+	if MatchService.onRelease then
+		MatchService.onRelease()
+	end
 	clearFinishes()
 	clearHazards()
 	table.clear(ready)
@@ -185,6 +191,16 @@ local function finishKart(kart: Model, who: string, totalTime: number)
 	kart:SetAttribute(Match.FINISH_PLACE, finishers)
 	kart:SetAttribute(Match.FINISH_TIME, totalTime)
 	log("%s finished P%d in %.2fs", who, finishers, totalTime)
+
+	-- The AI takes the kart over for whatever is left of the round, so
+	-- the people still racing keep a full field to fight through instead
+	-- of watching rivals park on the track as they finish.
+	--
+	-- A hook rather than a require: MatchService is upstream of
+	-- BotService and shouldn't learn it exists. Same pattern as onGrid.
+	if MatchService.onFinished then
+		MatchService.onFinished(kart, who)
+	end
 
 	if finishers == 1 then
 		-- The leader is home. Everyone else is on the clock now, so the
@@ -343,6 +359,12 @@ end
 -- Set by BotService, so MatchService needn't know bots exist — it just
 -- gives whoever cares a moment before the grid is laid out.
 MatchService.onGrid = nil
+-- Called when a racer crosses the line, so their kart can be handed to
+-- the AI for the rest of the round, and when the grid is next assigned
+-- so it can be handed back. Declared here rather than only assigned in
+-- init.server, so the contract is visible from the file that calls them.
+MatchService.onFinished = nil
+MatchService.onRelease = nil
 
 function MatchService.phase(): string
 	return phase

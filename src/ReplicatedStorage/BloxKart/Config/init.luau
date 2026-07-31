@@ -28,5 +28,6 @@ return {
 	Touch = require(script.Touch), -- mobile on-screen controls
 	Haptics = require(script.Haptics), -- controller rumble
 	Music = require(script.Music), -- background playlists
+	Spectate = require(script.Spectate), -- watching after you finish
 	Hud = require(script.Hud), -- shared on-screen styling
 }

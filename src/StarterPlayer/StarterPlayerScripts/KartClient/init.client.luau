@@ -35,6 +35,9 @@ local UserInputService = game:GetService("UserInputService")
 
 local Config = require(ReplicatedStorage:WaitForChild("BloxKart"):WaitForChild("Config"))
 local Names = require(ReplicatedStorage.BloxKart.Names)
+-- The shared match contract (phase names, finish attributes), distinct
+-- from script.Match which is the client's mirror of it.
+local Shared = require(ReplicatedStorage.BloxKart.Match)
 local WorldFilter = require(ReplicatedStorage.BloxKart.WorldFilter)
 local Simulation = require(ReplicatedStorage.BloxKart.Simulation)
 local Input = require(script.Input)
@@ -59,6 +62,7 @@ local Rider = require(script.Rider)
 local RemoteKarts = require(script.RemoteKarts)
 local RemoteAudio = require(script.RemoteAudio)
 local Music = require(script.Music)
+local Spectate = require(script.Spectate)
 
 local H = Config.Hud
 local HAP = Config.Haptics
@@ -91,6 +95,9 @@ local haptics = Haptics.new()
 -- Outlives any kart: the soundtrack shouldn't restart because you
 -- respawned.
 local music = Music.new()
+-- Also outlives the kart: you spectate precisely when you no longer
+-- have one to drive.
+local spectate = Spectate.new()
 -- Mobile only, and nil everywhere else — every call site is guarded, so
 -- desktop carries no touch code at all rather than an inert copy of it.
 local touch = if TouchHud.wanted() then TouchHud.new() else nil
@@ -148,6 +155,18 @@ end
 --=====================================================================
 local function step(dt: number)
 	if not sim or sim.seat.Occupant == nil then
+		return
+	end
+
+	-- HANDED TO THE AI. We finished, the server took the kart over, and
+	-- it now owns the hitbox outright.
+	--
+	-- We must stop simulating it. Our Simulation would carry on writing
+	-- CFrames that no longer replicate — so the kart would drive off
+	-- normally on OUR screen and be somewhere else entirely for everyone
+	-- else, which is the two-authorities failure in its most confusing
+	-- form. Spectating takes over the camera from here.
+	if sim.model and sim.model:GetAttribute(Names.AI_DRIVEN) then
 		return
 	end
 
@@ -482,10 +501,36 @@ RunService.Heartbeat:Connect(function(dt)
 	-- Here rather than in step() because the soundtrack has to play in
 	-- the lobby, and step() returns early whenever there is no kart.
 	music:Update(dt, match:Phase())
+
+	-- Spectating, once our own kart has crossed the line. Here rather
+	-- than in step() because step() returns early the moment the AI takes
+	-- the kart over, which is the exact instant this has to start.
+	local mine = sim and sim.model
+	local done = mine ~= nil and mine:GetAttribute(Shared.FINISH_PLACE) ~= nil
+	spectate:Update(dt, match:Phase(), done)
+	matchHud:SetSpectating(spectate:TargetName())
 	-- Outside step() on purpose: the pad has to keep fading after you
 	-- leave the kart, and step() returns early once there's no simulation.
 	if touch then
 		touch:Update(dt)
+	end
+end)
+
+-- Cycling spectator targets. Plain UserInputService for the same reason
+-- as ready-up below: ContextActions are bound only while driving, and
+-- spectating is by definition what you do when you aren't.
+UserInputService.InputBegan:Connect(function(input, processed)
+	if processed then
+		return
+	end
+	if input.KeyCode == Enum.KeyCode.E or input.KeyCode == Enum.KeyCode.Right then
+		spectate:Next()
+	elseif input.KeyCode == Enum.KeyCode.Q or input.KeyCode == Enum.KeyCode.Left then
+		spectate:Prev()
+	elseif input.KeyCode == Enum.KeyCode.ButtonR1 then
+		spectate:Next()
+	elseif input.KeyCode == Enum.KeyCode.ButtonL1 then
+		spectate:Prev()
 	end
 end)
 
