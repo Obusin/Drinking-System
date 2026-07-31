@@ -85,6 +85,60 @@ local function rocketTemplate(): Instance?
 	return model
 end
 
+-- WHICH WAY THE MODEL'S NOSE POINTS, worked out from the model.
+--
+-- Guessing this in config is a round trip per attempt — build, launch,
+-- watch it fly sideways, change a number, repeat — and it has to be
+-- redone for every rocket anyone ever authors. The model already knows
+-- the answer: a missile is long and thin, so its longest bounding-box
+-- axis IS its nose axis.
+--
+-- So the offset is derived. Rotate that axis onto lookAt's -Z and the
+-- rocket points where it is going, whatever local axis it was built
+-- along.
+--
+-- WHAT THIS CANNOT KNOW is nose from tail — both ends of the long axis
+-- look identical to a bounding box. That single bit is
+-- ProjectileModelFlip, which is one boolean rather than four rotations
+-- to choose between.
+local function faceOffset(art: Instance): CFrame
+	if not IT.ProjectileModelAutoFace then
+		return CFrame.identity
+	end
+
+	local size: Vector3
+	if art:IsA("Model") then
+		local _, s = art:GetBoundingBox()
+		size = s
+	elseif art:IsA("BasePart") then
+		size = art.Size
+	else
+		return CFrame.identity
+	end
+
+	local axis
+	if size.X >= size.Y and size.X >= size.Z then
+		axis = Vector3.xAxis
+	elseif size.Y >= size.Z then
+		axis = Vector3.yAxis
+	else
+		axis = Vector3.zAxis
+	end
+
+	-- Already built the right way round: -Z is what lookAt wants.
+	if axis == Vector3.zAxis then
+		return if IT.ProjectileModelFlip then CFrame.Angles(0, math.pi, 0) else CFrame.identity
+	end
+
+	-- lookAt(origin, axis) maps -Z onto `axis`; the inverse maps `axis`
+	-- onto -Z, which is exactly the correction. The explicit up vector
+	-- matters for a nose-up model, where the default up is parallel to
+	-- the look direction and lookAt has no answer.
+	local up = if axis == Vector3.yAxis then Vector3.zAxis else Vector3.yAxis
+	local o = CFrame.lookAt(Vector3.zero, axis, up):Inverse()
+	return if IT.ProjectileModelFlip then o * CFrame.Angles(0, math.pi, 0) else o
+end
+
 local function makePart(item): BasePart
 	local spec = item.Projectile
 
@@ -124,9 +178,10 @@ local function makePart(item): BasePart
 
 	-- Pose the art on the root BEFORE welding, or the weld freezes it
 	-- wherever the template happened to sit.
+	--
 	-- Offset corrects the model's authored facing against lookAt's -Z
 	-- forward. Art only; the flight path never sees it.
-	local pose = part.CFrame * IT.ProjectileModelOffset
+	local pose = part.CFrame * faceOffset(art) * IT.ProjectileModelOffset
 	if art:IsA("Model") then
 		art:PivotTo(pose)
 	elseif art:IsA("BasePart") then

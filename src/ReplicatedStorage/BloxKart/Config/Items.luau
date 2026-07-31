@@ -111,31 +111,38 @@ return {
 	DebugInfiniteItem = "Missile",
 	DebugInfiniteRate = 1.5, -- seconds between top-ups
 
-	-- Corrects the model's authored facing.
+	-- WHICH WAY THE ROCKET POINTS.
 	--
-	-- The missile is drawn with CFrame.lookAt, whose forward is -Z. A
-	-- model built nose-along-+Z, or nose-up, or lying on its side, will
-	-- fly sideways with no offset — and that reads as a bug rather than
-	-- as a modelling convention.
+	-- Worked out from the model itself: a missile is long and thin, so
+	-- its longest bounding-box axis is its nose axis, and that axis is
+	-- rotated onto lookAt's -Z. Whatever local axis the model was built
+	-- along, it points where it is going.
 	--
-	-- Applied to the ART ONLY, never to the flight path. Rotating this
-	-- cannot change where a missile goes.
+	-- This replaced a table of four hand-written rotations to choose
+	-- between. That was a round trip per guess — launch, watch it fly
+	-- sideways, change a number, launch again — and it had to be redone
+	-- for every rocket anyone authored. One of the four was also written
+	-- down backwards, which is the other reason worked examples lose to
+	-- deriving it.
 	--
-	-- Each of these was checked by rotating the nose vector and confirming
-	-- it lands on (0, 0, -1). The +X line was wrong here first time round
-	-- and pointed the rocket backwards.
+	-- Set false to go back to picking ProjectileModelOffset by hand.
+	ProjectileModelAutoFace = true,
+
+	-- The one bit the geometry cannot supply: both ends of a long axis
+	-- look identical to a bounding box, so nose and tail are
+	-- indistinguishable. If the rocket flies tail-first, flip this.
 	--
-	--   nose along -Z (matches lookAt)  CFrame.identity
-	--   nose along +Z                   CFrame.Angles(0, math.pi, 0)
-	--   nose along +X                   CFrame.Angles(0, math.pi / 2, 0)
-	--   nose along -X                   CFrame.Angles(0, -math.pi / 2, 0)
-	--   nose pointing up (+Y)           CFrame.Angles(-math.pi / 2, 0, 0)
-	--
-	-- SET FOR A NOSE ALONG +X. The rocket was tumbling about its own X
-	-- rather than rolling about its nose, which is what a model built
-	-- along X looks like when it's rolled about Z. If it now flies
-	-- backwards, the nose is along -X and this wants the negative.
-	ProjectileModelOffset = CFrame.Angles(0, math.pi / 2, 0),
+	-- ON for the current Rocket, which was authored pointing the opposite
+	-- way down its long axis. This is the whole reason the boolean
+	-- exists — the auto-facing got the axis right and had a one-in-two
+	-- chance on the direction, which is exactly what it should be left to
+	-- guess at.
+	ProjectileModelFlip = true,
+
+	-- Extra rotation applied AFTER the automatic facing, for a model that
+	-- is off in some other way — built at a slant, or rolled so the fins
+	-- sit wrong. Art only; the flight path never sees it.
+	ProjectileModelOffset = CFrame.identity,
 
 	--== DROPPED ITEMS =================================================
 	-- Getting spun scatters your stack onto the track instead of deleting
