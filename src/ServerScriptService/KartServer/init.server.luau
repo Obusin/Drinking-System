@@ -32,6 +32,7 @@ local RaceService = require(script.RaceService)
 local ProjectileService = require(script.ProjectileService)
 local BotService = require(script.BotService)
 local Progress = require(script.Progress)
+local Ledger = require(script.Ledger)
 
 -- FIRST, before anything queries the world.
 --
@@ -70,6 +71,10 @@ BotService.start()
 -- can be an asset id rather than a separate model. Rig.SkinTest = false
 -- turns it off.
 Skins.start()
+-- History first. Nothing here persists yet, but a record cannot be
+-- written retroactively, so the recording goes in before the thing it
+-- records does.
+Ledger.start()
 MatchService.onGrid = BotService.onGrid
 -- A finished player's kart is handed to the AI for the rest of the
 -- round, and handed back before the next grid. Hooks rather than

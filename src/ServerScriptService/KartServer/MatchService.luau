@@ -193,6 +193,10 @@ local function enter(next: string, duration: number?)
 	-- Marked at the grid and diffed at the flag, so "+N XP this race" is
 	-- one subtraction rather than a second running total to keep in step.
 	if next == P.Grid then
+		-- Every row written from here on is traceable to this race.
+		-- Server time plus the round number, so it is unique across
+		-- servers without needing anything to hand one out.
+		Progress.matchId = ("%d_%d"):format(math.floor(workspace:GetServerTimeNow()), round)
 		for _, player in Players:GetPlayers() do
 			Progress.mark(player)
 		end

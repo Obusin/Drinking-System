@@ -32,6 +32,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local BloxKart = ReplicatedStorage:WaitForChild("BloxKart")
 local Config = require(BloxKart:WaitForChild("Config"))
+local Ledger = require(script.Parent.Ledger)
 
 local L = Config.Level
 
@@ -110,6 +111,11 @@ function Progress.award(player: Player?, amount: number, reason: string)
 		e.bolt += bolt
 	end
 
+	Ledger.record(player, "xp", amount, e.xp, reason, Progress.matchId)
+	if bolt > 0 then
+		Ledger.record(player, "bolt", bolt, e.bolt, "levelup", Progress.matchId)
+	end
+
 	if Progress.onAward then
 		Progress.onAward(player, {
 			amount = amount,
@@ -175,6 +181,36 @@ function Progress.finished(player: Player?, place: number, gridSlot: number?)
 	end
 	Progress.award(player, L.XpForPlace[place] or L.XpFloor, "finish P" .. tostring(place))
 end
+
+-- THE OTHER HALF OF THE SINGLE PATH.
+--
+-- Checks and deducts in ONE operation. A separate "can they afford it"
+-- followed by a deduct is a race, and a race is a dupe — two purchases
+-- can both pass the check before either takes the money.
+--
+-- Returns false rather than going negative. A balance that can go below
+-- zero is a balance that has already been spent twice.
+function Progress.spend(player: Player?, kind: string, cost: number, reason: string): boolean
+	if not player or cost <= 0 then
+		return false
+	end
+	local e = entry(player.UserId)
+	if kind ~= "bolt" then
+		-- Crystals have no balance yet, and refusing is the honest
+		-- answer. Silently succeeding would sell something for nothing.
+		return false
+	end
+	if e.bolt < cost then
+		return false
+	end
+	e.bolt -= cost
+	Ledger.record(player, kind, -cost, e.bolt, reason, Progress.matchId)
+	return true
+end
+
+-- Stamped by MatchService so every row can be traced to a race. Nil
+-- outside one, which is correct — a shop purchase belongs to no match.
+Progress.matchId = nil :: string?
 
 --=====================================================================
 --  COUNTERS
