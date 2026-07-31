@@ -22,6 +22,7 @@
 --]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Names = require(ReplicatedStorage.BloxKart.Names)
 local WorldFilter = require(ReplicatedStorage.BloxKart.WorldFilter)
 local Assets = require(script.Assets)
 local Skins = require(script.Skins)
@@ -30,6 +31,7 @@ local MatchService = require(script.MatchService)
 local RaceService = require(script.RaceService)
 local ProjectileService = require(script.ProjectileService)
 local BotService = require(script.BotService)
+local Progress = require(script.Progress)
 
 -- FIRST, before anything queries the world.
 --
@@ -84,6 +86,15 @@ end
 -- A kart leaving the world, by either route. The AI is unhooked FIRST:
 -- a bot stepping a Simulation against a destroyed model is a stream of
 -- errors rather than a visible bug.
+-- XP as it is earned, so a hit is worth something visibly rather than
+-- only on the results screen ten laps later.
+local xpRemote = Instance.new("RemoteEvent")
+xpRemote.Name = Names.XP_REMOTE
+xpRemote.Parent = ReplicatedStorage.BloxKart
+Progress.onAward = function(player, info)
+	xpRemote:FireClient(player, info)
+end
+
 MatchService.onRetire = function(kart)
 	BotService.detach(kart)
 	KartService.retire(kart)

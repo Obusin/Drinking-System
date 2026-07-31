@@ -51,6 +51,7 @@ local Match = require(script.Match)
 local MatchHud = require(script.MatchHud)
 local RewardHud = require(script.RewardHud)
 local Transition = require(script.Transition)
+local XpHud = require(script.XpHud)
 local RaceHud = require(script.RaceHud)
 local ControlsHud = require(script.ControlsHud)
 local SpeedHud = require(script.SpeedHud)
@@ -87,6 +88,7 @@ local match = Match.new()
 local matchHud = MatchHud.new()
 local rewardHud = RewardHud.new()
 local transition = Transition.new()
+local xpHud = XpHud.new()
 local hud = RaceHud.new()
 local controls = ControlsHud.new()
 local speedo = SpeedHud.new()
@@ -519,6 +521,14 @@ if rewardRemote then
 	end)
 end
 
+-- XP as it lands, not ten laps later on the results screen.
+local xpRemote = ReplicatedStorage.BloxKart:WaitForChild(Names.XP_REMOTE, 10)
+if xpRemote then
+	xpRemote.OnClientEvent:Connect(function(info)
+		xpHud:Award(info)
+	end)
+end
+
 local feedRemote = ReplicatedStorage.BloxKart:WaitForChild(Names.FEED_REMOTE, 10)
 if feedRemote then
 	feedRemote.OnClientEvent:Connect(function(msg)
@@ -730,6 +740,10 @@ RunService.Heartbeat:Connect(function(dt)
 			if serverReward then
 				payload.level = serverReward.level
 				payload.stats = RewardHud.statsFrom(serverReward.level)
+				-- Session-only, and the panel's PREVIEW line says so. It
+				-- is shown anyway because a balance that never moves is
+				-- indistinguishable from a balance that is broken.
+				payload.balance = { bolt = serverReward.level.bolt or 0, nitro = 0 }
 			end
 			-- Built BEFORE the wipe and shown behind it, so the panel is
 			-- already assembled the moment the band clears.
@@ -747,6 +761,7 @@ RunService.Heartbeat:Connect(function(dt)
 
 	matchHud:Update(match)
 	feedHud:Update()
+	xpHud:Update()
 	-- Here rather than in step() because the soundtrack has to play in
 	-- the lobby, and step() returns early whenever there is no kart.
 	music:Update(dt, match:Phase())

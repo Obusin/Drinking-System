@@ -92,5 +92,6 @@ Names.DROP_ITEM = "DroppedItem"
 -- point of landing one is that the lobby sees it.
 Names.FEED_REMOTE = "KartFeed"
 Names.REWARD_REMOTE = "KartReward"
+Names.XP_REMOTE = "KartXp"
 
 return Names

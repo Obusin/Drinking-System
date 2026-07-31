@@ -54,6 +54,43 @@ return {
 	Step = 120,
 	MaxLevel = 20,
 
+	--== LEVELLING UP =================================================
+	-- Bolt paid for reaching a new level. Flat, on purpose: a reward
+	-- that scales with level pays most to the people who need it least,
+	-- and the curve already makes later levels take longer. The reward
+	-- for levelling is the level.
+	--
+	-- SESSION ONLY, like the XP itself. Nothing persists until
+	-- DataService exists, and the results panel says so.
+	BoltPerLevel = 150,
+
+	--== THE TEMPORARY HUD =============================================
+	-- Placeholder. Stacking toasts bottom-centre, and a banner on the
+	-- level. Meant to be replaced wholesale by the real design — it is
+	-- here so the numbers are visible while they are being tuned, which
+	-- is the only way to find out whether they feel right.
+	ToastHold = 1.5,
+	ToastFade = 0.6,
+	ToastRows = 4,
+	ToastSize = 22,
+	ToastRowHeight = 28,
+	ToastPosition = UDim2.fromScale(0.5, 0.72),
+
+	BannerHold = 2.2,
+	BannerFade = 0.8,
+	BannerSize = 52,
+	BannerSubSize = 20,
+	BannerPosition = UDim2.fromScale(0.5, 0.33),
+
+	-- What each award is called on screen. The key is the `reason`
+	-- string Progress already writes for its audit line, so the two
+	-- cannot drift — a reason with no label here shows the reason.
+	Labels = {
+		hit = "HIT",
+		takedown = "TAKEDOWN",
+		elimination = "ELIMINATION",
+	},
+
 	--== FEED ==========================================================
 	-- The kill-feed line is "<attacker> [icon] <victim>". The icon
 	-- carries the verb, which is why there is no word for it: an icon

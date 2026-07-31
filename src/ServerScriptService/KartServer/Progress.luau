@@ -37,11 +37,11 @@ local L = Config.Level
 
 local Progress = {}
 
--- userId -> { xp, hits, takedowns, races }
+-- userId -> { xp, bolt, hits, takedowns, eliminations, races }
 local state: { [number]: any } = {}
 
 local function blank()
-	return { xp = 0, hits = 0, takedowns = 0, eliminations = 0, races = 0 }
+	return { xp = 0, bolt = 0, hits = 0, takedowns = 0, eliminations = 0, races = 0 }
 end
 
 local function entry(userId: number)
@@ -100,14 +100,31 @@ function Progress.award(player: Player?, amount: number, reason: string)
 	-- Bots never reach here — they have no Player — which is correct
 	-- and also the shape of bug this project keeps finding. Stated so
 	-- the next person does not "fix" it.
-	if after > before then
-		Progress.onLevelUp(player, after)
+	local gained = after - before
+	local bolt = 0
+	if gained > 0 then
+		-- PAID PER LEVEL CROSSED, not per award. One finish can carry
+		-- someone through two levels, and paying once would quietly
+		-- swallow the second.
+		bolt = L.BoltPerLevel * gained
+		e.bolt += bolt
+	end
+
+	if Progress.onAward then
+		Progress.onAward(player, {
+			amount = amount,
+			reason = reason,
+			level = after,
+			leveledUp = gained > 0,
+			bolt = bolt,
+		})
 	end
 end
 
--- Overridden by init.server if anything wants to react. A hook rather
--- than a require so this module stays downstream of nothing.
-function Progress.onLevelUp(_player: Player, _level: number) end
+-- Told about every award, so the client can show it as it happens.
+-- A hook rather than a remote in here: this module is the grant path
+-- and has no business owning replication. Set by init.server.
+Progress.onAward = nil :: ((Player, any) -> ())?
 
 function Progress.hit(player: Player?, takedown: boolean)
 	if not player then
@@ -157,6 +174,7 @@ function Progress.summary(player: Player)
 		hits = e.hits,
 		takedowns = e.takedowns,
 		eliminations = e.eliminations,
+		bolt = e.bolt,
 	}
 end
 
