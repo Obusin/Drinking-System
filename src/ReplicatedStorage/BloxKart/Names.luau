@@ -94,5 +94,6 @@ Names.FEED_REMOTE = "KartFeed"
 Names.REWARD_REMOTE = "KartReward"
 Names.XP_REMOTE = "KartXp"
 Names.STATS_REMOTE = "KartStats"
+Names.QUEST_REMOTE = "KartQuests"
 
 return Names

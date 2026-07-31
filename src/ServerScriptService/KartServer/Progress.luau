@@ -42,7 +42,7 @@ local Progress = {}
 local state: { [number]: any } = {}
 
 local function blank()
-	return { xp = 0, bolt = 0, hits = 0, takedowns = 0, eliminations = 0, races = 0, stats = {} }
+	return { xp = 0, bolt = 0, crystals = 0, hits = 0, takedowns = 0, eliminations = 0, races = 0, stats = {} }
 end
 
 local function entry(userId: number)
@@ -182,6 +182,28 @@ function Progress.finished(player: Player?, place: number, gridSlot: number?)
 	Progress.award(player, L.XpForPlace[place] or L.XpFloor, "finish P" .. tostring(place))
 end
 
+-- CURRENCY IN. The counterpart to spend, and the only way a balance
+-- goes up — quests, races and events all ask through here rather than
+-- touching a field, so the ledger row and the cap have one home.
+--
+-- Separate from `award`, which is XP: XP has a level curve behind it and
+-- currency does not, and folding them together would mean one function
+-- with two unrelated jobs.
+function Progress.grant(player: Player?, kind: string, amount: number, reason: string)
+	if not player or amount <= 0 then
+		return
+	end
+	local e = entry(player.UserId)
+	if kind == "bolt" then
+		e.bolt += amount
+	elseif kind == "crystals" then
+		e.crystals += amount
+	else
+		return
+	end
+	Ledger.record(player, kind, amount, if kind == "bolt" then e.bolt else e.crystals, reason, Progress.matchId)
+end
+
 -- THE OTHER HALF OF THE SINGLE PATH.
 --
 -- Checks and deducts in ONE operation. A separate "can they afford it"
@@ -195,16 +217,16 @@ function Progress.spend(player: Player?, kind: string, cost: number, reason: str
 		return false
 	end
 	local e = entry(player.UserId)
-	if kind ~= "bolt" then
-		-- Crystals have no balance yet, and refusing is the honest
-		-- answer. Silently succeeding would sell something for nothing.
+	local have = if kind == "bolt" then e.bolt elseif kind == "crystals" then e.crystals else nil
+	if not have or have < cost then
 		return false
 	end
-	if e.bolt < cost then
-		return false
+	if kind == "bolt" then
+		e.bolt -= cost
+	else
+		e.crystals -= cost
 	end
-	e.bolt -= cost
-	Ledger.record(player, kind, -cost, e.bolt, reason, Progress.matchId)
+	Ledger.record(player, kind, -cost, if kind == "bolt" then e.bolt else e.crystals, reason, Progress.matchId)
 	return true
 end
 
@@ -301,6 +323,7 @@ function Progress.summary(player: Player)
 		takedowns = e.takedowns,
 		eliminations = e.eliminations,
 		bolt = e.bolt,
+		crystals = e.crystals,
 	}
 end
 

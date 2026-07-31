@@ -85,6 +85,18 @@ return {
 	WipeAngle = -14, -- degrees off vertical
 	WipeTime = 0.42, -- seconds for the band to cross
 	WipeColor = Color3.fromRGB(255, 196, 62),
+
+	-- Art carried on the band, shown at the moment it covers the screen.
+	-- A wipe with a mark on it is a stinger; a wipe without one is a
+	-- coloured rectangle passing by.
+	--
+	-- Kept UPRIGHT while the band is angled — a logo rotated 14 degrees
+	-- reads as a mistake, not as style.
+	WipeImage = "rbxassetid://102129286849168",
+	WipeImageSize = 320, -- pixels on the long edge
+	-- Held briefly at full cover so the mark is legible rather than
+	-- glimpsed. Costs this much on top of WipeTime.
+	WipeImageHold = 0.18,
 	PanelStagger = 0.07, -- delay between panels landing
 	PanelSlide = 0.34, -- how far each panel travels in, as a fraction
 	PanelTime = 0.38,

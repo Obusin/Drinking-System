@@ -26,6 +26,7 @@ local TweenService = game:GetService("TweenService")
 
 local BloxKart = ReplicatedStorage:WaitForChild("BloxKart")
 local Config = require(BloxKart:WaitForChild("Config"))
+local Util = require(BloxKart:WaitForChild("Util"))
 
 local R = Config.Rewards
 
@@ -56,7 +57,25 @@ function Transition.new()
 	band.Position = UDim2.fromScale(-1.5, 0.5)
 	band.Parent = gui
 
-	return setmetatable({ gui = gui, band = band, busy = false }, Transition)
+	-- The mark, on the band but not rotated with it. Parented to the GUI
+	-- rather than to the band so the band's angle does not tip it: a logo
+	-- at 14 degrees reads as a mistake rather than as style.
+	local mark = Instance.new("ImageLabel")
+	mark.Name = "Mark"
+	mark.BackgroundTransparency = 1
+	mark.AnchorPoint = Vector2.new(0.5, 0.5)
+	mark.Position = UDim2.fromScale(0.5, 0.5)
+	mark.Size = UDim2.fromOffset(R.WipeImageSize, R.WipeImageSize)
+	mark.ScaleType = Enum.ScaleType.Fit
+	mark.Image = R.WipeImage
+	mark.ImageTransparency = 1
+	mark.Visible = R.WipeImage ~= ""
+	mark.Parent = gui
+	if R.WipeImage ~= "" then
+		Util.verifyImage(mark, R.WipeImage, "Transition")
+	end
+
+	return setmetatable({ gui = gui, band = band, mark = mark, busy = false }, Transition)
 end
 
 -- Sweeps once. `onCovered` fires on the frame the band is across the
@@ -87,6 +106,17 @@ function Transition:Play(onCovered: (() -> ())?): boolean
 	)
 	inTween:Play()
 
+	-- The mark fades up behind the band as it arrives, so it is already
+	-- there when the screen is covered rather than appearing after.
+	if self.mark.Visible then
+		self.mark.ImageTransparency = 1
+		TweenService
+			:Create(self.mark, TweenInfo.new(half * 0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+				ImageTransparency = 0,
+			})
+			:Play()
+	end
+
 	inTween.Completed:Connect(function()
 		if onCovered then
 			-- Guarded: a callback that throws must not leave the screen
@@ -95,6 +125,21 @@ function Transition:Play(onCovered: (() -> ())?): boolean
 			if not ok then
 				warn("[Transition] covered callback failed: " .. tostring(err))
 			end
+		end
+
+		-- Held at full cover before leaving, so the mark is read rather
+		-- than glimpsed. This is the only pause in the whole transition
+		-- and it is what makes it feel authored.
+		if self.mark.Visible and R.WipeImageHold > 0 then
+			task.wait(R.WipeImageHold)
+		end
+
+		if self.mark.Visible then
+			TweenService
+				:Create(self.mark, TweenInfo.new(half * 0.6, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+					ImageTransparency = 1,
+				})
+				:Play()
 		end
 
 		local outTween = TweenService:Create(

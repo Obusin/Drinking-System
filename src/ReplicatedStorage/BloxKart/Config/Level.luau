@@ -131,6 +131,28 @@ return {
 		bestLap = 1,
 	},
 
+	--== QUEST PANEL ===================================================
+	-- Left edge, under the leaderboard slot, after the reference. Rows
+	-- carry their own reward and bar; the layer header carries the
+	-- countdown, because a per-row timer would say the same thing three
+	-- times.
+	QuestPosition = UDim2.fromScale(0.012, 0.30),
+	QuestWidth = 340,
+	QuestRowHeight = 62,
+	QuestHeaderHeight = 30,
+	QuestTitleSize = 16,
+	QuestTextSize = 15,
+	QuestSmallSize = 13,
+	QuestBarHeight = 6,
+	QuestPanelColor = Color3.fromRGB(18, 18, 20),
+	QuestPanelTransparency = 0.25,
+	QuestDoneColor = Color3.fromRGB(120, 230, 130),
+
+	-- Which layers the panel shows, in order. Monthly is off by default:
+	-- three layers at once is a wall of text on a racing screen, and the
+	-- monthly is the one you check rarely.
+	QuestLayers = { "Daily", "Weekly" },
+
 	--== FEED ==========================================================
 	-- The kill-feed line is "<attacker> [icon] <victim>". The icon
 	-- carries the verb, which is why there is no word for it: an icon

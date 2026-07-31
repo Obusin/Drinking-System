@@ -68,6 +68,30 @@
 --]]
 
 return {
+	--== HOW MANY ARE HANDED OUT ========================================
+	Slots = { Daily = 3, Weekly = 5, Monthly = 3 },
+
+	--== METRICS THE SERVER COUNTS ITSELF ==============================
+	-- Everything else live is client-tallied and appears in
+	-- Config.Level.StatCaps, plus the `itemsUsed_<Id>` family which is
+	-- generated from the item catalogue.
+	--
+	-- The generator filters against these. A quest whose metric is not
+	-- live is unreachable, and handing a player a bar that cannot move
+	-- with no way to tell why is worse than handing them nothing.
+	ServerMetrics = {
+		races = true,
+		finishes = true,
+		wins = true,
+		podiums = true,
+		gridGain = true,
+		hits = true,
+		takedowns = true,
+		eliminations = true,
+		xp = true,
+		level = true,
+	},
+
 	--== DAILY =========================================================
 	-- Three slots a day, one drawn from each pool below, plus one
 	-- reroll. Rewards are Bolt and Pass XP only — Crystals come from
