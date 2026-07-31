@@ -244,6 +244,44 @@ local function step(dt: number)
 			continue
 		end
 
+		----------------------------------------------------------------
+		-- PROXIMITY FUZE — detonate at closest approach.
+		--
+		-- A missile that misses does not stop trying. It turns around,
+		-- comes back, misses again, and orbits — which is the "goes back
+		-- and forth instead of charging in" you can watch happen.
+		--
+		-- It is not a tuning problem. Pursuit steers at the target's
+		-- CURRENT bearing, so at close range and side-on the turn it
+		-- needs tightens faster than any turn rate can follow. Every
+		-- pure-pursuit missile does this; raising HomingRate moves the
+		-- radius where it starts and never removes it.
+		--
+		-- So: the moment the range to the locked target stops closing
+		-- while inside the fuze radius, that WAS the closest approach and
+		-- it goes off there. Real missiles carry a proximity fuze for
+		-- exactly this reason — a near miss is a hit, and nothing is
+		-- gained by flying past and trying again.
+		--
+		-- Only against the LOCKED target: "closest approach" is a
+		-- statement about something being chased. Everyone else is still
+		-- covered by the HitRadius test above.
+		----------------------------------------------------------------
+		local locked = p.target and p.target.PrimaryPart
+		if locked then
+			local range = (locked.Position - p.pos).Magnitude
+			local opening = p.lastRange ~= nil and range > p.lastRange
+			-- `or 0` so a future projectile without a fuze simply doesn't
+			-- have one, rather than erroring on the comparison.
+			if opening and p.lastRange <= (p.item.FuzeRadius or 0) then
+				detonate(p, p.target)
+				continue
+			end
+			p.lastRange = range
+		else
+			p.lastRange = nil
+		end
+
 		-- Low-rate correction. Deliberately NOT every frame: clients run
 		-- the same integration and only need pulling back into line
 		-- occasionally. This is the whole network cost of a projectile in

@@ -36,7 +36,16 @@ return {
 
 	--== FLIGHT ========================================================
 	Speed = 210, -- studs/s. Comfortably faster than a boosting kart
-	HomingRate = 3.2, -- how hard it can steer toward the target. Higher
+	-- HomingRate is a turn RATE, and Speed / HomingRate is the tightest
+	-- circle the missile can fly. At 210 studs/s, the old 3.2 meant a
+	-- 66-stud turning circle against a 7-stud kill radius — it could not
+	-- physically reach a target it had not already lined up on.
+	--
+	-- Simulated across bearings from 0 to 180 degrees and ranges from 15
+	-- to 60 studs: 3.2 failed to terminate 11 of 65 engagements, circling
+	-- until it expired, and missed a target directly behind it by 60
+	-- studs. At 9 all 65 terminate. 9 gives a 23-stud circle.
+	HomingRate = 9, -- how hard it can steer toward the target. Higher
 	-- is harder to dodge; uncapped would be unavoidable
 	-- RANGE = Speed x Lifetime. At 210 studs/s, 5s was only 1050 studs —
 	-- three or four checkpoints — so a missile aimed at someone further
@@ -45,6 +54,22 @@ return {
 	Lifetime = 12, -- ~2500 studs of range
 
 	HitRadius = 7,
+
+	-- PROXIMITY FUZE. Detonates the moment the range to the locked target
+	-- stops closing while inside this, because that instant IS the
+	-- closest approach.
+	--
+	-- Without it a missile that misses turns around and tries again, and
+	-- again — the back-and-forth. That is inherent to pursuit guidance,
+	-- not a tuning fault: steering at the target's current bearing needs
+	-- an ever-tighter turn as the range drops, and past some point no
+	-- turn rate is enough. Raising HomingRate moves where it starts and
+	-- never removes it.
+	--
+	-- Bigger than HitRadius on purpose: a near miss should count. Worst
+	-- observed detonation distance at 14 is about 13 studs, which reads
+	-- as a hit rather than as a missile giving up.
+	FuzeRadius = 14,
 
 	--== HEIGHT ========================================================
 	-- Held above whatever road is under the racing line, probed each
