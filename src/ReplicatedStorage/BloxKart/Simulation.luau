@@ -342,10 +342,13 @@ function Simulation:Step(dt: number, input): { [string]: any }
 	local now = os.clock()
 	local frozen = self.held or now < self.frozenUntil
 
-	-- A held kart is pinned, not merely uncontrollable: zeroing speed
-	-- each frame stops a boost that was live when the hold began from
-	-- carrying it off the line. Gravity is left alone so karts still
-	-- settle onto the grid.
+	-- A held kart is pinned, not merely uncontrollable. Gravity is left
+	-- alone so karts still settle onto the grid.
+	--
+	-- This zeroing is NOT what stops a live boost, though it used to
+	-- claim it was. Speed is re-targeted further down and a burn or pad
+	-- ignores throttle entirely, so it accelerated straight back out of
+	-- the hold. See the `if frozen` guard next to the burn stage.
 	if self.held then
 		self.speed = 0
 		self.slip = 0
@@ -503,6 +506,33 @@ function Simulation:Step(dt: number, input): { [string]: any }
 
 	local stage = N.Stages[self.burnStage]
 	self.burning = stage ~= nil
+
+	-- A HELD KART IS NOT DRIVEN BY ANYTHING, INCLUDING ITS OWN BOOST.
+	--
+	-- Zeroing speed at the top of Step was not enough, and the comment up
+	-- there claiming it stopped a live boost was simply wrong. Speed gets
+	-- re-targeted below: a burn or a boost pad sets `target` regardless
+	-- of throttle, so the very next line accelerated the kart straight
+	-- back out of the hold. A held kart with nitro lit drove away from
+	-- the grid at boost speed.
+	--
+	-- It showed up once bots started spending nitro: a bot that crossed
+	-- the line mid-burn kept driving through the results screen and the
+	-- intermission, which reads as "the bots move before the race
+	-- starts". ResetForRound clears all of this, but that only runs when
+	-- the grid is set — everything between the flag and the next grid was
+	-- uncovered.
+	--
+	-- Suppressed rather than cleared: the hold is temporary and a boost
+	-- interrupted by a phase change shouldn't be silently confiscated.
+	if frozen then
+		boosting = false
+		stage = nil
+		-- Published too, or Effects and Audio keep showing flames and
+		-- engine note on a kart that is standing still on the grid.
+		self.boosting = false
+		self.burning = false
+	end
 
 	----------------------------------------------------------------
 	-- 2. SPEED  — a lerp toward a target. No engine, no torque.
