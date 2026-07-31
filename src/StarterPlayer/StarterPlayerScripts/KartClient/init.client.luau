@@ -50,6 +50,7 @@ local Race = require(script.Race)
 local Match = require(script.Match)
 local MatchHud = require(script.MatchHud)
 local RewardHud = require(script.RewardHud)
+local Transition = require(script.Transition)
 local RaceHud = require(script.RaceHud)
 local ControlsHud = require(script.ControlsHud)
 local SpeedHud = require(script.SpeedHud)
@@ -85,6 +86,7 @@ local race = Race.new()
 local match = Match.new()
 local matchHud = MatchHud.new()
 local rewardHud = RewardHud.new()
+local transition = Transition.new()
 local hud = RaceHud.new()
 local controls = ControlsHud.new()
 local speedo = SpeedHud.new()
@@ -641,8 +643,73 @@ end
 -- suppressed.
 local shownForPhase = false
 
+-- EVERY PHASE CHANGE THAT MOVES THE PLAYER OR THE SCREEN GOES BEHIND THE
+-- WIPE. There are three, and they are all cuts:
+--
+--   → Grid     everyone is teleported onto the start line
+--   → Results  the panel opens over the world
+--   Results →  the panel closes and racing resumes
+--
+-- Driven off the phase the client already tracks rather than a new
+-- message from the server. A transition is presentation, and the client
+-- can see the phase change perfectly well on its own.
+local lastPhase = nil
+local gridWiped = false
+
 RunService.Heartbeat:Connect(function(dt)
 	local phase = match:Phase()
+
+	if phase ~= lastPhase then
+		local was = lastPhase
+		lastPhase = phase
+
+		-- Armed once per round, on the way INTO the countdown. Reset
+		-- inside the per-frame branch instead and it re-arms on the
+		-- frame after it fires, which is a wipe every frame until the
+		-- lights go out.
+		if phase == Shared.Phase.Intermission or phase == Shared.Phase.Waiting then
+			gridWiped = false
+		end
+
+		-- Not on the first frame: `was == nil` is joining the server, and
+		-- wiping the screen at someone who has only just arrived hides
+		-- the game from them for no reason.
+		--
+		-- The grid wipe is normally started a moment EARLIER, off the
+		-- intermission clock below. This is the backstop for the case
+		-- that cannot be predicted — everyone readying up skips the rest
+		-- of the countdown, so the teleport arrives without warning.
+		if was ~= nil and phase == Shared.Phase.Grid and not gridWiped then
+			gridWiped = true
+			transition:Play()
+		elseif was == Shared.Phase.Results then
+			-- Closing the board. Hidden on the covered frame so the panel
+			-- never visibly pops off the screen.
+			transition:Play(function()
+				shownForPhase = false
+				serverReward = nil
+				rewardHud:Hide()
+			end)
+		end
+	end
+
+	-- COVER THE TELEPORT, DON'T CHASE IT.
+	--
+	-- Everyone is moved onto the start line as Grid begins, so a wipe
+	-- triggered BY that phase change starts a frame after the cut it was
+	-- meant to hide — the player sees the teleport, then the wipe, which
+	-- is the wrong order and looks like a stutter rather than a
+	-- transition.
+	--
+	-- The intermission clock is already on the client, so the band is
+	-- launched to land exactly as the teleport does.
+	if phase == Shared.Phase.Intermission then
+		if not gridWiped and match:TimeLeft() <= Config.Rewards.WipeTime and not transition.busy then
+			gridWiped = true
+			transition:Play()
+		end
+	end
+
 	if phase == Shared.Phase.Results then
 		if not shownForPhase then
 			shownForPhase = true
@@ -653,9 +720,15 @@ RunService.Heartbeat:Connect(function(dt)
 				payload.level = serverReward.level
 				payload.xpGained = serverReward.xpGained
 			end
-			rewardHud:Show(payload)
+			-- Built BEFORE the wipe and shown behind it, so the panel is
+			-- already assembled the moment the band clears.
+			transition:Play(function()
+				rewardHud:Show(payload)
+			end)
 		end
-	elseif shownForPhase then
+	elseif shownForPhase and not transition.busy then
+		-- Fallback for any exit the phase-change branch above missed —
+		-- a suppressed panel must never be able to stay on screen.
 		shownForPhase = false
 		serverReward = nil
 		rewardHud:Hide()

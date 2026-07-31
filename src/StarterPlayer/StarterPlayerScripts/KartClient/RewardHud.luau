@@ -36,7 +36,6 @@
 		balance   { bolt, nitro }               -- optional
 --]]
 
-local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
@@ -130,33 +129,60 @@ local function nameFor(kart: Instance): string
 	return tostring(kart:GetAttribute(Names.RACER_NAME) or "Racer")
 end
 
+-- EVERY RACER, not just the ones who crossed the line.
+--
+-- Listing only finishers is why a player who was still driving when the
+-- clock ran out saw a board of nothing but bots — their own kart had no
+-- finish place, so it was filtered out of its own results screen. The
+-- bug reads as "I am missing from the list", and the fix is that a
+-- results board is a list of who raced, with finishing an attribute of
+-- an entry rather than the condition for having one.
+--
+-- Finishers first in finish order, then everyone else by how far round
+-- they got. That second group is ordered by the progress score the race
+-- already keeps, so a DNF still lands somewhere truthful.
 function RewardHud.preview(): { [string]: any }
 	local me = Players.LocalPlayer
-	local standings, myPlace = {}, nil
+	local finished, running = {}, {}
+	local myPlace = nil
 
-	for _, kart in CollectionService:GetTagged(Names.KART_TAG) do
+	for _, kart in Standings.allKarts() do
+		local mine = kart:GetAttribute(Names.OWNER) == me.UserId
 		local place = kart:GetAttribute(Shared.FINISH_PLACE)
-		if typeof(place) == "number" then
-			local mine = kart:GetAttribute(Names.OWNER) == me.UserId
+		local entry = {
+			place = place,
+			name = nameFor(kart),
+			kart = "BLOXKART",
+			-- The real progress score the race already tracks, not a
+			-- number derived from placement — deriving it would make the
+			-- score column a second, worse rendering of the column next
+			-- to it.
+			score = kart:GetAttribute(Standings.ATTRIBUTE) or 0,
+			isSelf = mine,
+			dnf = typeof(place) ~= "number",
+		}
+		if entry.dnf then
+			table.insert(running, entry)
+		else
 			if mine then
 				myPlace = place
 			end
-			table.insert(standings, {
-				place = place,
-				name = nameFor(kart),
-				kart = "BLOXKART",
-				-- The real progress score the race already tracks, not a
-				-- number derived from placement — deriving it would make
-				-- the score column a second, worse rendering of the
-				-- column next to it.
-				score = kart:GetAttribute(Standings.ATTRIBUTE) or 0,
-				isSelf = mine,
-			})
+			table.insert(finished, entry)
 		end
 	end
-	table.sort(standings, function(a, b)
+
+	table.sort(finished, function(a, b)
 		return a.place < b.place
 	end)
+	table.sort(running, function(a, b)
+		return a.score > b.score
+	end)
+
+	local standings = finished
+	for _, entry in running do
+		entry.place = #standings + 1
+		table.insert(standings, entry)
+	end
 
 	local bolt = 0
 	if myPlace then
@@ -195,21 +221,6 @@ function RewardHud.new()
 	dim.BorderSizePixel = 0
 	dim.Size = UDim2.fromScale(1, 1)
 	dim.Parent = gui
-
-	----------------------------------------------------------------
-	-- The wipe band. Oversized and rotated so its edges never enter
-	-- frame — a wipe you can see the end of stops being a wipe.
-	----------------------------------------------------------------
-	local band = Instance.new("Frame")
-	band.BackgroundColor3 = R.WipeColor
-	band.BorderSizePixel = 0
-	band.AnchorPoint = Vector2.new(0.5, 0.5)
-	band.Size = UDim2.fromScale(1.4, 2.2)
-	band.Rotation = R.WipeAngle
-	band.Position = UDim2.fromScale(-0.8, 0.5)
-	band.Visible = false
-	band.ZIndex = 50
-	band.Parent = gui
 
 	----------------------------------------------------------------
 	-- Top bar — balances
@@ -409,7 +420,6 @@ function RewardHud.new()
 	local self = setmetatable({
 		gui = gui,
 		dim = dim,
-		band = band,
 		panels = { top, left, right, mid, low },
 		-- Captured ONCE, at build. Reading a panel's current position as
 		-- its home is wrong the moment the screen is dismissed
@@ -576,6 +586,7 @@ function RewardHud:Show(payload)
 		row.Who.Text = tostring(entry.name or "?")
 		row.Kart.Text = string.upper(tostring(entry.kart or ""))
 		row.Score.Text = tostring(entry.score or "")
+		row.Kart.Text = if entry.dnf then "DID NOT FINISH" else row.Kart.Text
 		local c = if entry.isSelf then R.AccentColor else R.TextColor
 		row.Who.TextColor3 = c
 		row.Score.TextColor3 = c
@@ -699,15 +710,11 @@ function RewardHud:Show(payload)
 	end)
 end
 
--- The geometric wipe: one angled band crosses the screen, and the
--- panels are already in place behind it by the time it has passed.
--- Staggering them slightly behind the band's edge is what makes it read
--- as one gesture rather than five separate animations.
+-- The panels landing. The screen-wide band is NOT here — `Transition`
+-- owns that, and owns it for the grid teleport and the return to racing
+-- too, so the wipe is one gesture in one place rather than a look each
+-- screen reimplements. This is what happens behind it.
 function RewardHud:_wipe(after: () -> ())
-	local band = self.band
-	band.Visible = true
-	band.Position = UDim2.fromScale(-0.8, 0.5)
-
 	TweenService
 		:Create(
 			self.dim,
@@ -715,16 +722,6 @@ function RewardHud:_wipe(after: () -> ())
 			{ BackgroundTransparency = 1 - R.Dim }
 		)
 		:Play()
-
-	local sweep = TweenService:Create(
-		band,
-		TweenInfo.new(R.WipeTime, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
-		{ Position = UDim2.fromScale(1.8, 0.5) }
-	)
-	sweep:Play()
-	sweep.Completed:Connect(function()
-		band.Visible = false
-	end)
 
 	for i, p in self.panels do
 		local home = self.homes[i]
