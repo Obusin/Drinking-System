@@ -98,31 +98,80 @@ return {
 	LookaheadBase = 18,
 	LookaheadPerSpeed = 0.28, -- extra studs per stud/s of speed
 
-	-- How much a corner SHORTENS the lookahead, 0..1. Helps, but it is
-	-- NOT the fix for corner cutting — see LineCorrect. Chasing a point
-	-- up the road always cuts the apex, because the straight line to that
-	-- point lies inside the bend; this only makes the cut smaller.
+	-- How much a corner SHORTENS the lookahead, 0..1. Minor now: chasing
+	-- a point up the road always cuts the apex, and FeedForward is what
+	-- actually fixes that. This only makes the cut smaller.
 	LookaheadTighten = 0.7,
 
-	SteerGain = 2.4, -- how hard it aims at the lookahead point. Higher is
-	-- twitchier, not faster
-
-	-- How hard it corrects being OFF the line, per stud of error.
+	--== THE STEERING CONTROLLER =======================================
+	-- Everything here works in CURVATURE (1/studs) and is converted to a
+	-- steering input at the end using the kart's own numbers: yaw rate is
+	-- steer*TurnRate, a path of curvature k at speed v needs k*v rad/s,
+	-- so the lock is k*v/TurnRate. No fudge factor — it's the inverse of
+	-- what the kart actually does.
 	--
-	-- The corner-cutting dial, and a different thing from SteerGain:
-	-- that one chases a point up the road, which by itself always cuts
-	-- the apex. This one has no opinion about what's ahead, it just
-	-- refuses to be off the line. Raise it if bots still clip the inside.
-	LineCorrect = 0.07,
+	-- WHY IT'S BUILT THIS WAY. The old controller steered proportional to
+	-- the heading error toward a point up the road. A loop like that has
+	-- to PRODUCE error to have anything to act on: it drifts off, hauls
+	-- back, overshoots because nothing damps it, repeats. Add the 190ms
+	-- reaction delay that used to sit inside the same loop and it is a
+	-- textbook oscillator — delay plus gain plus no damping. That was the
+	-- swerve, and it could not have been tuned out.
 
-	-- Damping on that correction, per stud/second of closing speed.
+	-- FEED-FORWARD: steer the corner because it's there.
 	--
-	-- Without it the bot zig-zags forever: a proportional term with
-	-- nothing opposing it overshoots the line, corrects, and overshoots
-	-- the other way. Lowering the gain doesn't fix that, it just makes
-	-- the weave slower and wider. This eases off as the error closes, so
-	-- it arrives on the line rather than crossing it.
-	LineDamp = 0.012,
+	-- The most important number here. With it, a bot's inputs stop being
+	-- apologies for errors it already made. On a straight it contributes
+	-- exactly zero, which is why a straight is now quiet.
+	--
+	-- 1 is geometrically correct. Below 1 it under-turns and leans on
+	-- feedback; above 1 it turns in early like someone being brave.
+	FeedForward = 1,
+
+	-- FEEDBACK: pure pursuit toward the aim point, as k = 2y/L² — the arc
+	-- that actually passes through it. Only has to cover what
+	-- feed-forward doesn't, so it stays small and can't dominate.
+	PursuitGain = 0.9,
+
+	-- Yaw damping: asks for a rotation rate and trims what it doesn't
+	-- get. The term that was missing entirely, and the reason nothing
+	-- ever settled — two position terms with nothing watching the RATE
+	-- always cross the line rather than arrive at it.
+	--
+	-- Also quietly absorbs whatever the model doesn't know about: a
+	-- drift, a bump, a kerb. It doesn't care why the kart isn't turning
+	-- as asked, only that it isn't.
+	--
+	-- HONEST NOTE ON THE VALUE: in a kinematic sim of this controller,
+	-- varying this from 0 to 0.5 moved tracking error by under a stud
+	-- either way. It is NOT what fixed the swerve — feed-forward and
+	-- moving the reaction delay off the feedback loop did that.
+	--
+	-- It's kept at a modest setting because its real job is rejecting
+	-- what that sim doesn't model: a kerb, a bump, a drift, another kart.
+	-- Raise it if bots feel vague after contact; there's no evidence here
+	-- that raising it helps ordinary lap driving.
+	YawDamp = 0.25,
+	YawAuthority = 0.4, -- never more than this much lock, so one bad
+	-- measurement can't throw the kart
+
+	SteerMinSpeed = 25, -- floor on the speed used in the conversion. At a
+	-- crawl the true answer is a huge lock, and a bot creeping out of a
+	-- spin should not be at full opposite lock while it does
+
+	LedgeRecover = 0.004, -- curvature per stud off-line when there's no
+	-- road ahead. Deliberately blunt: this is the emergency path
+
+	-- LineCorrect and LineDamp are GONE, not moved. They were a separate
+	-- proportional-plus-derivative loop on cross-track error, sitting
+	-- alongside another proportional loop on heading, with the two free
+	-- to disagree. That's what a bot fighting its own racing line looks
+	-- like from the outside.
+	--
+	-- There's one loop now. The aim point already carries the chosen line
+	-- offset, so pure pursuit toward it corrects being off the line and
+	-- follows the line with the same term — see FeedForward above.
+
 	SteerSlew = 9, -- how fast its steering input can move. This is what
 	-- stops a bot flicking to full lock instantly, which no human can do
 
@@ -149,6 +198,18 @@ return {
 	SteerNoise = 0.06,
 	SteerNoiseRate = 1.6,
 
+	-- How much of that survives when the bot isn't doing anything.
+	--
+	-- It used to be all of it, unconditionally, which meant bots were
+	-- told to weave down straight roads: a sine wave added to the output
+	-- of a loop that then tried to correct it. Part of the swerve wasn't
+	-- the controller failing, it was this working as written.
+	--
+	-- Nobody drifts about on a straight; they hold it, and get untidy
+	-- through corners where the kart is moving around underneath them.
+	NoiseOnStraight = 0.15,
+	NoiseFullSteer = 0.5, -- steering input counted as "working hard"
+
 	-- Throttle isn't a smooth function of anything for a human. They
 	-- lift, reapply, and hold it slightly wrong the whole time.
 	ThrottleJitter = 0.05,
@@ -166,6 +227,13 @@ return {
 	-- than railed, and it's why they're overtakeable.
 	LineOffset = 9, -- studs either side, at worst skill
 	LineDrift = 0.35, -- how fast the offset wanders
+
+	-- Same fix as SteerNoise, one level up: the lateral TARGET used to
+	-- wander unconditionally too, so bots were aiming at a weaving point
+	-- even on a straight. A controller cannot refuse an instruction to
+	-- swerve, however good it is.
+	WanderOnStraight = 0.2,
+	WanderFullBend = 0.3, -- bend counted as a proper corner
 
 	-- Moving over for traffic. Karts pass through each other by design,
 	-- but two on one line drive as a single overlapping lump, which reads
@@ -201,28 +269,14 @@ return {
 	-- comes back, so a bot skimming an edge doesn't flicker
 
 	--== NOT FIGHTING THE LINE =========================================
-	-- LineCorrect is per stud and there was no ceiling on it, so twelve
-	-- studs off the line was already full lock. Past that the term
-	-- saturates: it stops meaning "how far off am I" and becomes a
-	-- constant maximum yank that drowns out where the road actually goes.
-	-- The bot stops driving the track and starts fighting to be on a
-	-- line, which is a different job and a visibly robotic one.
+	-- Fraction of the available road width that counts as "close enough".
 	--
-	-- Lowering the gain doesn't fix that — same fight, slower. These do.
-
-	-- Fraction of the available room that counts as "close enough".
 	-- Being a few studs off the middle of a wide road is not an error and
-	-- a person would not correct it; constant micro-correction is most of
-	-- what reads as a machine driving.
+	-- a driver would not correct it. Correcting it sixty times a second
+	-- is most of what reads as a machine driving, and it's measured in
+	-- studs of road rather than studs of error so a wide straight is
+	-- forgiving and a narrow bridge isn't.
 	LineDeadband = 0.35,
-
-	-- Ceiling on the correction, so it can never be the only voice. Where
-	-- the road GOES keeps a say even while the bot is off line, and that
-	-- is what stops the overshoot that starts a respawn loop.
-	--
-	-- Suspended entirely on a ledge: that's a real emergency and getting
-	-- back to known road outranks looking smooth.
-	LineAuthority = 0.6,
 
 	--== LEARNING FROM GOING OFF =======================================
 	-- One number per checkpoint, up when the bot leaves the track there,
@@ -302,7 +356,8 @@ return {
 	--
 	-- 3. Does WHITE point somewhere sensible? If it aims across an apex,
 	--    the lookahead is too long for that corner. If it saws side to
-	--    side, that's SteerGain or LineDamp.
+	--    side, that's PursuitGain or YawDamp. If it turns in too late for
+	--    corners, that's FeedForward.
 	--
 	-- Cheap enough to leave on while testing; turn it off before anyone
 	-- else plays, because everything it draws is a real part.

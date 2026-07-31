@@ -133,6 +133,11 @@ return {
 	-- a different surface. This is what makes a ledge with ground far
 	-- underneath read as a fall rather than as more road
 
+	-- Node units either side of a point when measuring how tightly the
+	-- road turns there. Too small and it reads the spline's own wobble as
+	-- a corner; too large and it averages a real corner away.
+	RouteCurvatureSpan = 0.35,
+
 	-- Used where nothing could be measured — no route, or a probe that
 	-- found nothing at all. Set it to roughly your track's half-width.
 	RouteDefaultHalfWidth = 18,

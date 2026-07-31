@@ -453,6 +453,43 @@ end
 -- Sideways offset of a world position from the racing line at `u`,
 -- positive to the right. `up` decides which way "right" is, so this
 -- still works on a banked or inverted section.
+-- HOW TIGHTLY THE ROAD TURNS HERE, signed, in 1/studs.
+--
+-- This is the number that lets a bot steer a corner BECAUSE IT IS THERE
+-- rather than because it has already drifted wide. Without it every
+-- input a bot makes is a reaction to its own error, and a loop that only
+-- reacts to error must produce error to work — which is the swerve.
+--
+-- Menger curvature through three points on the spline: k = 4A/(abc).
+-- Exact for a circle through them, and it needs no derivatives, so it
+-- can't amplify the spline's own noise the way finite differencing a
+-- tangent does.
+--
+-- SIGN, and it matters: positive means the road bends toward
+-- `tangent:Cross(up)`, matching lateralAt and the bots' steering. For a
+-- path curving that way, v1:Cross(v2) points AGAINST up — hence the
+-- minus. Get this backwards and a bot steers away from every corner.
+function Route.curvatureAt(u: number, up: Vector3): number
+	local span = R.RouteCurvatureSpan
+	local p0 = Route.pointAt(u - span)
+	local p1 = Route.pointAt(u)
+	local p2 = Route.pointAt(u + span)
+	if not (p0 and p1 and p2) then
+		return 0
+	end
+
+	local v1, v2 = p1 - p0, p2 - p1
+	local a, b = v1.Magnitude, v2.Magnitude
+	local c = (p2 - p0).Magnitude
+	if a < 1e-3 or b < 1e-3 or c < 1e-3 then
+		return 0
+	end
+
+	local cross = v1:Cross(v2)
+	local kappa = 4 * (cross.Magnitude * 0.5) / (a * b * c)
+	return if cross:Dot(up) > 0 then -kappa else kappa
+end
+
 function Route.lateralAt(u: number, pos: Vector3, up: Vector3): number
 	local centre = Route.pointAt(u)
 	local tangent = Route.tangentAt(u)

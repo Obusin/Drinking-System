@@ -325,7 +325,14 @@ local function drive(bot, dt: number)
 	-- it's the reason there's room to overtake one.
 	----------------------------------------------------------------
 	bot.lineAt += dt * B.LineDrift
-	local wander = math.sin(bot.lineAt) * B.LineOffset * (1 - bot.skill)
+	-- Damped on a straight, and this was a real part of the swerve: an
+	-- unconditional sine wave on the lateral target is an instruction to
+	-- weave, and no controller improvement can refuse it. A driver holds
+	-- a straight and gets untidy through corners, so the wander follows
+	-- the bend rather than the clock.
+	local straightness = 1 - math.min(bend / math.max(B.WanderFullBend, 1e-3), 1)
+	local wanderRoom = B.LineOffset * (1 - bot.skill) * (B.WanderOnStraight + (1 - B.WanderOnStraight) * (1 - straightness))
+	local wander = math.sin(bot.lineAt) * wanderRoom
 	local offset = bot.lineBias + wander
 
 	----------------------------------------------------------------
@@ -469,28 +476,78 @@ local function drive(bot, dt: number)
 		bot.ledgeFor = math.max((bot.ledgeFor or 0) - dt, 0)
 	end
 
-	-- Signed error across the kart's own right, so this stays correct
-	-- sideways and upside-down on a loop.
+	----------------------------------------------------------------
+	-- STEERING: PLAN THE ARC, THEN TRIM IT
+	--
+	-- The old controller was one line — steer proportional to the heading
+	-- error toward the aim point — and that is why bots swerved down
+	-- perfectly straight road.
+	--
+	-- A pure error-driven loop has to PRODUCE error in order to have
+	-- something to work on. It notices it's off, hauls the wheel over,
+	-- arrives, overshoots because nothing damped it, and repeats. Put a
+	-- 190ms reaction delay in that loop and it's not a bug any more, it's
+	-- a guaranteed oscillator: delay plus gain plus no damping is the
+	-- textbook recipe for one. That was the swerve, and it was never
+	-- going to tune out — the loop was unstable by construction.
+	--
+	-- So it's built the way vehicle controllers are actually built:
+	-- FEED-FORWARD plus FEEDBACK.
+	--
+	--   feed-forward  the road's own curvature. It turns because the
+	--                 corner is there, not because it has already run
+	--                 wide. On a straight this is exactly zero.
+	--   feedback      a small correction toward the aim point, which is
+	--                 all that's left once the corner is handled.
+	--
+	-- Everything is computed as CURVATURE (1/studs) and converted to a
+	-- steering input at the end through the kart's own model. That
+	-- conversion is why this works at all: we know that lock L at speed v
+	-- yields yaw rate L*turn, so curvature k needs L = k*v/turn. The
+	-- controller asks for a shape of path and the maths returns the input
+	-- that produces it, instead of guessing a number and correcting.
+	----------------------------------------------------------------
+	local right = sim.forward:Cross(sim.up)
+	right = if right.Magnitude > 1e-4 then right.Unit else Vector3.zero
+
+	-- FEED-FORWARD. The single biggest change here.
+	local kappaPath = Route.curvatureAt(aheadU, sim.up)
+
+	-- FEEDBACK, as pure pursuit in curvature form: k = 2y/L² is the arc
+	-- that actually passes THROUGH the aim point. The old dot-product was
+	-- an approximation of this that overshoots for exactly the same
+	-- reason a P controller overshoots a step.
+	--
+	-- The aim point already carries our chosen line offset, so this one
+	-- term covers both "get back on line" and "follow the line" — which
+	-- is why the separate saturating cross-track term is gone.
 	local toAim = aim - sim.pos
 	local flat = toAim - sim.up * toAim:Dot(sim.up)
-	local right = sim.forward:Cross(sim.up)
-	local wantSteer = 0
-	if flat.Magnitude > 1e-3 and right.Magnitude > 1e-4 then
-		wantSteer = flat.Unit:Dot(right.Unit) * B.SteerGain
+	local kappaAim = 0
+	local L = flat.Magnitude
+	if L > 1e-3 and right.Magnitude > 0 then
+		local y = flat:Dot(right)
+		-- Deadband in studs of road, not of steering. Being a little off
+		-- the middle of a wide road is not an error, and a driver would
+		-- not correct it. Correcting it every frame is most of what looks
+		-- like a machine.
+		local slack = room * B.LineDeadband
+		if math.abs(y) <= slack then
+			y = 0
+		else
+			y -= math.sign(y) * slack
+		end
+		kappaAim = 2 * y / (L * L)
 	end
 
-	-- CROSS-TRACK ERROR. This is the actual fix for corner cutting, and
-	-- shortening the lookahead never could be.
-	--
-	-- Chasing a point up the road ALWAYS cuts a corner: the straight line
-	-- to that point lies inside the bend, so a bot steering at it drives
-	-- inside the bend. That's inherent to the method, not a tuning
-	-- problem — a shorter lookahead just makes the cut smaller.
-	--
-	-- So steer on two things. Where the road goes, and how far off the
-	-- line we currently ARE. The second term has no opinion about the
-	-- corner ahead; it simply refuses to be off the line, which is what
-	-- holds the kart on the tarmac through an apex.
+	local kappaWant = kappaPath * B.FeedForward + kappaAim * B.PursuitGain
+
+	-- How far off the chosen line we are. Only two things want it now: the
+	-- safe-position record below, and the ledge emergency. The steering
+	-- itself no longer has a cross-track term at all — the aim point
+	-- already carries the line offset, so pure pursuit toward it covers
+	-- both jobs, and one term that can't fight itself is worth more than
+	-- two that can.
 	local actualOffset = Route.lateralAt(bot.u, sim.pos, sim.up)
 	local crossErr = offset - actualOffset
 
@@ -512,56 +569,74 @@ local function drive(bot, dt: number)
 		bot.safeCF = CFrame.lookAt(sim.pos, sim.pos + sim.forward, sim.up)
 	end
 
-	-- DAMPING. Two proportional terms with nothing opposing them always
-	-- overshoot, correct, and overshoot again — that is the zig-zag, and
-	-- no amount of lowering the gains removes it, it only slows it down.
-	--
-	-- The derivative term watches how fast the error is CLOSING and eases
-	-- off as it does, so the bot arrives on the line instead of crossing
-	-- it. Standard PD; the P alone was never going to settle.
-	local closing = (crossErr - (bot.lastCrossErr or crossErr)) / math.max(dt, 1e-4)
-	bot.lastCrossErr = crossErr
-	bot.crossRate = Util.approach(bot.crossRate or 0, closing, 12, dt)
-
-	----------------------------------------------------------------
-	-- THE LINE IS A SUGGESTION. THE ROAD IS THE CONSTRAINT.
-	--
-	-- This is the bug you could see from across the track: the bot
-	-- treating every point on the racing line as something it must not
-	-- miss, hauling itself back onto it, overshooting, and eventually
-	-- sawing itself off a ledge and into a respawn loop.
-	--
-	-- The cause is that LineCorrect is 0.07 per stud with nothing above
-	-- it. Twelve studs off the line is already full lock. So anywhere
-	-- outside a narrow band the term SATURATES: it stops being "how far
-	-- off am I" and becomes a constant maximum-effort yank that drowns
-	-- out the lookahead entirely. The bot stops driving the road and
-	-- starts fighting to be on a line, which are not the same job.
-	--
-	-- Two changes, and neither lowers the gain — lowering it just makes
-	-- the same fight slower:
-	--
-	--   a deadband, because being a few studs off the centre of a wide
-	--   road is not an error and a person would not correct it. Constant
-	--   micro-correction is most of what reads as robotic.
-	--
-	--   a ceiling below full lock, so the term can never be the only
-	--   voice. Where the road GOES has to keep a say even while it's off
-	--   line, and that's what stops the overshoot that starts the loop.
-	--
-	-- On a ledge both are suspended. Then it genuinely is an emergency
-	-- and getting back to known road outranks looking smooth.
-	----------------------------------------------------------------
-	local pull
+	-- On a ledge, forget the chosen line and the deadband — head for the
+	-- centre hard. It's the one place known to have road under it.
 	if (bot.ledgeFor or 0) > 0 then
-		pull = math.clamp(crossErr * B.LineCorrect + bot.crossRate * B.LineDamp, -1, 1)
-	else
-		local slack = room * B.LineDeadband
-		local err = if math.abs(crossErr) <= slack then 0 else crossErr - math.sign(crossErr) * slack
-		pull = math.clamp(err * B.LineCorrect + bot.crossRate * B.LineDamp, -B.LineAuthority, B.LineAuthority)
+		kappaWant += -crossErr * B.LedgeRecover
 	end
 
-	wantSteer += pull
+	----------------------------------------------------------------
+	-- REACTION, applied to the PLAN and nothing else.
+	--
+	-- This used to delay the finished steering input, which put a 190ms
+	-- pure lag inside the stabilising loop — and a delay inside a
+	-- feedback loop is the classic way to build an oscillator. Half the
+	-- swerve came from here.
+	--
+	-- It was also the wrong model of a person. Reaction time is how long
+	-- you take to respond to something NEW: a corner appearing, a rival
+	-- moving, an item. It is not how long you take to hold a lane —
+	-- that's a trained reflex running an order of magnitude faster, and
+	-- nobody weaves down a straight road because of it.
+	--
+	-- So the plan arrives late, like a person's does, and the correction
+	-- that keeps the kart pointing straight runs now, like a person's
+	-- does. The tell survives; the oscillator doesn't.
+	----------------------------------------------------------------
+	table.insert(bot.sawSteer, { at = os.clock(), value = kappaWant })
+	while #bot.sawSteer > 1 and os.clock() - bot.sawSteer[1].at >= B.ReactionTime do
+		kappaWant = bot.sawSteer[1].value
+		table.remove(bot.sawSteer, 1)
+	end
+
+	----------------------------------------------------------------
+	-- CURVATURE -> STEERING INPUT, through the kart's own model.
+	--
+	-- Simulation yaws at `steer * turn` rad/s, and a path of curvature k
+	-- travelled at v needs k*v rad/s. So the lock that produces the arc
+	-- we asked for is k*v/turn. No tuning constant, no guessing: it is
+	-- the inverse of the thing the kart actually does.
+	--
+	-- This is what makes the feed-forward term worth having. An
+	-- open-loop guess would need trimming, so the feedback would be back
+	-- to doing all the work — and back to swerving.
+	----------------------------------------------------------------
+	local turn = H.TurnRate + (H.TurnRateTop - H.TurnRate) * math.clamp(speed / H.MaxSpeed, 0, 1)
+	local wantSteer = kappaWant * math.max(speed, B.SteerMinSpeed) / math.max(turn, 1e-3)
+
+	----------------------------------------------------------------
+	-- YAW DAMPING.
+	--
+	-- Compares the yaw rate we asked for against the one we're getting
+	-- and trims the difference. This is the term that was missing
+	-- entirely, and the reason nothing ever settled: two position terms
+	-- fighting each other with nothing watching the RATE will always
+	-- cross the line rather than arrive at it.
+	--
+	-- It also silently absorbs everything the model above doesn't know
+	-- about — drift, a bump, a kerb — because it doesn't care WHY the
+	-- kart isn't rotating as asked, only that it isn't.
+	local yawNow = 0
+	if bot.lastForward and dt > 1e-4 then
+		-- Signed the same way as everything else: positive is toward
+		-- `forward:Cross(up)`.
+		yawNow = -(bot.lastForward:Cross(sim.forward)):Dot(sim.up) / dt
+	end
+	bot.lastForward = sim.forward
+
+	local yawWant = kappaWant * speed
+	wantSteer += math.clamp((yawWant - yawNow) / math.max(turn, 1e-3) * B.YawDamp, -B.YawAuthority, B.YawAuthority)
+
 	wantSteer = math.clamp(wantSteer, -1, 1)
 
 	----------------------------------------------------------------
@@ -574,21 +649,25 @@ local function drive(bot, dt: number)
 	-- None of this makes a bot slower. It makes the signal human-shaped.
 	----------------------------------------------------------------
 
-	-- REACTION. It acts on what it saw ~200ms ago, so it starts turning
-	-- when a person would rather than the instant the maths knows. This
-	-- is the biggest single tell and the cheapest to fix.
-	table.insert(bot.sawSteer, { at = os.clock(), value = wantSteer })
+	-- Reaction is handled up in the planner now — see the note there. It
+	-- delays the PLAN, not the correction, because delaying the
+	-- correction is what built the oscillator.
 	local seen = wantSteer
-	while #bot.sawSteer > 1 and os.clock() - bot.sawSteer[1].at >= B.ReactionTime do
-		seen = bot.sawSteer[1].value
-		table.remove(bot.sawSteer, 1)
-	end
 
-	-- WANDER. A drifting bias rather than per-frame noise: noise reads as
-	-- a broken servo, a slow bias reads as someone not quite holding a
-	-- line and having to correct.
+	-- WANDER, and only where a person actually wanders.
+	--
+	-- This was unconditional, so bots were commanded to weave down
+	-- straights — a sine wave added to the output of a loop that then
+	-- tried to correct it. Some of the swerve you could see was not the
+	-- controller failing. It was this, working exactly as written.
+	--
+	-- Nobody drifts about on a straight road; they hold it, and get
+	-- untidy through corners where the car is actually moving around
+	-- underneath them. So it's scaled by how hard the bot is working.
 	bot.noiseAt += dt * B.SteerNoiseRate
-	seen += math.sin(bot.noiseAt * 1.7) * math.cos(bot.noiseAt * 0.6) * B.SteerNoise * (2 - bot.skill)
+	local effort = math.min(math.abs(wantSteer) / math.max(B.NoiseFullSteer, 1e-3), 1)
+	local busy = B.NoiseOnStraight + (1 - B.NoiseOnStraight) * effort
+	seen += math.sin(bot.noiseAt * 1.7) * math.cos(bot.noiseAt * 0.6) * B.SteerNoise * (2 - bot.skill) * busy
 
 	-- DEADZONE. People don't micro-adjust every frame — they let a small
 	-- error sit, notice it, then fix it. Holding the last input until the
