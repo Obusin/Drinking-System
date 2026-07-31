@@ -86,17 +86,15 @@ return {
 	WipeTime = 0.42, -- seconds for the band to cross
 	WipeColor = Color3.fromRGB(255, 196, 62),
 
-	-- THE BAND ITSELF. At 1 it is invisible and only the mark sweeps
-	-- across.
+	-- THE BAND ITSELF. Solid, and it needs to stay that way: the band is
+	-- what hides the cut. At 1 it is invisible and the grid teleport and
+	-- the results panel opening are both visible again, because there is
+	-- nothing between the player and the change — the transition becomes
+	-- decoration rather than a cover.
 	--
-	-- KNOW WHAT THIS COSTS: the band is what hides the cut. At 1 the grid
-	-- teleport and the results panel opening are both visible again,
-	-- because there is nothing between the player and the change. The
-	-- transition becomes decoration rather than a cover.
-	--
-	-- If the teleport starts looking like a stutter again, this is why.
-	-- Around 0.25 keeps the mark dominant while still hiding the seam.
-	WipeBandTransparency = 1,
+	-- The MARK's own background is separate and already fully
+	-- transparent, so a PNG with alpha shows no plate behind it.
+	WipeBandTransparency = 0,
 
 	-- Art carried on the band, shown at the moment it covers the screen.
 	-- A wipe with a mark on it is a stinger; a wipe without one is a
