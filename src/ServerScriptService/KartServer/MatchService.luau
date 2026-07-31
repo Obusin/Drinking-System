@@ -41,6 +41,7 @@ local phase = P.Waiting
 local endsAt = 0
 local round = 0
 local finishers = 0 -- how many have crossed the line this round
+local racingStartedAt = 0 -- server clock when the lights went out
 local ready: { [Player]: boolean } = {}
 
 --=====================================================================
@@ -109,6 +110,11 @@ end
 local function enter(next: string, duration: number?)
 	phase = next
 	endsAt = if duration and duration > 0 then workspace:GetServerTimeNow() + duration else 0
+	-- Stamped on the way in, so anything measuring elapsed race time reads
+	-- it from here rather than keeping a second copy.
+	if next == P.Racing then
+		racingStartedAt = workspace:GetServerTimeNow()
+	end
 	log("→ %s%s", next, if duration then (" (%.1fs)"):format(duration) else "")
 	publish()
 end
@@ -193,6 +199,39 @@ local function finishKart(kart: Model, who: string, totalTime: number)
 		endsAt = workspace:GetServerTimeNow() + M.FinishSettle
 		publish()
 	end
+end
+
+-- The client's route in. Resolves the kart, then goes through the same
+-- door as everyone else.
+--
+-- This function went missing in a revert while its call site below
+-- survived, so every finish raised "attempt to call a nil value" inside
+-- the remote handler. Nothing was ever recorded, `finishers` never left
+-- zero, and the round could only ever end on the time limit — which is
+-- exactly "the match doesn't end even though everyone finished".
+--
+-- TODO: validate. The server knows when Racing began, so a time shorter
+-- than the phase has been running is provably fake, and the progress
+-- relay already says whether they reached the last checkpoint. Both
+-- belong HERE, on the path a client can reach, and deliberately not in
+-- finishKart, which the server calls for bots and trusts.
+local function recordFinish(player: Player, totalTime: number)
+	local kart = KartService.kartFor(player)
+	if kart then
+		finishKart(kart, player.Name, totalTime)
+	end
+end
+
+-- The server's route in, for racers with nobody at a keyboard.
+function MatchService.botFinished(kart: Model, name: string, totalTime: number)
+	finishKart(kart, name, totalTime)
+end
+
+-- When the lights went out, so BotService can time a lap without keeping
+-- its own copy of the phase clock. A second copy is a second thing to
+-- get wrong.
+function MatchService.racingSince(): number?
+	return if phase == P.Racing then racingStartedAt else nil
 end
 
 --=====================================================================

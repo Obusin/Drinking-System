@@ -21,6 +21,9 @@ local BloxKart = ReplicatedStorage:WaitForChild("BloxKart")
 local Standings = require(BloxKart:WaitForChild("Standings"))
 local Names = require(BloxKart:WaitForChild("Names"))
 local Config = require(BloxKart:WaitForChild("Config"))
+-- For the settle probe: it has to ignore karts, characters and every
+-- other trigger volume, which is exactly what this list already is.
+local WorldFilter = require(BloxKart:WaitForChild("WorldFilter"))
 local Match = require(BloxKart:WaitForChild("Match"))
 local Items = require(BloxKart:WaitForChild("Items"))
 local MatchService = require(script.Parent.MatchService)
@@ -146,6 +149,34 @@ local function launch(part: BasePart, vel: Vector3, lifetime: number)
 	})
 end
 
+-- PUT IT ON THE ROAD, don't just stop it where it is.
+--
+-- Freezing in place was the whole bug: settling fires either when the
+-- part slows down OR when ThrowTime runs out, and the timeout branch
+-- doesn't care whether the thing has landed. A bomb still in the air
+-- when its four seconds expired simply anchored there, hanging in
+-- mid-air, which is exactly "it doesn't attach to the ground".
+--
+-- The velocity branch has the same hole in a smaller way: a lobbed item
+-- passes through a slow moment near the apex, and a hazard that stops
+-- on the lip of a ledge is left balanced on nothing.
+--
+-- So settling now means "find the ground beneath it and sit on it".
+-- Probing down rather than trusting where it stopped is also what makes
+-- a hazard sit flush on a ramp instead of floating over the slope.
+local function groundOut(part: BasePart)
+	local from = part.Position + Vector3.yAxis * Config.Items.SettleProbeUp
+	local hit = workspace:Raycast(from, Vector3.yAxis * -Config.Items.SettleProbeDown, WorldFilter.rayParams)
+	if hit then
+		-- Sat ON the surface: half the part's height above the contact
+		-- point, keeping its yaw so a thrown model doesn't snap around.
+		local _, y, _ = part.CFrame:ToEulerAnglesYXZ()
+		part.CFrame = CFrame.new(hit.Position + hit.Normal * (part.Size.Y * 0.5)) * CFrame.Angles(0, y, 0)
+	end
+	part.Anchored = true
+	part.CanCollide = false
+end
+
 -- Freeze anything that has come to rest, so a hazard doesn't get nudged
 -- around the track by whatever brushes it afterwards.
 local function stepSettling()
@@ -158,8 +189,7 @@ local function stepSettling()
 			continue
 		end
 		if now >= f.stop or part.AssemblyLinearVelocity.Magnitude < 3 then
-			part.Anchored = true
-			part.CanCollide = false
+			groundOut(part)
 			table.remove(settling, i)
 		end
 	end
@@ -262,7 +292,22 @@ function RaceService.spawnHazard(ownerId: number, cf: CFrame, item, back: boolea
 		-- Clamped here because it arrived from a client.
 		local charge = math.clamp(tonumber(power) or 1, 0, 1)
 		local reach = IT.ThrowSpeed * (IT.ThrowMinPower + (1 - IT.ThrowMinPower) * charge)
-		launch(hz, cf.LookVector * reach + cf.UpVector * IT.ThrowLift, item.Lifetime)
+
+		-- PLUS WHAT THE THROWER WAS ALREADY DOING.
+		--
+		-- The arc was built purely from the throw, as if it left a
+		-- standing kart. It doesn't — you are doing most of the game's
+		-- top speed when you throw, and anything you release inherits
+		-- that. Without it a "forward" throw barely outruns the kart that
+		-- threw it and lands almost underneath you, which is why it read
+		-- as not going far enough.
+		--
+		-- A constant rather than the kart's measured velocity, because a
+		-- bot's kart is anchored and reports zero — reading it would make
+		-- bots throw shorter than players for a reason nobody could see.
+		-- One number, same for everyone, matching the speed a racer is
+		-- realistically doing when they throw.
+		launch(hz, cf.LookVector * (reach + IT.ThrowLead) + cf.UpVector * IT.ThrowLift, item.Lifetime)
 	end
 
 	task.delay(item.Lifetime, function()

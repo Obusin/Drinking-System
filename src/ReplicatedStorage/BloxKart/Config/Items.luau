@@ -165,6 +165,25 @@ return {
 	-- integrated here. Bounciness comes off the part's Material.
 	ThrowSpeed = 150, -- studs/s forward at a FULL wind-up
 	ThrowLift = 60, -- studs/s upward. This is the arc
+	-- Forward speed the item inherits from the moving kart, on top of the
+	-- wind-up. The arc used to be built as if it left a standing kart, so
+	-- a "forward" throw barely outran the kart that threw it and landed
+	-- almost underneath you.
+	--
+	-- Roughly a racer's real cruising speed. One constant for everyone
+	-- rather than the kart's measured velocity, because a bot's kart is
+	-- anchored and reports zero — measuring it would silently make bots
+	-- throw shorter than players.
+	ThrowLead = 70,
+
+	-- Where a settling hazard looks for the floor. It is placed ON the
+	-- surface beneath it rather than frozen wherever it happened to be:
+	-- settling can fire on a timeout, and that used to anchor a bomb in
+	-- mid-air if it was still flying when the clock ran out.
+	SettleProbeUp = 5,
+	SettleProbeDown = 300, -- generous: a throw off a high ledge should
+	-- still find the road below rather than hang in the sky
+
 	ThrowTime = 4, -- give up waiting for it to settle after this, so an
 	-- item thrown off the edge of the map doesn't stay unanchored forever
 

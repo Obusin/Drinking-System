@@ -1272,6 +1272,22 @@ local function step(dt: number)
 					-- it fade. Without this a single incident makes a bot
 					-- crawl that corner for the rest of the server's life.
 					BotService.decayCaution(bot)
+
+					-- CROSSING THE LINE. Without this a bot can complete
+					-- every lap and still not be counted as finished, so
+					-- `finishers` never reaches the size of the field and
+					-- the round runs to the time limit with everyone parked
+					-- on the start straight waiting for it.
+					--
+					-- Reported once. FINISH_PLACE guards it here and
+					-- MatchService checks it again, so a bot that keeps
+					-- driving after the flag can't take a second place.
+					if bot.laps >= Config.Race.TotalLaps and not bot.kart:GetAttribute(Match.FINISH_PLACE) then
+						local since = MatchService.racingSince()
+						if since then
+							MatchService.botFinished(bot.kart, bot.name, workspace:GetServerTimeNow() - since)
+						end
+					end
 				end
 				bot.lastU = bot.u
 			end
