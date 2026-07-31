@@ -479,18 +479,36 @@ local function drive(bot, dt: number)
 	-- turn a jump you'd have cleared into a fall. It was braking for the
 	-- ramp.
 	--
-	-- The racing line settles it. The line is by definition where the
-	-- designer says to drive, so if the ROUTE carries on across the gap
-	-- and there's road on the far side, this is a jump: line up, stay on
-	-- the throttle, commit. Only a gap the route does NOT cross is a
-	-- bot about to drive off the map.
+	-- WHAT SEPARATES A RAMP FROM A CLIFF: whether the gap is ON THE
+	-- RACING LINE.
+	--
+	-- The first version asked whether the route had ground somewhere
+	-- further along, which is very nearly always true — the route runs
+	-- down the middle of the road, so of course there's tarmac under it
+	-- up ahead. Practically every gap therefore classified as a jump and
+	-- the bot floored it, which is why they flew off ledges.
+	--
+	-- The question is not "is there road ahead somewhere". It's "does the
+	-- LINE ITSELF go over nothing here". The line is where the designer
+	-- says to drive, so a hole underneath it is a hole they put there on
+	-- purpose. A hole under our own aim point while the line beside it is
+	-- perfectly solid means only that we have wandered off the road, and
+	-- flooring it is the worst available response.
 	local ledge, jump = false, false
 	local nose = sim.pos + sim.forward * (B.LedgeLook + speed * B.LedgeLookPerSpeed)
 	if not (Route.hasGround(aim, sim.up) and Route.hasGround(nose, sim.up)) then
-		local beyond = Route.pointAt(aheadU + B.JumpSpan)
-		if beyond and Route.hasGround(beyond, sim.up) then
-			jump = true
+		local centre = Route.pointAt(aheadU)
+		local lineOverAir = centre ~= nil and not Route.hasGround(centre, sim.up)
+
+		if lineOverAir then
+			-- The route is airborne here. Only commit if there's somewhere
+			-- to land, or a bot happily accelerates into a chasm the
+			-- designer built as a hazard rather than as a jump.
+			local beyond = Route.pointAt(aheadU + B.JumpSpan)
+			jump = beyond ~= nil and Route.hasGround(beyond, sim.up)
+			ledge = not jump
 		else
+			-- Solid road on the line, nothing under us. We're the problem.
 			ledge = true
 		end
 	end
