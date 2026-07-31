@@ -55,3 +55,7 @@ ProjectileService.start()
 -- they fill the grid on the match's cue rather than at startup.
 BotService.start()
 MatchService.onGrid = BotService.fill
+-- A hit on a kart with no Player behind it goes to the bots. A hook
+-- rather than a require: RaceService is upstream of BotService and
+-- shouldn't have to know it exists.
+RaceService.onNonPlayerHit = BotService.applyHit

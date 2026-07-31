@@ -72,7 +72,6 @@ local nextUid = 0
 
 local remote: RemoteEvent -- client → server: "I fired this"
 local viewRemote: RemoteEvent -- server → clients: launch / sync / gone
-local hitRemote: RemoteEvent
 
 local rayParams = RaycastParams.new()
 rayParams.FilterType = Enum.RaycastFilterType.Exclude
@@ -190,19 +189,16 @@ local function detonate(p, victim: Model?, why: string?)
 	if not victim then
 		return
 	end
-	local id = victim:GetAttribute(Names.OWNER)
-	local plr = id and Players:GetPlayerByUserId(id)
-	if plr and plr ~= p.owner then
-		RaceService.announce(p.item.Id, if p.owner then p.owner.DisplayName else p.ownerName, plr.DisplayName)
-		-- Only the victim's own client applies the effect, same rule as
-		-- every other hit in the game.
-		hitRemote:FireClient(plr, {
-			spin = p.item.SpinTime,
-			keep = p.item.SpeedKeep,
-			stun = p.item.StunTime,
-			note = p.item.HitNote,
-		})
-	end
+	-- Through the same path everything else uses, so a bot takes a
+	-- missile exactly as a player does. Resolving a Player here was why
+	-- they didn't.
+	RaceService.relayHit(if p.owner then p.owner.DisplayName else p.ownerName, victim, {
+		item = p.item.Id,
+		spin = p.item.SpinTime,
+		keep = p.item.SpeedKeep,
+		stun = p.item.StunTime,
+		note = p.item.HitNote,
+	})
 end
 
 --=====================================================================
@@ -369,7 +365,6 @@ function ProjectileService.fire(from: Model, owner: Player?, item, back: boolean
 end
 
 function ProjectileService.start()
-	hitRemote = BloxKart:WaitForChild("KartItemHit")
 
 	remote = Instance.new("RemoteEvent")
 	remote.Name = "KartProjectile"

@@ -55,27 +55,50 @@ function RaceService.announce(itemId: string?, byName: string?, victimName: stri
 	})
 end
 
--- Applying a hit, as a function, because bots throw things too.
+-- Applying a hit. One path for every attacker and every victim.
 --
--- Bots can only ever be the ATTACKER. Nothing is relayed to them: they
--- have no client, and their Simulation is right here — BotService reads
--- the same effects straight off it.
+-- The victim used to be resolved with GetPlayerByUserId and dropped if
+-- that came back nil — which is every bot, because a bot kart has no
+-- owner. So missiles, mines and lightning all landed on them and did
+-- absolutely nothing. They weren't AI, they were scenery, and you could
+-- only tell by trying to hit one.
+--
+-- Non-player victims go to whoever registered onNonPlayerHit (see
+-- BotService, wired in init.server). A hook rather than a require,
+-- because RaceService is upstream of BotService and shouldn't know it
+-- exists.
+RaceService.onNonPlayerHit = nil
+
 function RaceService.relayHit(byName: string?, targetKart: Model, payload)
-	local victimId = targetKart:GetAttribute(Names.OWNER)
-	local victim = victimId and Players:GetPlayerByUserId(victimId)
-	if not victim then
-		return
-	end
-	RaceService.announce(tostring(payload.item), byName, victim.DisplayName)
-	hitRemote:FireClient(victim, {
+	-- Clamped once, here, and reused for both kinds of victim. This is a
+	-- client-supplied table and the only thing between it and somebody
+	-- else's simulation; clamps are generous enough for any real item but
+	-- finite, so a forged payload can't stun anyone for a minute.
+	local effect = {
+		item = payload.item,
 		spin = math.clamp(tonumber(payload.spin) or 1, 0, 5),
 		keep = math.clamp(tonumber(payload.keep) or 0.5, 0, 1),
 		stun = math.clamp(tonumber(payload.stun) or 0, 0, 3),
 		reverse = math.clamp(tonumber(payload.reverse) or 0, 0, 8),
 		note = math.clamp(math.floor(tonumber(payload.note) or 1), 0, 3),
-	})
-end
+	}
 
+	local victimId = targetKart:GetAttribute(Names.OWNER)
+	local victim = victimId and Players:GetPlayerByUserId(victimId)
+	if victim then
+		RaceService.announce(tostring(effect.item), byName, victim.DisplayName)
+		-- Only the victim's own client applies it, same rule as always.
+		hitRemote:FireClient(victim, effect)
+		return
+	end
+
+	if RaceService.onNonPlayerHit then
+		local name = RaceService.onNonPlayerHit(targetKart, effect)
+		if name then
+			RaceService.announce(tostring(effect.item), byName, name)
+		end
+	end
+end
 
 --=====================================================================
 --  FLIGHT  (thrown hazards and scattered drops)

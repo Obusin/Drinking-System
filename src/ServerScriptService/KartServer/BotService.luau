@@ -288,6 +288,39 @@ local function drive(bot, dt: number)
 	local offset = bot.lineBias + wander
 
 	----------------------------------------------------------------
+	-- TRAFFIC
+	--
+	-- Karts pass THROUGH each other on purpose — that's what stops a
+	-- race becoming a physics accident. But two bots sharing one racing
+	-- line drive as a single overlapping lump, which reads as bumping
+	-- even though nothing is colliding.
+	--
+	-- So they move over, which is what a driver does and costs one loop.
+	----------------------------------------------------------------
+	local sideways = sim.forward:Cross(sim.up)
+	if sideways.Magnitude > 1e-4 then
+		sideways = sideways.Unit
+		for _, other in Standings.allKarts() do
+			local hb = other.PrimaryPart
+			if other ~= bot.kart and hb then
+				local toward = hb.Position - sim.pos
+				local dist = toward.Magnitude
+				-- AHEAD only. Moving over for someone behind you is how you
+				-- get rammed by them.
+				if dist < B.AvoidRadius and dist > 1e-3 and toward:Dot(sim.forward) > 0 then
+					local side = toward:Dot(sideways)
+					-- Dead ahead has no side to pick, so the tie is broken by
+					-- our own line bias rather than by rounding — two bots
+					-- agreeing to dodge the same way is worse than neither
+					-- dodging at all.
+					local away = if math.abs(side) < 0.5 then -math.sign(bot.lineBias + 0.001) else -math.sign(side)
+					offset += away * (1 - dist / B.AvoidRadius) * B.AvoidStrength
+				end
+			end
+		end
+	end
+
+	----------------------------------------------------------------
 	-- STEERING
 	--
 	-- Aim at a point up the road, offset onto our own line. Lookahead
@@ -320,8 +353,24 @@ local function drive(bot, dt: number)
 	local right = sim.forward:Cross(sim.up)
 	local wantSteer = 0
 	if flat.Magnitude > 1e-3 and right.Magnitude > 1e-4 then
-		wantSteer = math.clamp(flat.Unit:Dot(right.Unit) * B.SteerGain, -1, 1)
+		wantSteer = flat.Unit:Dot(right.Unit) * B.SteerGain
 	end
+
+	-- CROSS-TRACK ERROR. This is the actual fix for corner cutting, and
+	-- shortening the lookahead never could be.
+	--
+	-- Chasing a point up the road ALWAYS cuts a corner: the straight line
+	-- to that point lies inside the bend, so a bot steering at it drives
+	-- inside the bend. That's inherent to the method, not a tuning
+	-- problem — a shorter lookahead just makes the cut smaller.
+	--
+	-- So steer on two things. Where the road goes, and how far off the
+	-- line we currently ARE. The second term has no opinion about the
+	-- corner ahead; it simply refuses to be off the line, which is what
+	-- holds the kart on the tarmac through an apex.
+	local actualOffset = Route.lateralAt(bot.u, sim.pos, sim.up)
+	wantSteer += math.clamp((offset - actualOffset) * B.LineCorrect, -1, 1)
+	wantSteer = math.clamp(wantSteer, -1, 1)
 
 	-- Slewed, not snapped. A bot that can flick to full lock in one frame
 	-- corners in a way no player can, which reads as cheating even though
@@ -482,6 +531,36 @@ end
 --  holding an item nobody could have got is the sort of thing players
 --  notice long before they can prove it.
 --=====================================================================
+-- Driving into a mine, oil or a fake box. The victim detects its own
+-- hazard hit — that's true for players and had to become true for bots.
+local function checkHazards(bot)
+	local hitbox = bot.kart.PrimaryPart
+	if not hitbox then
+		return
+	end
+	local hz = bot.hazards:Touch(hitbox.CFrame, hitbox.Size)
+	if not hz then
+		return
+	end
+
+	local item = Registry.byId(hz:GetAttribute(Names.HAZARD_ITEM) or "")
+	if not item then
+		return
+	end
+
+	local landed = bot.sim:Spinout(item.SpinTime, item.SpeedKeep, item.StunTime)
+	if landed and (item.SpinTime or 0) > 0 then
+		bot.item = nil
+	end
+
+	-- Whoever laid it gets the credit, exactly as when a player hits one.
+	local ownerId = hz:GetAttribute(Names.OWNER)
+	local owner = ownerId and ownerId ~= 0 and Players:GetPlayerByUserId(ownerId)
+	RaceService.announce(item.Id, if owner then owner.DisplayName else nil, bot.name)
+	hz:Destroy()
+	log("%s drove into a %s", bot.name, item.Id)
+end
+
 local function collect(bot)
 	if bot.item then
 		return -- one at a time; a bot hoarding three is a bot you can't beat
@@ -583,6 +662,7 @@ local function step(dt: number)
 			if racing then
 				drive(bot, dt)
 				collect(bot)
+				checkHazards(bot)
 				if bot.item and now >= bot.itemAt then
 					useItem(bot)
 				end
@@ -667,6 +747,7 @@ function BotService.fill()
 		local bot = table.remove(bots)
 		bot.boxes:Destroy()
 		bot.drops:Destroy()
+		bot.hazards:Destroy()
 		clearDebug(bot)
 		if bot.rig then
 			bot.rig:Destroy()
@@ -707,6 +788,10 @@ function BotService.fill()
 			dbg = {},
 			boxes = TagZones.new(Config.Items.BoxTag, { cooldown = Config.Items.PickupCooldown, forceQueryable = true }),
 			drops = TagZones.new(Config.Items.DropTag, { cooldown = 0.5, forceQueryable = true }),
+			-- Bots drove straight over mines and oil without noticing:
+			-- hazards are detected by whoever hits them, and nothing was
+			-- doing that on their behalf.
+			hazards = TagZones.new(Config.Items.HazardTag, { cooldown = 0.5, forceQueryable = true }),
 		}
 		table.insert(bots, bot)
 		BotService.seatRig(bot)
@@ -802,6 +887,41 @@ function BotService.revive(bot)
 		bot.u = u
 		bot.lastU = nil
 	end
+end
+
+--=====================================================================
+--  BEING HIT
+--
+--  Registered with RaceService, which calls this when a hit lands on a
+--  kart that has no Player behind it.
+--
+--  Without it every item landed on a bot and did nothing: the hit path
+--  resolved a victim through GetPlayerByUserId, got nil, and dropped it.
+--  Bots weren't AI, they were scenery — and the only way to find out was
+--  to fire something at one.
+--
+--  No remote involved. Their Simulation is right here, so the effect is
+--  applied to it directly.
+--=====================================================================
+function BotService.applyHit(kart: Model, effect): string?
+	for _, bot in bots do
+		if bot.kart == kart then
+			local landed = bot.sim:Spinout(effect.spin, effect.keep, effect.stun)
+			-- Scramble carries no spin, so Spinout reports nothing landed
+			-- and the shield has to be asked separately.
+			if effect.reverse and effect.reverse > 0 and not bot.sim:HasShield() then
+				bot.sim:Scramble(effect.reverse)
+				landed = true
+			end
+			-- Same rule as a player: a hit that SPINS you costs your stack.
+			if landed and (effect.spin or 0) > 0 and bot.item then
+				bot.item = nil
+			end
+			log("%s was hit by %s", bot.name, tostring(effect.item))
+			return bot.name
+		end
+	end
+	return nil
 end
 
 function BotService.all()

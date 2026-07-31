@@ -79,14 +79,22 @@ return {
 	LookaheadBase = 18,
 	LookaheadPerSpeed = 0.28, -- extra studs per stud/s of speed
 
-	-- How much a corner SHORTENS the lookahead, 0..1. This is the
-	-- shortcut dial: a bot aiming 50 studs ahead on a bend is aiming
-	-- across the apex, and it will drive there. At 0.7 a hairpin cuts the
-	-- lookahead to a third and the bot follows the road round instead.
+	-- How much a corner SHORTENS the lookahead, 0..1. Helps, but it is
+	-- NOT the fix for corner cutting — see LineCorrect. Chasing a point
+	-- up the road always cuts the apex, because the straight line to that
+	-- point lies inside the bend; this only makes the cut smaller.
 	LookaheadTighten = 0.7,
 
-	SteerGain = 2.4, -- how hard it corrects toward the line. Higher is
+	SteerGain = 2.4, -- how hard it aims at the lookahead point. Higher is
 	-- twitchier, not faster
+
+	-- How hard it corrects being OFF the line, per stud of error.
+	--
+	-- The corner-cutting dial, and a different thing from SteerGain:
+	-- that one chases a point up the road, which by itself always cuts
+	-- the apex. This one has no opinion about what's ahead, it just
+	-- refuses to be off the line. Raise it if bots still clip the inside.
+	LineCorrect = 0.07,
 	SteerSlew = 9, -- how fast its steering input can move. This is what
 	-- stops a bot flicking to full lock instantly, which no human can do
 
@@ -102,6 +110,12 @@ return {
 	-- than railed, and it's why they're overtakeable.
 	LineOffset = 9, -- studs either side, at worst skill
 	LineDrift = 0.35, -- how fast the offset wanders
+
+	-- Moving over for traffic. Karts pass through each other by design,
+	-- but two on one line drive as a single overlapping lump, which reads
+	-- as bumping even though nothing collides.
+	AvoidRadius = 26, -- studs, and only counts karts AHEAD
+	AvoidStrength = 11, -- studs of offset at closest range
 
 	--== DRIFTING ======================================================
 	-- Drifts when the corner is sharp enough and it's quick enough to

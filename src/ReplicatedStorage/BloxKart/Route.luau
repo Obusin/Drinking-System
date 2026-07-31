@@ -206,12 +206,6 @@ function Route.pointAt(u: number): Vector3?
 	if n == 0 then
 		return nil
 	end
-	if n < 4 then
-		-- Too few points for a spline; straight lines are all the shape
-		-- there is to describe.
-		local i = math.floor(u)
-		return wrapNode(nodes, i):Lerp(wrapNode(nodes, i + 1), u - i)
-	end
 
 	local i = math.floor(u)
 	local s = u - i
@@ -254,13 +248,23 @@ end
 -- Which way the road runs at `u`. Sampled rather than differentiated —
 -- the exact derivative buys nothing here and this can't divide by zero.
 function Route.tangentAt(u: number): Vector3?
-	local a = Route.pointAt(u)
-	local b = Route.pointAt(u + 0.02)
-	if not (a and b) then
+	local nodes = Route.nodes()
+	local n = #nodes
+	if n == 0 then
 		return nil
 	end
+
+	local i = math.floor(u)
+	local a = nodes[((i - 1) % n) + 1].position
+	local b = nodes[(i % n) + 1].position
+	
 	local d = b - a
-	return if d.Magnitude > 1e-4 then d.Unit else nil
+
+	if d.Magnitude < 1e-4 then
+		return nil
+	end
+
+	return d.Unit
 end
 
 -- How far apart the two nodes bracketing `u` are, so a speed in studs
