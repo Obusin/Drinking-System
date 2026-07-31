@@ -1253,7 +1253,11 @@ local function step(dt: number)
 		local sim = bot.sim
 		local fromTravel = (sim.travel * sim.speed).Y
 		local fromVert = (sim.up * sim.vertVel).Y
-		if fromTravel + fromVert > B.RiseWarn and now - (bot.riseWarnAt or 0) > 2 then
+		-- AIRBORNE ONLY. The first version fired on grounded karts and was
+		-- useless: a kart on an 11 degree ramp at 120 studs/s climbs 23
+		-- studs/s, which is not a bug, it is a ramp. Every line it printed
+		-- was that.
+		if not sim.grounded and fromTravel + fromVert > B.RiseWarn and now - (bot.riseWarnAt or 0) > 2 then
 			bot.riseWarnAt = now
 			warn(
 				("[BotService] %s is RISING at %.1f studs/s — %.1f from travel (up is %.1f deg off vertical), %.1f from vertVel %.1f. grounded %s, speed %.1f, spinning %s"):format(

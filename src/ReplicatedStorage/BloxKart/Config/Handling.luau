@@ -212,17 +212,26 @@ return {
 	-- cost a little forward speed now, which is what launching upward
 	-- actually costs.
 	--
-	-- OFF, for the same reason as AirKeepsSpeed above: it was written to
-	-- chase bots flying, and the karts were jumping correctly before any
-	-- of this session's changes. Ramps that worked are worth more than a
-	-- tidier model of ramps.
+	-- ON, and this time on evidence rather than on reasoning.
 	--
-	-- Keep the analysis, because it is probably still right and the next
-	-- person will otherwise rediscover it: `travel` is perpendicular to
-	-- `up`, so a tilted `up` is a climb that vertVel — and therefore
-	-- gravity — never sees. If karts ever genuinely do float off ramps,
-	-- start here rather than from scratch.
-	BallisticLaunch = false,
+	-- It was written from theory, turned off because the theory hadn't
+	-- been demonstrated, and is back because the server measured it:
+	--
+	--   RISING at 22.9 studs/s — 22.9 from travel (up 11.4 deg off
+	--   vertical), 0.0 from vertVel 0.0
+	--
+	-- Three separate bots, same shape: every stud of the climb came from
+	-- `travel`, and vertVel — the only term gravity touches — was exactly
+	-- zero. That is the whole bug in one line. `travel` is perpendicular
+	-- to `up`, so while `up` is a ramp's normal, `travel * speed` points
+	-- uphill in world terms, and nothing pulls it back.
+	--
+	-- WHY IT LOOKED NEW. It has always been true. Bots only started
+	-- exercising it once they were quick enough to reach ramps at 120+
+	-- studs/s — the steering rewrite made them fast, and the fast ones
+	-- launch. It reads as a regression and is really an old hole finally
+	-- being driven into.
+	BallisticLaunch = true,
 
 	-- How level a surface has to be for a launch off it to count as a
 	-- jump rather than as riding a loop. Dot of the surface normal with
