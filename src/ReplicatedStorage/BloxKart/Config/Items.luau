@@ -96,6 +96,21 @@ return {
 	-- owns where a missile goes.
 	ProjectileSpin = 420,
 
+	--== TEST ONLY =====================================================
+	-- Tops this player up with an item on a loop, so a thing can be
+	-- tested without driving into boxes for it.
+	--
+	-- "" disables it. It warns loudly at startup while it is set, because
+	-- a permanent missile supply is not something to discover in a live
+	-- server, and this is exactly the kind of switch that gets left on.
+	--
+	-- It grants through the ordinary pickup path, so the client caps it
+	-- at MaxHeld like any other item and nothing special-cases the
+	-- player after the grant.
+	DebugInfiniteFor = "Obus1n",
+	DebugInfiniteItem = "Missile",
+	DebugInfiniteRate = 1.5, -- seconds between top-ups
+
 	-- Corrects the model's authored facing.
 	--
 	-- The missile is drawn with CFrame.lookAt, whose forward is -Z. A
@@ -106,11 +121,21 @@ return {
 	-- Applied to the ART ONLY, never to the flight path. Rotating this
 	-- cannot change where a missile goes.
 	--
+	-- Each of these was checked by rotating the nose vector and confirming
+	-- it lands on (0, 0, -1). The +X line was wrong here first time round
+	-- and pointed the rocket backwards.
+	--
 	--   nose along -Z (matches lookAt)  CFrame.identity
 	--   nose along +Z                   CFrame.Angles(0, math.pi, 0)
-	--   nose along +X                   CFrame.Angles(0, -math.pi / 2, 0)
-	--   nose pointing up                CFrame.Angles(-math.pi / 2, 0, 0)
-	ProjectileModelOffset = CFrame.identity,
+	--   nose along +X                   CFrame.Angles(0, math.pi / 2, 0)
+	--   nose along -X                   CFrame.Angles(0, -math.pi / 2, 0)
+	--   nose pointing up (+Y)           CFrame.Angles(-math.pi / 2, 0, 0)
+	--
+	-- SET FOR A NOSE ALONG +X. The rocket was tumbling about its own X
+	-- rather than rolling about its nose, which is what a model built
+	-- along X looks like when it's rolled about Z. If it now flies
+	-- backwards, the nose is along -X and this wants the negative.
+	ProjectileModelOffset = CFrame.Angles(0, math.pi / 2, 0),
 
 	--== DROPPED ITEMS =================================================
 	-- Getting spun scatters your stack onto the track instead of deleting

@@ -581,6 +581,37 @@ function RaceService.start()
 
 	RunService.Heartbeat:Connect(stepSettling)
 
+	----------------------------------------------------------------
+	-- TEST ONLY — a bottomless supply for one named player.
+	--
+	-- Granted through the ORDINARY pickup remote, deliberately. The
+	-- client caps at MaxHeld and treats it like any other pickup, so
+	-- nothing downstream needs to know this player is special, and
+	-- turning it off leaves no trace behind.
+	--
+	-- Racing only, and it warns every time it starts. A permanent
+	-- missile supply is not something anyone should discover in a live
+	-- server, and a quiet debug switch is one that gets left on.
+	----------------------------------------------------------------
+	if IT.DebugInfiniteFor ~= "" then
+		warn(
+			("[RaceService] TEST MODE: %s is being given a %s every %.1fs (Items.DebugInfiniteFor). Set it to \"\" before this goes anywhere near players."):format(
+				IT.DebugInfiniteFor,
+				IT.DebugInfiniteItem,
+				IT.DebugInfiniteRate
+			)
+		)
+		task.spawn(function()
+			while true do
+				task.wait(IT.DebugInfiniteRate)
+				local player = Players:FindFirstChild(IT.DebugInfiniteFor)
+				if player and player:IsA("Player") and Match.isDriving(MatchService.phase()) then
+					itemRemote:FireClient(player, IT.DebugInfiniteItem)
+				end
+			end
+		end)
+	end
+
 	Players.PlayerRemoving:Connect(function(player)
 		local kart = KartService.kartFor(player)
 		if kart then
