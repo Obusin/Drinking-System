@@ -1853,7 +1853,7 @@ function BotService.fill()
 				table.remove(bots, j)
 				bot.boxes:Destroy()
 				bot.drops:Destroy()
-				bot.kart:Destroy()
+				KartService.dropRacer(bot.racer)
 			end
 		end
 		if not warnedNoRoute then
@@ -1907,7 +1907,10 @@ function BotService.fill()
 		if bot.rig then
 			bot.rig:Destroy()
 		end
-		bot.kart:Destroy()
+		-- Through KartService, which owns the registry. Destroying the
+		-- kart here and leaving the entry behind is what put a ghost in
+		-- every racer count.
+		KartService.dropRacer(bot.racer)
 	end
 
 	while owned < want do

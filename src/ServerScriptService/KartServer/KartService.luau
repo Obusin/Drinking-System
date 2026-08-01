@@ -629,6 +629,19 @@ function KartService.retire(kart: Model)
 	kart:Destroy()
 end
 
+-- Takes ONE racer out of the registry and out of the world. For bots:
+-- BotService owns their lifetime, but only KartService owns the
+-- registry, and destroying a kart without saying so leaves a ghost that
+-- everything counting racers counts.
+function KartService.dropRacer(racer: any)
+	local kart = karts[racer]
+	karts[racer] = nil
+	slots[racer] = nil
+	if kart then
+		kart:Destroy()
+	end
+end
+
 function KartService.removeBots()
 	for racer, kart in karts do
 		if isBot(racer) then
@@ -878,15 +891,23 @@ function KartService.start()
 			end
 
 			for racer, kart in karts do
-				if isBot(racer) then
-					continue
-				end
-				-- Registered but gone: destroyed by a sync, a retire that
-				-- half-ran, or anything else. Clearing it lets the pass
-				-- above build a fresh one rather than re-seating into a
-				-- model that is not in the world.
+				-- REGISTERED BUT GONE, for anyone. This used to sit below
+				-- the bot skip, so a destroyed BOT kart stayed in the
+				-- registry for the life of the server — and everything
+				-- that counts racers counts this table.
+				--
+				-- BotService.fill destroys a kart when it trims the field
+				-- and never deregisters it, so every trim left a ghost.
+				-- racerCount counted it, and stillRacing counted it as
+				-- somebody who had not finished — which is a race that
+				-- can never end early, because it is waiting on a kart
+				-- that no longer exists.
 				if not kart.Parent then
 					karts[racer] = nil
+					slots[racer] = nil
+					continue
+				end
+				if isBot(racer) then
 					continue
 				end
 
