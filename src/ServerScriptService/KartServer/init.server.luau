@@ -23,6 +23,7 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Names = require(ReplicatedStorage.BloxKart.Names)
+local Place = require(ReplicatedStorage.BloxKart.Place)
 local WorldFilter = require(ReplicatedStorage.BloxKart.WorldFilter)
 local Assets = require(script.Assets)
 local Skins = require(script.Skins)
