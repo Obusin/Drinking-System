@@ -80,6 +80,21 @@ return {
 	SkillMin = 0.45,
 	SkillMax = 0.92,
 
+	--== DODGING A MISSILE =============================================
+	-- Bots hop missiles too, or players work out inside one session that
+	-- the dodge only ever works against AI — and a mechanic that applies
+	-- to one half of the field is worse than no mechanic.
+	--
+	-- Scaled by skill, so a poor bot is genuinely easier to hit rather
+	-- than uniformly lucky. The chance is rolled ONCE per missile, not
+	-- per step: rolled per step at 60Hz it is a certainty, which this
+	-- project has already paid to learn about nitro.
+	DodgeChanceMin = 0.15, -- at SkillMin
+	DodgeChanceMax = 0.75, -- at SkillMax
+	-- How close the missile gets before it hops. Late on purpose: an
+	-- early hop lands before the missile arrives and dodges nothing.
+	DodgeAt = 26, -- studs
+
 	--== CRUISE — the "I can't even chase it" dial =====================
 	-- The speed a bot settles at on a straight, as a fraction of
 	-- Handling.MaxSpeed. Worst-skill bot gets CruiseMin, best gets

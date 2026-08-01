@@ -124,4 +124,9 @@ end
 -- rather than a require: RaceService is upstream of BotService and
 -- shouldn't have to know it exists.
 RaceService.onNonPlayerHit = BotService.applyHit
+-- A missile inside hopping range of a bot. Hooks rather than requires:
+-- ProjectileService is upstream of BotService and should not learn it
+-- exists — the same reason the hit relay works this way.
+ProjectileService.onMissileNear = BotService.missileNear
+ProjectileService.onMissileGone = BotService.missileGone
 

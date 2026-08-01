@@ -899,6 +899,23 @@ local function drive(bot, dt: number)
 	c.driftHeld = drifting
 
 	----------------------------------------------------------------
+	-- HOPPING A MISSILE
+	--
+	-- The same input, for the same reason a player would use it, and it
+	-- costs a bot the same thing: hopping mid-corner throws away the
+	-- drift it was charging.
+	--
+	-- The decision is made ONCE per missile — `bot.dodging` is set when
+	-- one gets close and the roll is taken there. Rolling per step at
+	-- 60Hz turns any chance into a certainty, which this project has
+	-- already paid to learn about nitro.
+	----------------------------------------------------------------
+	if bot.dodging and sim.grounded then
+		c._driftPress = true
+		bot.dodging = false
+	end
+
+	----------------------------------------------------------------
 	-- NITRO
 	--
 	-- Spent on straights, where a player would. Holding out for three
@@ -2090,6 +2107,40 @@ end
 --  No remote involved. Their Simulation is right here, so the effect is
 --  applied to it directly.
 --=====================================================================
+-- A MISSILE HAS COME INSIDE HOPPING RANGE of this bot. Called by
+-- ProjectileService, which is the only thing that knows where missiles
+-- are — a bot polling for them would be every bot asking every frame
+-- about something that is almost never true.
+--
+-- The roll happens HERE and once. `decided` stops a missile that lingers
+-- in range from being rolled again every frame, which is the difference
+-- between a chance and a certainty.
+function BotService.missileNear(kart: Model)
+	for _, bot in bots do
+		if bot.kart == kart then
+			if bot.dodgeDecided then
+				return
+			end
+			bot.dodgeDecided = true
+			local chance = B.DodgeChanceMin + (B.DodgeChanceMax - B.DodgeChanceMin) * bot.skill
+			bot.dodging = rng:NextNumber() < chance
+			return
+		end
+	end
+end
+
+-- Cleared when the threat is gone, so the next missile gets its own
+-- roll rather than inheriting this one's answer.
+function BotService.missileGone(kart: Model)
+	for _, bot in bots do
+		if bot.kart == kart then
+			bot.dodgeDecided = false
+			bot.dodging = false
+			return
+		end
+	end
+end
+
 function BotService.applyHit(kart: Model, effect): string?
 	for _, bot in bots do
 		if bot.kart == kart then

@@ -67,6 +67,11 @@ local IT = Config.Items
 
 local ProjectileService = {}
 
+-- Set by init.server. Lets the bots know something is chasing them
+-- without this module learning that bots exist.
+ProjectileService.onMissileNear = nil :: ((Model) -> ())?
+ProjectileService.onMissileGone = nil :: ((Model) -> ())?
+
 local live = {} -- active projectiles, numeric only
 local nextUid = 0
 
@@ -149,6 +154,35 @@ local function isShooter(p, kart: Model): boolean
 	return false
 end
 
+-- DID THEY JUMP IT?
+--
+-- Asked at the moment of detonation rather than tracked, so there is
+-- nothing to replicate and nothing a client can claim. One raycast, and
+-- only on the frame something was about to go off.
+--
+-- Measured along the KART's own up, never world Y — the same rule the
+-- whole controller runs on, and the reason this still works upside down
+-- on a loop.
+local function dodged(p, kart: Model, hitbox: BasePart): boolean
+	if not IT.DodgeEnabled then
+		return false
+	end
+
+	local up = hitbox.CFrame.UpVector
+
+	-- The missile has to be UNDER them. Without this an airborne kart is
+	-- immune from every angle, including one flying straight at its face.
+	if (hitbox.Position - p.pos):Dot(up) < IT.DodgeBelow then
+		return false
+	end
+
+	-- And there has to be air below. The ray uses the projectile's own
+	-- filter, which already excludes karts and hazards, so a kart
+	-- directly beneath does not count as ground.
+	local hit = workspace:Raycast(hitbox.Position, -up * IT.DodgeHeight, rayParams)
+	return hit == nil
+end
+
 local function acquire(p)
 	if p.locked then
 		return
@@ -190,6 +224,11 @@ end
 --  END OF LIFE
 --=====================================================================
 local function detonate(p, victim: Model?, why: string?)
+	-- Whatever it was chasing is no longer being chased by this one.
+	if p.warnedTarget and p.target and ProjectileService.onMissileGone then
+		ProjectileService.onMissileGone(p.target)
+		p.warnedTarget = false
+	end
 	if IT.ProjectileDebug then
 		print(
 			("[Missile] #%d %s after %.1fs — u %.1f, %s"):format(
@@ -263,9 +302,14 @@ local function step(dt: number)
 		for _, kart in CollectionService:GetTagged(Names.KART_TAG) do
 			local hb = kart.PrimaryPart
 			if hb and not isShooter(p, kart) and (hb.Position - p.pos).Magnitude <= p.item.HitRadius then
-				detonate(p, kart)
-				blew = true
-				break
+				-- Jumped it. The missile carries on rather than being
+				-- consumed: it has not hit anything, and a dodge that
+				-- deleted the missile would be a kill by another name.
+				if not dodged(p, kart, hb) then
+					detonate(p, kart)
+					blew = true
+					break
+				end
 			end
 		end
 		if blew then
@@ -298,11 +342,45 @@ local function step(dt: number)
 		local locked = p.target and p.target.PrimaryPart
 		if locked then
 			local range = (locked.Position - p.pos).Magnitude
+
+			-- TELL THE TARGET, IF IT IS A BOT. A hook rather than a
+			-- require: ProjectileService is upstream of BotService and
+			-- has no business knowing it exists, same as the hit relay.
+			--
+			-- Pushed from here because this is the only place that knows
+			-- where missiles are. A bot polling for them would be every
+			-- bot asking every frame about something that is almost
+			-- never true.
+			if ProjectileService.onMissileNear then
+				if range <= IT.DodgeAt and not p.warnedTarget then
+					p.warnedTarget = true
+					ProjectileService.onMissileNear(p.target)
+				elseif range > IT.DodgeAt and p.warnedTarget then
+					-- Opened back up. It gets a fresh decision if it
+					-- comes round again.
+					p.warnedTarget = false
+					if ProjectileService.onMissileGone then
+						ProjectileService.onMissileGone(p.target)
+					end
+				end
+			end
 			local opening = p.lastRange ~= nil and range > p.lastRange
 			-- `or 0` so a future projectile without a fuze simply doesn't
 			-- have one, rather than erroring on the comparison.
 			if opening and p.lastRange <= (p.item.FuzeRadius or 0) then
-				detonate(p, p.target)
+				-- The fuze fires at closest approach, which is exactly the
+				-- moment a hop has to be judged — so the same test guards
+				-- it. Without this the proximity check would be dodgeable
+				-- and the fuze would not, and the missile would still get
+				-- you a fraction of a second later.
+				if not dodged(p, p.target, locked) then
+					detonate(p, p.target)
+					continue
+				end
+				-- Missed. Forget the approach so it can commit to a fresh
+				-- one rather than re-firing the fuze every frame while it
+				-- flies away.
+				p.lastRange = nil
 				continue
 			end
 			p.lastRange = range

@@ -43,6 +43,27 @@ return {
 	-- that it still feels like lightning.
 	LightningWindUp = 1.1,
 
+	--== HOPPING A MISSILE ============================================
+	-- Airborne when it arrives and it passes underneath.
+	--
+	-- Hop is the right input for this and not a new one: it already
+	-- exists, players already press it constantly, and jumping something
+	-- needs no explaining. It also costs what a dodge should — hopping
+	-- mid-corner breaks the drift you were charging, so evading is paid
+	-- for in boost rather than being free.
+	--
+	-- HOWEVER YOU GOT AIRBORNE COUNTS. A ramp works. Special-casing the
+	-- hop would mean a missile that hits you mid-jump, which is the one
+	-- outcome nobody would accept.
+	DodgeEnabled = true,
+	-- Clearance needed under the kart, measured along ITS own up so this
+	-- still works on a loop.
+	DodgeHeight = 4.5,
+	-- And the missile has to actually be below you. Without this, any
+	-- airborne kart is immune from every angle, including one flying
+	-- straight at your face.
+	DodgeBelow = 1.2,
+
 	ThreatConeAt = 90,
 	ThreatConeMin = 0.55,
 
