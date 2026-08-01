@@ -1,5 +1,12 @@
 # BloxKart
 
+**Before changing anything, read `BUGS.md`** — what is currently broken,
+what is only suspected, and the patterns that keep producing it. Most of
+the bugs in it were caused by the fix for another one.
+
+`FINDINGS.md` is the permanent record of mechanisms this project has
+learned. `BUGS.md` is the live list.
+
 Arcade kart. Mario Kart feel, not vehicle simulation.
 
 Single Script Architecture — one `Script`, one `LocalScript`, everything

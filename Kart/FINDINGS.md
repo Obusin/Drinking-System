@@ -10,6 +10,10 @@ a part's position" survives.
 
 ---
 
+> **Currently broken things live in `BUGS.md`, not here.** This file is
+> the permanent record of mechanisms learned; that one is the live list,
+> and it carries the order of attack.
+
 # 1. The invariants
 
 These are load-bearing. Breaking any of them produces a class of bug
