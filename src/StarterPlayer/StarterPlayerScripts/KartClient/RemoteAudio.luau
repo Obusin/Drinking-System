@@ -197,4 +197,66 @@ function RemoteAudio.start()
 	RunService.Heartbeat:Connect(step)
 end
 
+--=====================================================================
+--  OTHER PEOPLE'S HITS
+--
+--  Every hit already reaches every client through the feed — it was
+--  carrying the news and not the noise, so a race where four bots were
+--  battling behind you sounded like an empty track.
+--
+--  Played AT the victim's kart, so it arrives from the right direction
+--  and falls off with distance like anything else in the world.
+--
+--  POOLED. A busy lap is dozens of hits, and creating a Sound per bang
+--  is instance churn for something that lasts a second. Voices are
+--  reused round-robin: stealing the oldest is correct for one-shots,
+--  where the newest bang is always the one worth hearing.
+--=====================================================================
+local hitVoices: { Sound } = {}
+local nextVoice = 1
+
+local function voice(): Sound
+	local s = hitVoices[nextVoice]
+	if not s then
+		s = Instance.new("Sound")
+		s.Name = "RemoteHit"
+		s.RollOffMaxDistance = A.RemoteHitRollOff
+		s.RollOffMode = Enum.RollOffMode.InverseTapered
+		s.Volume = A.RemoteHitVolume
+		hitVoices[nextVoice] = s
+	end
+	nextVoice = nextVoice % A.RemoteHitVoices + 1
+	return s
+end
+
+-- `kart` is the victim's. Nil, or our own, and nothing plays: your own
+-- hits already have their own sound, at full volume, and doubling them
+-- makes being hit sound different depending on who saw it.
+function RemoteAudio.playHit(kart: Model?, itemId: string?)
+	if not kart or not kart.PrimaryPart then
+		return
+	end
+	if kart:GetAttribute(Names.OWNER) == Players.LocalPlayer.UserId then
+		return
+	end
+
+	local id = itemId and A.ItemHitIds[itemId]
+	-- The generic thump when the item has no sound of its own, so a hit
+	-- is never silent — that is the whole point of this.
+	local sound = if id and id ~= "" then id else A.HitSoundId
+	if not sound or sound == "" then
+		return
+	end
+
+	local v = voice()
+	-- Reparented rather than one Sound per kart: a kart that retires
+	-- takes its children with it, and a pool that lives on karts is a
+	-- pool that keeps disappearing.
+	v.Parent = kart.PrimaryPart
+	if v.SoundId ~= sound then
+		v.SoundId = sound
+	end
+	v:Play()
+end
+
 return RemoteAudio

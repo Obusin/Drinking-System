@@ -31,6 +31,20 @@ return {
 	-- the camera's ROTATION — which is precisely where the eye sees it.
 	FocusFollow = 14,
 
+	-- HOW FAST THE ORBIT ANGLE FOLLOWS THE SUBJECT'S HEADING.
+	--
+	-- The camera sits behind whatever it is watching, so its position is
+	-- derived from that kart's facing — and a bot's kart is anchored and
+	-- server-written, so its rotation arrives in replication steps that
+	-- no amount of position smoothing removes.
+	--
+	-- A degree of rotational jitter becomes studs of camera movement at
+	-- orbit distance, which is why the body looked shaky while the
+	-- subject looked fine. Slower than the focus on purpose: the aim must
+	-- stay locked on the kart, but the angle we view it FROM can drift
+	-- lazily and nobody notices.
+	HeadingFollow = 5,
+
 	--== LOOK ==========================================================
 	-- Radians per pixel of mouse movement.
 	LookSensitivity = 0.006,

@@ -47,7 +47,7 @@ local hitRemote: RemoteEvent
 -- doesn't know who fired.
 -- Names rather than Players, because a bot has no Player object and the
 -- feed shouldn't care which kind of racer landed the hit.
-function RaceService.announce(itemId: string?, byName: string?, victimName: string?)
+function RaceService.announce(itemId: string?, byName: string?, victimName: string?, victimKart: Model?)
 	if not (RaceService.feed and victimName and itemId) then
 		return
 	end
@@ -62,6 +62,13 @@ function RaceService.announce(itemId: string?, byName: string?, victimName: stri
 		-- and a missile fired at nobody still hits whoever it runs into.
 		by = byName,
 		victim = victimName,
+		-- WHERE it happened, so every client can hear it. The feed
+		-- already reaches everybody; it was carrying the news and not
+		-- the noise. An Instance replicates fine and the client reads a
+		-- live position off it, which is better than a stale one baked
+		-- in here.
+		kart = victimKart,
+		id = itemId,
 	})
 end
 
@@ -124,7 +131,7 @@ function RaceService.creditVoidKill(kart: Model, victimName: string): boolean
 	if hit.byPlayer then
 		Progress.eliminated(hit.byPlayer)
 	end
-	RaceService.announce(hit.item or Config.Match.EliminationText, hit.byName, victimName)
+	RaceService.announce(hit.item or Config.Match.EliminationText, hit.byName, victimName, kart)
 	return true
 end
 
@@ -175,7 +182,7 @@ function RaceService.relayHit(byName: string?, targetKart: Model, payload, byPla
 	end
 
 	if victim then
-		RaceService.announce(tostring(effect.item), byName, victim.DisplayName)
+		RaceService.announce(tostring(effect.item), byName, victim.DisplayName, targetKart)
 		if windUp > 0 then
 			-- TOLD FIRST, HIT SECOND. The warning is the whole reason the
 			-- wind-up exists, so it goes out now and the effect follows.
@@ -206,7 +213,7 @@ function RaceService.relayHit(byName: string?, targetKart: Model, payload, byPla
 				if targetKart.Parent and RaceService.onNonPlayerHit then
 					local n = RaceService.onNonPlayerHit(targetKart, effect)
 					if n then
-						RaceService.announce(tostring(effect.item), byName, n)
+						RaceService.announce(tostring(effect.item), byName, n, targetKart)
 					end
 				end
 			end)
@@ -214,7 +221,7 @@ function RaceService.relayHit(byName: string?, targetKart: Model, payload, byPla
 		end
 		local name = RaceService.onNonPlayerHit(targetKart, effect)
 		if name then
-			RaceService.announce(tostring(effect.item), byName, name)
+			RaceService.announce(tostring(effect.item), byName, name, targetKart)
 		end
 	end
 end
@@ -959,7 +966,8 @@ function RaceService.start()
 				RaceService.announce(
 					arg:GetAttribute(Names.HAZARD_ITEM),
 					if owner then owner.DisplayName else nil,
-					player.DisplayName
+					player.DisplayName,
+					KartService.kartFor(player)
 				)
 				arg:Destroy()
 			end

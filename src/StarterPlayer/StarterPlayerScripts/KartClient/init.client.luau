@@ -667,6 +667,9 @@ if feedRemote then
 	feedRemote.OnClientEvent:Connect(function(msg)
 		if typeof(msg) == "table" and msg.victim then
 			feedHud:Add(tostring(msg.item), msg.by, tostring(msg.victim), msg.icon)
+			-- And hear it. The feed already reached us with everything
+			-- needed; it was only ever drawing the line.
+			RemoteAudio.playHit(msg.kart, msg.id)
 		end
 	end)
 end

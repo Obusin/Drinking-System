@@ -66,6 +66,20 @@ return {
 	},
 	ItemHitVolume = 1,
 
+	--== OTHER PEOPLE'S HITS ==========================================
+	-- Every hit already reaches every client through the feed. It was
+	-- carrying the news and not the noise: a race where four bots are
+	-- battling behind you sounded like an empty track.
+	--
+	-- Played at the VICTIM's kart so it arrives from the right
+	-- direction, and quieter than your own — a hit you can hear but did
+	-- not feel should read as somebody else's problem.
+	RemoteHitVolume = 0.55,
+	RemoteHitRollOff = 220,
+	-- Sounds are pooled. A busy lap is dozens of hits and creating an
+	-- instance per bang is churn for something that lasts a second.
+	RemoteHitVoices = 6,
+
 	PickupSoundId = "rbxassetid://117570443671176", -- roulette lands
 	PickupVolume = 0.85,
 	-- One click per name the roulette cycles past. A single Sound is

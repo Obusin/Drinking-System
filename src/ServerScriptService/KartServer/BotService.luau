@@ -1065,7 +1065,7 @@ local function checkHazards(bot)
 	-- Whoever laid it gets the credit, exactly as when a player hits one.
 	local ownerId = hz:GetAttribute(Names.OWNER)
 	local owner = ownerId and ownerId ~= 0 and Players:GetPlayerByUserId(ownerId)
-	RaceService.announce(item.Id, if owner then owner.DisplayName else nil, bot.name)
+	RaceService.announce(item.Id, if owner then owner.DisplayName else nil, bot.name, bot.kart)
 	hz:Destroy()
 	log("%s drove into a %s", bot.name, item.Id)
 end

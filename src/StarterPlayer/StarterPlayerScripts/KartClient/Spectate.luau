@@ -40,6 +40,7 @@ local Config = require(BloxKart:WaitForChild("Config"))
 local Names = require(BloxKart:WaitForChild("Names"))
 local Shared = require(BloxKart:WaitForChild("Match"))
 local Standings = require(BloxKart:WaitForChild("Standings"))
+local Util = require(BloxKart:WaitForChild("Util"))
 local Input = require(script.Parent.Input)
 
 local SP = Config.Spectate
@@ -123,7 +124,7 @@ function Spectate:_cycle(step: number)
 		end
 	end
 	self.target = list[(at + step - 1) % #list + 1]
-	self.pos, self.focus = nil, nil -- cut rather than sweep across the map
+	self.pos, self.focus, self.heading = nil, nil, nil -- cut rather than sweep across the map
 end
 
 -- Prefer somebody still in the race; fall back to anyone at all so the
@@ -141,7 +142,7 @@ function Spectate:_pickBest()
 	local own = ownKart()
 	if own and own:GetAttribute(Shared.RETIRE_AT) then
 		self.target = own
-		self.pos, self.focus = nil, nil
+		self.pos, self.focus, self.heading = nil, nil, nil
 		return
 	end
 
@@ -149,12 +150,12 @@ function Spectate:_pickBest()
 	for _, kart in list do
 		if racing(kart) then
 			self.target = kart
-			self.pos, self.focus = nil, nil
+			self.pos, self.focus, self.heading = nil, nil, nil
 			return
 		end
 	end
 	self.target = list[1]
-	self.pos, self.focus = nil, nil
+	self.pos, self.focus, self.heading = nil, nil, nil
 end
 
 --=====================================================================
@@ -205,7 +206,7 @@ function Spectate:_stop()
 	self.free = false
 	self.looking = false
 	self.target = nil
-	self.pos, self.focus = nil, nil
+	self.pos, self.focus, self.heading = nil, nil, nil
 	local cam = workspace.CurrentCamera
 	if cam and self.saved then
 		cam.CameraType = self.saved
@@ -260,7 +261,7 @@ function Spectate:ToggleFree()
 	else
 		-- Both, or coming back from free cam aims at a stale point and
 		-- sweeps onto the subject instead of cutting to it.
-		self.pos, self.focus = nil, nil
+		self.pos, self.focus, self.heading = nil, nil, nil
 	end
 end
 
@@ -357,7 +358,26 @@ function Spectate:Update(dt: number, phase: string?, finished: boolean, move: Ve
 	local base = hitbox.CFrame
 	local flat = Vector3.new(base.LookVector.X, 0, base.LookVector.Z)
 	flat = if flat.Magnitude > 1e-3 then flat.Unit else Vector3.new(0, 0, -1)
-	local heading = math.atan2(-flat.X, -flat.Z)
+	local wantHeading = math.atan2(-flat.X, -flat.Z)
+
+	-- SMOOTH THE ORBIT ANGLE, and this is the one that was missing.
+	--
+	-- Position and aim were both eased and the camera was still shaky on
+	-- bots, because the angle we orbit FROM is taken from the subject's
+	-- facing — and an anchored, server-written kart's rotation arrives in
+	-- replication steps that position smoothing does nothing about.
+	--
+	-- A degree of that becomes studs of camera travel at orbit distance,
+	-- so the body swung while the subject sat still in frame. Exactly
+	-- backwards from how it looked.
+	--
+	-- approachAngle, not approach: heading wraps at pi, and lerping the
+	-- raw number sends the camera the long way round the kart every time
+	-- it crosses.
+	self.heading = if self.heading
+		then Util.approachAngle(self.heading, wantHeading, SP.HeadingFollow, dt)
+		else wantHeading
+	local heading = self.heading
 
 	-- SMOOTH THE AIM POINT TOO, not just the camera position.
 	--
