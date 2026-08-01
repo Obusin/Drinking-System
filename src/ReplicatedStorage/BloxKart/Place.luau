@@ -37,6 +37,14 @@ export type Track = {
 -- Worked out once. See the note above: this is a constant for the life
 -- of the server.
 local function resolve(): Role
+	-- THE TEST OVERRIDE, first, because its whole point is to win.
+	-- Studio only — see the note in Config/Places.
+	local forced = PL.ForceRoleInStudio
+	if RunService:IsStudio() and (forced == "lobby" or forced == "race") then
+		warn(("[Place] FORCED to %s by Config.Places.ForceRoleInStudio. Studio only."):format(forced:upper()))
+		return forced :: Role
+	end
+
 	local lobby = PL.LobbyPlaceId
 
 	-- NOT SET UP YET. Every place is a race place, which is what the

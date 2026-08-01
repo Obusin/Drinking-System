@@ -39,6 +39,23 @@ return {
 	-- on the Creator Dashboard.
 	LobbyPlaceId = 0,
 
+	--== TESTING BEFORE THE IDS EXIST ====================================
+	-- Force the role, ignoring the place id entirely.
+	--
+	--   ""        use LobbyPlaceId, which is the real rule
+	--   "lobby"   pretend this is the hub
+	--   "race"    pretend this is a track
+	--
+	-- STUDIO ONLY, and deliberately so. Its whole purpose is trying the
+	-- hub out before the places are published and the ids are known; a
+	-- published server must decide what it is from what it IS, not from
+	-- a value somebody left set. Otherwise one forgotten line turns
+	-- every track in the game into a lobby, and the failure is a race
+	-- that never starts for anybody.
+	--
+	-- It says so loudly in the output whenever it is on.
+	ForceRoleInStudio = "",
+
 	--== WHERE THE LOBBY CAN SEND PEOPLE =================================
 	-- One row per track. `placeId` is the place that holds that map.
 	--
