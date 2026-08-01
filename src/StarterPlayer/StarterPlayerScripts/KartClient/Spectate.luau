@@ -143,8 +143,12 @@ function Spectate:_pickBest()
 	-- Deliberately not in `candidates()`: that list is what Q/E cycles
 	-- through, and a kart that is about to be destroyed has no business
 	-- being a place you can deliberately return to.
+	-- YOUR OWN KART, while it is still finishing. It is no longer
+	-- destroyed after the flag — nothing retires — so the thing that
+	-- ends the shot is BeginFinish/EndFinish rather than the kart
+	-- ceasing to exist.
 	local own = ownKart()
-	if own and own:GetAttribute(Shared.RETIRE_AT) then
+	if own and self.finishing then
 		self.target = own
 		self.pos, self.focus, self.heading = nil, nil, nil
 		return

@@ -93,9 +93,6 @@ end
 MatchService.onResults = BotService.takeOverAll
 MatchService.onRelease = function()
 	BotService.releaseTakeOvers()
-	-- Anyone whose avatar was despawned when their kart retired gets it
-	-- back here, at the grid — the only moment a new kart is welcome.
-	KartService.reviveRetired()
 end
 -- A kart leaving the world, by either route. The AI is unhooked FIRST:
 -- a bot stepping a Simulation against a destroyed model is a stream of
@@ -119,10 +116,6 @@ statsRemote.OnServerEvent:Connect(function(player, batch)
 	Progress.report(player, batch)
 end)
 
-MatchService.onRetire = function(kart)
-	BotService.detach(kart)
-	KartService.retire(kart)
-end
 -- A hit on a kart with no Player behind it goes to the bots. A hook
 -- rather than a require: RaceService is upstream of BotService and
 -- shouldn't have to know it exists.

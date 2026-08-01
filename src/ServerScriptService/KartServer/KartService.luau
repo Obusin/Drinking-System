@@ -52,7 +52,6 @@ local slots: { [any]: number } = {}
 -- it back at the next grid, which is the only moment a new kart is
 -- welcome — reloading them the instant they retire would put a fresh
 -- kart on the track in the middle of the race they just left.
-local retired: { [Player]: boolean } = {}
 -- When each player was last handed a fresh character. LoadCharacter is
 -- expensive and asynchronous; retrying it every two seconds while one is
 -- still arriving would queue spawns behind each other forever.
@@ -60,62 +59,6 @@ local reloadAt: { [Player]: number } = {}
 -- When a character last arrived and a kart was therefore already on its
 -- way. The watchdog waits this out rather than racing it.
 local spawningAt: { [Player]: number } = {}
-
--- OUT OF THE RACE WITHOUT LEAVING THE GAME.
---
--- A finished player's avatar has to stop being in the world — standing
--- on the track, in the way, visible to everyone — but destroying it
--- means loading another one later, and loading one means a kart. Every
--- respawn bug in this project traces back to that.
---
--- So it is hidden and anchored where it stands. The Character instance
--- is never destroyed, CharacterAdded never fires, and nothing downstream
--- has any reason to build anything.
-local stashed: { [Player]: boolean } = {}
-
-local function stash(player: Player)
-	local character = player.Character
-	if not character or stashed[player] then
-		return
-	end
-	stashed[player] = true
-	for _, d in character:GetDescendants() do
-		if d:IsA("BasePart") then
-			d.Transparency = 1
-			d.CanCollide = false
-			d.CanQuery = false
-			d.Anchored = true
-		elseif d:IsA("Decal") or d:IsA("BillboardGui") then
-			d.Transparency = 1
-		end
-	end
-	local humanoid = character:FindFirstChildOfClass("Humanoid")
-	if humanoid then
-		humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
-	end
-end
-
-local function unstash(player: Player)
-	local character = player.Character
-	if not character or not stashed[player] then
-		return
-	end
-	stashed[player] = nil
-	for _, d in character:GetDescendants() do
-		if d:IsA("BasePart") then
-			d.Transparency = 0
-			d.CanCollide = true
-			d.CanQuery = true
-			d.Anchored = false
-		elseif d:IsA("Decal") then
-			d.Transparency = 0
-		end
-	end
-	local humanoid = character:FindFirstChildOfClass("Humanoid")
-	if humanoid then
-		humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.Viewer
-	end
-end
 
 -- THE ONLY THING THAT GIVES A PLAYER A BODY.
 --
@@ -529,9 +472,7 @@ local function onCharacterAdded(player: Player, character: Model)
 	if humanoid and humanoid:IsA("Humanoid") then
 		humanoid.Died:Connect(function()
 			task.wait(Players.RespawnTime)
-			if not retired[player] then
-				reload(player, "died")
-			end
+			reload(player, "died")
 		end)
 	end
 
@@ -603,32 +544,6 @@ end
 -- The character is sent with it. A player seated in a kart that
 -- vanishes is left standing on the track as a loose avatar, visible to
 -- everyone, with no way back into a race they have already finished.
-function KartService.retire(kart: Model)
-	for racer, k in karts do
-		if k == kart then
-			karts[racer] = nil
-			slots[racer] = nil
-			-- A PLAYER'S KART GOES, THEIR CHARACTER DOES NOT.
-			--
-			-- Destroying the character is what started the whole
-			-- cascade: it meant reviving them, which meant
-			-- LoadCharacter, which meant a fresh kart at the grid slot
-			-- appearing mid-round and driving away.
-			--
-			-- Stashed instead — hidden, anchored, and parked where the
-			-- kart was. No CharacterAdded fires, so nothing spawns
-			-- anything, and the next grid simply un-hides them and
-			-- builds a kart the normal way.
-			if typeof(racer) == "Instance" and racer:IsA("Player") then
-				retired[racer] = true
-				stash(racer)
-			end
-			break
-		end
-	end
-	kart:Destroy()
-end
-
 -- Takes ONE racer out of the registry and out of the world. For bots:
 -- BotService owns their lifetime, but only KartService owns the
 -- registry, and destroying a kart without saying so leaves a ghost that
@@ -680,31 +595,6 @@ end
 -- A retired player has no kart and no character, so anything counting
 -- "people who can race" by looking for a kart concludes they are not
 -- here. They are — they are between lives.
-function KartService.awaitingRevive(player: Player): boolean
-	return retired[player] == true
-end
-
-function KartService.reviveRetired()
-	for player in retired do
-		retired[player] = nil
-		if player.Parent and player.Character then
-			-- Their body was only hidden, so it comes straight back and
-			-- the kart is built directly. No LoadCharacter, no
-			-- CharacterAdded, and therefore none of the second-spawn
-			-- trouble that path used to cause.
-			unstash(player)
-			local ok, err = pcall(spawnKartFor, player)
-			if not ok then
-				warn("[KartService] revive FAILED for " .. player.Name .. ": " .. tostring(err))
-			end
-		else
-			-- No body at all — they must have died or joined during the
-			-- round. This is the only case that needs a real spawn.
-			reload(player, "revived without a body")
-		end
-	end
-end
-
 function KartService.assignGrid()
 	local pad = Placement.findSpawn()
 	for player, kart in karts do
@@ -791,7 +681,6 @@ function KartService.start()
 	Players.PlayerRemoving:Connect(function(player)
 		spawningAt[player] = nil
 		reloadAt[player] = nil
-		stashed[player] = nil
 		local kart = karts[player]
 		karts[player] = nil
 		slots[player] = nil
@@ -847,7 +736,7 @@ function KartService.start()
 			--=========================================================
 			if not RIG.TestMode then
 				for _, player in Players:GetPlayers() do
-					if karts[player] or retired[player] then
+					if karts[player] then
 						continue
 					end
 					-- A spawn already in flight. Give it room; racing it

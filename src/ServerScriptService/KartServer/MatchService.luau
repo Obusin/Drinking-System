@@ -113,7 +113,7 @@ end
 local function humanRacers(): number
 	local n = 0
 	for _, player in Players:GetPlayers() do
-		if KartService.kartFor(player) or KartService.awaitingRevive(player) then
+		if KartService.kartFor(player) then
 			n += 1
 		end
 	end
@@ -231,13 +231,6 @@ local function enter(next: string, duration: number?)
 	end
 	-- Marked at the grid and diffed at the flag, so "+N XP this race" is
 	-- one subtraction rather than a second running total to keep in step.
-	-- Anyone retired last round gets their avatar back as soon as there
-	-- is a lobby to stand in. Doing this only at the grid meant a round
-	-- that ended abnormally left them with nothing until one started.
-	if next == P.Waiting or next == P.Intermission then
-		KartService.reviveRetired()
-	end
-
 	if next == P.Grid then
 		-- Every row written from here on is traceable to this race.
 		-- Server time plus the round number, so it is unique across
@@ -307,10 +300,6 @@ local function clearFinishes()
 		-- be frozen on the previous round for the rest of the server's
 		-- life.
 		kart:SetAttribute(Standings.ATTRIBUTE, nil)
-		-- AND THE RETIRE STAMP. A pending retire from last round is
-		-- guarded on this attribute still matching, so clearing it is
-		-- also what stops a stale timer destroying a kart mid-race.
-		kart:SetAttribute(Match.RETIRE_AT, nil)
 	end
 	table.clear(results)
 	finishers = 0
@@ -370,37 +359,6 @@ end
 -- Same counter, same attributes, same grace-period logic for everybody.
 -- A separate bot path would drift out of step with this one, and the
 -- whole point is that a bot's win is the same object as yours.
--- LEAVING THE WORLD.
---
--- A racer who has finished still has a kart sitting on the track, and until now that kart kept driving — the AI took it
--- over and raced it for the rest of the round. For a player that was the
--- point, so the field stayed full. For a BOT it meant a finisher lapped
--- everyone still racing two or three more times, which is the clutter
--- Mark reported.
---
--- Both now leave, after a short drive. The drive is the cutscene: the AI
--- has the wheel, you watch your own kart run on, and then it goes.
---
--- Hook rather than a require, same as onFinished — MatchService says
--- WHEN a kart leaves, and never learns what it takes to remove one.
-MatchService.onRetire = nil :: ((Model) -> ())?
-
-local function scheduleRetire(kart: Model, after: number)
-	if kart:GetAttribute(Match.RETIRE_AT) then
-		return -- already on its way out
-	end
-	local at = workspace:GetServerTimeNow() + after
-	kart:SetAttribute(Match.RETIRE_AT, at)
-
-	task.delay(after, function()
-		-- Re-checked rather than trusted: the round can end, the kart can
-		-- be destroyed, or a new grid can reclaim it inside the delay.
-		if kart.Parent and kart:GetAttribute(Match.RETIRE_AT) == at and MatchService.onRetire then
-			MatchService.onRetire(kart)
-		end
-	end)
-end
-
 local function finishKart(kart: Model, who: string, totalTime: number)
 	if phase ~= P.Racing or not kart then
 		return
@@ -424,6 +382,24 @@ local function finishKart(kart: Model, who: string, totalTime: number)
 	local ownerId = kart:GetAttribute(Names.OWNER)
 	local owner = ownerId and Players:GetPlayerByUserId(ownerId)
 	if owner then
+		-- THEIR BOARD, NOW. It goes up a few seconds after this and was
+		-- being built with no payload at all — no level, no XP, and a
+		-- currency row reading zero, because the only send was at the
+		-- flag. Sent here as well so a personal finish has real numbers
+		-- on it.
+		--
+		-- Deferred by a frame: Progress.finished below is what awards
+		-- the placement XP, and a board sent before it would show the
+		-- total from before they crossed the line.
+		task.defer(function()
+			if MatchService.reward and owner.Parent then
+				MatchService.reward:FireClient(owner, {
+					level = Progress.summary(owner),
+					xpGained = Progress.since(owner),
+					standings = MatchService.standings(),
+				})
+			end
+		end)
 		-- The grid slot comes along so "finish 3 places above where you
 		-- started" is answered by the server, which is the only thing
 		-- that knows where you started.
@@ -448,23 +424,28 @@ local function finishKart(kart: Model, who: string, totalTime: number)
 		userId = kart:GetAttribute(Names.OWNER),
 	})
 
-	-- BOTS LEAVE. PLAYERS DO NOT.
+	-- NOBODY RETIRES ANY MORE, and this is a deletion rather than a fix.
 	--
-	-- A finished bot that keeps racing laps the field two or three more
-	-- times and clutters the track for everyone still trying to finish,
-	-- which is what retirement was for.
+	-- Retiring a finished racer destroyed their kart, and every problem
+	-- of the last day came out of that one idea: the respawn at the
+	-- spawn point, the deadlock at 0/1, the missing kart, the race
+	-- ending a lap in, the ghost registry entries. Each was a real bug
+	-- and each was downstream of a feature nothing needed.
 	--
-	-- A player's kart stays. Retiring it meant destroying the kart AND
-	-- the character, which meant reviving them later, which meant
-	-- LoadCharacter, which meant a fresh kart at the grid slot — a kart
-	-- appearing at the spawn point and driving away, twice over. None of
-	-- that machinery buys anything a player wants: the AI already has
-	-- their kart and drives it round like any other, which is exactly
-	-- what should happen to it.
+	-- The trace settled it: at the flag the board reported "karts 2 (0
+	-- player)". The player's kart had been destroyed before their own
+	-- results appeared, which is why spectating had nothing to hold and
+	-- why the kart kept vanishing.
 	--
-	-- It goes back to them at the next grid through releaseTakeOvers,
-	-- which was always the plan for a taken-over kart.
-	scheduleRetire(kart, M.FinishDriveTime)
+	-- A finished kart stays and the AI drives it, exactly as it does
+	-- between crossing the line and the flag. It goes back to its owner
+	-- at the next grid through releaseTakeOvers, which was always the
+	-- plan for a taken-over kart.
+	--
+	-- The one thing retirement was FOR — a finished bot lapping the
+	-- field twice more — is worth less than a kart that stays where it
+	-- is, and is better solved by a bot that stops racing than by one
+	-- that stops existing.
 
 	if finishers == 1 then
 		-- The leader is home. Everyone else is on the clock now, so the
