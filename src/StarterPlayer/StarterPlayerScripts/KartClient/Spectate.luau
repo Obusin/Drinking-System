@@ -66,6 +66,10 @@ function Spectate.new(humanoidGetter)
 		yaw = 0,
 		pitch = math.rad(-12),
 		dist = SP.Distance,
+		-- The finish shot: a wider, lower, slowly orbiting angle held
+		-- for a moment after you cross the line.
+		finishing = false,
+		finishOrbit = 0,
 		-- Free-cam state, kept separate so switching modes and back
 		-- returns you where you were rather than snapping.
 		freePos = nil :: Vector3?,
@@ -212,6 +216,24 @@ function Spectate:_stop()
 		cam.CameraType = self.saved
 		self.saved = nil
 	end
+end
+
+-- THE FINISH SHOT. Locks onto a given kart, swings out to a wider and
+-- lower angle, and drifts around it.
+--
+-- Not a separate camera: it moves the same dial the player's own zoom
+-- and pitch use, so everything downstream — collision pull-in, the
+-- smoothing, free cam — keeps working without knowing this exists.
+function Spectate:BeginFinish(kart: Model?)
+	self.finishing = true
+	self.finishOrbit = 0
+	if kart then
+		self.target = kart
+	end
+end
+
+function Spectate:EndFinish()
+	self.finishing = false
 end
 
 function Spectate:Next()
@@ -395,8 +417,20 @@ function Spectate:Update(dt: number, phase: string?, finished: boolean, move: Ve
 	local wantFocus = base.Position + Vector3.yAxis * SP.LookHeight
 	self.focus = if self.focus then self.focus:Lerp(wantFocus, math.min(SP.FocusFollow * dt, 1)) else wantFocus
 
-	local offset = CFrame.fromEulerAnglesYXZ(self.pitch, heading + self.yaw, 0)
-	local want3 = self.focus - offset.LookVector * self.dist
+	-- The finish shot eases the dial rather than overriding it, so a
+	-- player who grabs the camera mid-shot simply takes it back.
+	local dist, pitch, yaw = self.dist, self.pitch, self.yaw
+	if self.finishing then
+		self.finishOrbit += dt * SP.FinishOrbit
+		local a = math.min(SP.FinishEase * dt, 1)
+		self.dist = self.dist + (SP.FinishDistance - self.dist) * a
+		self.pitch = self.pitch + (math.rad(SP.FinishPitch) - self.pitch) * a
+		dist, pitch = self.dist, self.pitch
+		yaw = self.yaw + self.finishOrbit
+	end
+
+	local offset = CFrame.fromEulerAnglesYXZ(pitch, heading + yaw, 0)
+	local want3 = self.focus - offset.LookVector * dist
 
 	self.pos = if self.pos then self.pos:Lerp(want3, math.min(SP.Follow * dt, 1)) else want3
 	cam.CFrame = CFrame.lookAt(self.pos, self.focus)

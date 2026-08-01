@@ -70,6 +70,9 @@ return {
 	-- more times and cluttering the track for everyone still trying to
 	-- finish. Finishing has to actually end the drive.
 	FinishDriveTime = 5,
+	-- How long the FINISH banner hangs before fading. Longer than the
+	-- countdown's, because it is read rather than reacted to.
+	FinishFadeTime = 1.6,
 
 	--== ELIMINATION ===================================================
 	-- Fall in the void within this many seconds of being hit and whoever

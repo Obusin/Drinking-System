@@ -137,6 +137,20 @@ function MatchHud:Go()
 	}):Play()
 end
 
+-- CROSSED THE LINE. Same slot as the countdown, because it is the same
+-- kind of moment: one word, dead centre, and nothing else on screen
+-- competing with it.
+function MatchHud:Finish(place: number?)
+	self.count.Text = if place then ("FINISH  ·  P%d"):format(place) else "FINISH"
+	self.count.TextColor3 = M.CountdownGoColor
+	self.count.TextSize = M.CountdownGoSize
+	self.count.TextTransparency = 0
+
+	TweenService:Create(self.count, TweenInfo.new(M.FinishFadeTime, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+		TextTransparency = 1,
+	}):Play()
+end
+
 -- Who you're watching, on the status line.
 --
 -- Reuses the status label rather than adding a second one: while you're

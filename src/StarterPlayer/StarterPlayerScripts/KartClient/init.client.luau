@@ -76,6 +76,7 @@ local Spectate = require(script.Spectate)
 
 local H = Config.Hud
 local IT = Config.Items
+local SPEC = Config.Spectate
 local HAP = Config.Haptics
 
 local player = Players.LocalPlayer
@@ -104,6 +105,12 @@ local TALLY_FLUSH = 8 -- seconds between partial stat sends
 local flushAt = TALLY_FLUSH
 -- The incoming warning outlives the threat by IncomingHold so a
 -- fraction-of-a-second missile is still readable.
+-- THE FINISH SEQUENCE. Crossing the line is a beat, not a cut:
+--   banner  →  the kart drives on under a wider camera  →  wipe  →  board
+-- `finishAt` is when we crossed; everything else is measured from it.
+local finishAt = nil
+local finishShown = false
+
 local incomingUntil = 0
 local incomingEta = 0
 -- The icon of whatever is inbound. A missile today; read from the
@@ -662,6 +669,35 @@ if xpRemote then
 	end)
 end
 
+-- THE BOARD, from whichever source has it.
+--
+-- The server's wins outright when it has arrived: karts retire a few
+-- seconds after finishing, so by the flag the early finishers have left
+-- the world and anything rebuilt from live karts is missing exactly the
+-- racers who did best. preview() survives as the fallback, and it is
+-- what the FINISH shot uses — at that moment the server has not sent
+-- anything yet, and a provisional board over your own finish is right.
+local function buildRewardPayload()
+	local payload
+	if serverReward and serverReward.standings then
+		payload = RewardHud.fromServer(serverReward.standings, serverReward.xpGained)
+	else
+		payload = RewardHud.preview()
+		if serverReward then
+			payload.xpGained = serverReward.xpGained
+		end
+	end
+	if serverReward then
+		payload.level = serverReward.level
+		payload.stats = RewardHud.statsFrom(serverReward.level)
+		-- Session-only, and the panel's PREVIEW line says so. It is shown
+		-- anyway because a balance that never moves is indistinguishable
+		-- from a balance that is broken.
+		payload.balance = { bolt = serverReward.level.bolt or 0, nitro = 0 }
+	end
+	return payload
+end
+
 local feedRemote = ReplicatedStorage.BloxKart:WaitForChild(Names.FEED_REMOTE, 10)
 if feedRemote then
 	feedRemote.OnClientEvent:Connect(function(msg)
@@ -805,9 +841,46 @@ local gridWiped = false
 RunService.Heartbeat:Connect(function(dt)
 	local phase = match:Phase()
 
+	----------------------------------------------------------------
+	-- CROSSING THE LINE
+	--
+	-- Watched here rather than off a lap event, because the finish is
+	-- the SERVER's call — it decides the place — and the attribute
+	-- landing is the only moment that is true on this client.
+	----------------------------------------------------------------
+	local mineNow = sim and sim.model
+	local myPlace = mineNow and mineNow:GetAttribute(Shared.FINISH_PLACE)
+	if myPlace and not finishAt then
+		finishAt = os.clock()
+		matchHud:Finish(myPlace)
+		-- Swing out and orbit. The kart is already the AI's by now, so
+		-- there is nothing to take control away from.
+		spectate:BeginFinish(mineNow)
+	end
+
+	-- The board arrives when the shot has played, not the instant the
+	-- line is crossed. This is the whole difference between an ending
+	-- and a screen change.
+	if finishAt and not finishShown and os.clock() >= finishAt + SPEC.FinishHold then
+		finishShown = true
+		spectate:EndFinish()
+		if not shownForPhase then
+			shownForPhase = true
+			transition:Play(function()
+				rewardHud:Show(buildRewardPayload())
+			end)
+		end
+	end
+
 	if phase ~= lastPhase then
 		local was = lastPhase
 		lastPhase = phase
+
+		-- A new round: forget the last one's finish.
+		if phase == Shared.Phase.Grid then
+			finishAt, finishShown = nil, false
+			spectate:EndFinish()
+		end
 
 		-- Armed once per round, on the way INTO the countdown. Reset
 		-- inside the per-frame branch instead and it re-arms on the
@@ -869,30 +942,9 @@ RunService.Heartbeat:Connect(function(dt)
 	if phase == Shared.Phase.Results then
 		if not shownForPhase then
 			shownForPhase = true
-			-- The server's board wins outright when it arrives. Karts
-			-- retire a few seconds after finishing, so by now the early
-			-- finishers have left the world and anything rebuilt from
-			-- live karts is missing the racers who did best. preview()
-			-- survives only as the fallback for a missing payload.
-			local payload
-			if serverReward and serverReward.standings then
-				payload = RewardHud.fromServer(serverReward.standings, serverReward.xpGained)
-			else
-				payload = RewardHud.preview()
-				if serverReward then
-					payload.xpGained = serverReward.xpGained
-				end
-			end
-			if serverReward then
-				payload.level = serverReward.level
-				payload.stats = RewardHud.statsFrom(serverReward.level)
-				-- Session-only, and the panel's PREVIEW line says so. It
-				-- is shown anyway because a balance that never moves is
-				-- indistinguishable from a balance that is broken.
-				payload.balance = { bolt = serverReward.level.bolt or 0, nitro = 0 }
-			end
 			-- Built BEFORE the wipe and shown behind it, so the panel is
 			-- already assembled the moment the band clears.
+			local payload = buildRewardPayload()
 			transition:Play(function()
 				rewardHud:Show(payload)
 			end)
