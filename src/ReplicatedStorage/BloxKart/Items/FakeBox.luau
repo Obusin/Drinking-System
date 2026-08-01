@@ -21,7 +21,7 @@ local IT = require(script.Parent.Parent.Config).Items
 return {
 	Id = "FakeBox",
 	Tint = Color3.fromRGB(150, 170, 190),
-	Icon = "", -- falls back to the tinted tile until there's art
+	Icon = "rbxassetid://76978411044006",
 	Name = "FAKE BOX",
 	Scope = "world",
 	Weight = 60,
