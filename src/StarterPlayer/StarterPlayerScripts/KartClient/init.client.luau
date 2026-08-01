@@ -823,7 +823,10 @@ end
 -- the same question answered in two places, and the reason the simple
 -- one survives at all is that it is the fallback if the panel is ever
 -- suppressed.
-local shownForPhase = false
+-- The board your own finish puts up, and the one the flag puts up, are
+-- SEPARATE EVENTS. One flag for both meant an early finisher never saw
+-- the final standings.
+local resultsShown = false
 
 -- EVERY PHASE CHANGE THAT MOVES THE PLAYER OR THE SCREEN GOES BEHIND THE
 -- WIPE. There are three, and they are all cuts:
@@ -864,8 +867,10 @@ RunService.Heartbeat:Connect(function(dt)
 	if finishAt and not finishShown and os.clock() >= finishAt + SPEC.FinishHold then
 		finishShown = true
 		spectate:EndFinish()
-		if not shownForPhase then
-			shownForPhase = true
+		-- Your board, over your finish. Provisional — the race is still
+		-- running — and dismissing it with SPECTATE is how you get back
+		-- to watching. The FINAL board is a separate event at the flag.
+		if not rewardHud:IsShowing() then
 			transition:Play(function()
 				rewardHud:Show(buildRewardPayload())
 			end)
@@ -915,7 +920,8 @@ RunService.Heartbeat:Connect(function(dt)
 			-- Closing the board. Hidden on the covered frame so the panel
 			-- never visibly pops off the screen.
 			transition:Play(function()
-				shownForPhase = false
+				resultsShown = false
+				finishAt, finishShown = nil, false
 				serverReward = nil
 				rewardHud:Hide()
 			end)
@@ -939,20 +945,32 @@ RunService.Heartbeat:Connect(function(dt)
 		end
 	end
 
+	----------------------------------------------------------------
+	-- THE FINAL BOARD, at the flag.
+	--
+	-- Its own event, tracked separately from the one your own finish
+	-- put up. They used to share a flag, so an early finisher's
+	-- provisional board blocked the real one from ever appearing — you
+	-- crossed the line in first, saw a board with three names on it, and
+	-- that was the last thing you saw of the race.
+	----------------------------------------------------------------
 	if phase == Shared.Phase.Results then
-		if not shownForPhase then
-			shownForPhase = true
+		if not resultsShown then
+			resultsShown = true
 			-- Built BEFORE the wipe and shown behind it, so the panel is
 			-- already assembled the moment the band clears.
 			local payload = buildRewardPayload()
 			transition:Play(function()
+				-- Closed first, because a provisional board may still be
+				-- up and Show refuses to redraw over itself.
+				rewardHud:Hide()
 				rewardHud:Show(payload)
 			end)
 		end
-	elseif shownForPhase and not transition.busy then
+	elseif resultsShown and not transition.busy then
 		-- Fallback for any exit the phase-change branch above missed —
-		-- a suppressed panel must never be able to stay on screen.
-		shownForPhase = false
+		-- a board must never be able to outlive the round.
+		resultsShown = false
 		serverReward = nil
 		rewardHud:Hide()
 	end
