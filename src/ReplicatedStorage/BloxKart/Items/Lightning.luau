@@ -28,7 +28,16 @@ return {
 	Scope = "world", -- reaches other players, so the server relays it
 	-- Deliberately low. It's the rarest thing in the pool, and position
 	-- weighting pushes it further towards the back of the field.
-	Weight = 30,
+	-- RARE, not removed. At 30 it came up about one box in sixteen, and
+	-- an item that hits everybody ahead at once should be a thing that
+	-- happens to a race rather than a thing that happens every lap —
+	-- half the field spinning is memorable the first time and tiresome
+	-- the fourth.
+	--
+	-- 14 puts it near one box in thirty-three. Still the second rarest
+	-- thing in the pool after Refill, and still reachable often enough
+	-- that holding one feels like luck rather than a bug.
+	Weight = 14,
 
 	--== ON HIT ========================================================
 	-- Shorter spin than a mine: it lands on several people at once, so
