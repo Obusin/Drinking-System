@@ -5,7 +5,10 @@ what is only suspected, and the patterns that keep producing it. Most of
 the bugs in it were caused by the fix for another one.
 
 `FINDINGS.md` is the permanent record of mechanisms this project has
-learned. `BUGS.md` is the live list.
+learned. `BUGS.md` is the live list. **`GAME-LOOP.md` is what the round
+loop is supposed to do** — the five phases, what each owns, and the six
+invariants. Read it before touching `MatchService`, `KartService` or
+takeovers; every loop bug so far has been a violation of one of them.
 
 Arcade kart. Mario Kart feel, not vehicle simulation.
 

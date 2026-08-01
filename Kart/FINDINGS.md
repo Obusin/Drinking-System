@@ -612,6 +612,101 @@ sent us the wrong way for a session. Warnings should report *measurements*
 
 ---
 
+# 7b. The 2026-08-02 run — one feature, six bugs
+
+Kept together rather than scattered, because the pattern is the finding.
+
+### Destroying a thing means something has to rebuild it
+
+Retiring a finished racer — destroying their kart and character — was
+added to stop bots lapping the field after they finished. It caused, in
+order:
+
+1. **A respawn at the spawn point.** `CharacterAutoLoads` makes Roblox
+   rebuild a destroyed character at a SpawnLocation, `CharacterAdded`
+   fires, and `KartService` hands out a kart. The respawn was the
+   engine's, not ours.
+2. **A 0/1 deadlock.** `humanRacers` counted people by looking for a
+   kart, so a retired player read as absent, the round fell to Waiting,
+   and the only thing that hands avatars back runs on the way OUT of
+   Intermission.
+3. **A missing kart.** A taken-over kart joins `bots`; `fill` trims that
+   list by destroying karts from the end.
+4. **The race ending a lap in.** `finishers >= racerCount()` — a retired
+   kart leaves the registry, so racerCount FALLS while finishers climbs.
+5. **Ghost registry entries.** `fill` destroyed karts without
+   deregistering them, and the dead-kart sweep sat below the bot skip.
+6. **Detached rigs.** `Physics` state was used to stop a humanoid
+   re-enabling CanCollide — and `Physics` is not `Seated`.
+
+Every one was a real defect with a real fix. Every one was downstream of
+a feature nothing needed.
+
+**The rule: when a fix is downstream of something added in the last few
+changes, question the addition.** It was deleted in the end, and the
+deletion was smaller than any single fix.
+
+### A watchdog must be slower than the path it watches
+
+The no-kart sweep ran every two seconds; `onCharacterAdded` waits
+`SeatDelay` then builds. The sweep declared a perfectly normal spawn
+missing and rebuilt it underneath itself.
+
+### Bots need every recovery rule a player has
+
+Players get three ways out of the void: the `VoidZone` tag, freefall
+time, and a world floor. Bots had only the floor — so a void that is a
+PLANE at track level never triggered, and they drove through it and kept
+driving outside the track until they happened to fall far enough.
+
+They were not leaving the track once. They were leaving it and
+continuing to drive out there. **Any rule that keeps a player on the
+road has to be asked about bots too, from the same helper.**
+
+### ApplyMesh can drop a part out of its assembly
+
+A MeshPart whose geometry is replaced can come away unwelded and
+unanchored. The kart drives perfectly while its bodywork drifts along
+behind, because the hitbox is fine and only the visual came loose.
+
+It is asynchronous — `CreateMeshPartAsync` fetches over the network — so
+it lands AFTER the build has welded everything, which is why nothing in
+the build path looks wrong.
+
+**Re-assert assembly membership after any mesh swap**, and rebuild the
+JOINT that part had: a road wheel welded back gives a kart that drives
+with four locked tyres, which looks fixed until somebody turns.
+
+### An identity must be intrinsic, not an attribute anything can clear
+
+`releaseTakeOvers` keyed on the `AI_DRIVEN` attribute rather than on the
+entry knowing it was a takeover. One stray write and a takeover was
+stranded in `bots` forever — stepped every frame, accumulating one per
+round, and leaving its kart anchored and server-owned.
+
+That single fault produced three separate reports: a frozen camera (the
+client's `step` returns early on `AI_DRIVEN`, and the camera updates
+after that line), a kart welded to its player that would not move, and
+"spectating is broken".
+
+### Config keys are invisible to the type checker
+
+`Config.Hud.WarnedText` deleted by a slice edit froze the camera.
+`DodgeAt` written into the wrong config table errored sixty times a
+second. Neither is visible to `luau-analyze`.
+
+`scripts/config-keys.py` walks every declared alias and every direct
+`Config.X.Y` read across the whole tree, and `scripts/check.sh` runs it.
+
+### Instrument the loop, do not infer it
+
+Six of the above were misdiagnosed at least once by reading code.
+`Config.Match.LoopTrace` prints one line per phase change with the four
+numbers that decide the next one, and it settled in a single round what
+several sessions of reading had got wrong.
+
+---
+
 # 8. Open — stress test these
 
 Current state: **works, still wonky.** Known-unresolved, roughly in
