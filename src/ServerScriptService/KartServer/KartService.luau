@@ -61,6 +61,62 @@ local reloadAt: { [Player]: number } = {}
 -- way. The watchdog waits this out rather than racing it.
 local spawningAt: { [Player]: number } = {}
 
+-- OUT OF THE RACE WITHOUT LEAVING THE GAME.
+--
+-- A finished player's avatar has to stop being in the world — standing
+-- on the track, in the way, visible to everyone — but destroying it
+-- means loading another one later, and loading one means a kart. Every
+-- respawn bug in this project traces back to that.
+--
+-- So it is hidden and anchored where it stands. The Character instance
+-- is never destroyed, CharacterAdded never fires, and nothing downstream
+-- has any reason to build anything.
+local stashed: { [Player]: boolean } = {}
+
+local function stash(player: Player)
+	local character = player.Character
+	if not character or stashed[player] then
+		return
+	end
+	stashed[player] = true
+	for _, d in character:GetDescendants() do
+		if d:IsA("BasePart") then
+			d.Transparency = 1
+			d.CanCollide = false
+			d.CanQuery = false
+			d.Anchored = true
+		elseif d:IsA("Decal") or d:IsA("BillboardGui") then
+			d.Transparency = 1
+		end
+	end
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if humanoid then
+		humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+	end
+end
+
+local function unstash(player: Player)
+	local character = player.Character
+	if not character or not stashed[player] then
+		return
+	end
+	stashed[player] = nil
+	for _, d in character:GetDescendants() do
+		if d:IsA("BasePart") then
+			d.Transparency = 0
+			d.CanCollide = true
+			d.CanQuery = true
+			d.Anchored = false
+		elseif d:IsA("Decal") then
+			d.Transparency = 0
+		end
+	end
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if humanoid then
+		humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.Viewer
+	end
+end
+
 -- THE ONLY THING THAT GIVES A PLAYER A BODY.
 --
 -- There were four callers of LoadCharacter and none of them knew about
@@ -552,26 +608,20 @@ function KartService.retire(kart: Model)
 		if k == kart then
 			karts[racer] = nil
 			slots[racer] = nil
-			-- A PLAYER SHOULD NEVER REACH HERE. Only bots retire now:
-			-- retiring a player meant destroying their character, which
-			-- meant reviving them, which meant a fresh kart at the grid
-			-- slot appearing mid-round and driving away. Their kart
-			-- stays with the AI instead and goes back to them at the
-			-- next grid.
+			-- A PLAYER'S KART GOES, THEIR CHARACTER DOES NOT.
 			--
-			-- Guarded rather than deleted, because something calling
-			-- this on a player would otherwise remove their kart and
-			-- leave them on foot with no way back — silently, which is
-			-- how the last three of these went.
+			-- Destroying the character is what started the whole
+			-- cascade: it meant reviving them, which meant
+			-- LoadCharacter, which meant a fresh kart at the grid slot
+			-- appearing mid-round and driving away.
+			--
+			-- Stashed instead — hidden, anchored, and parked where the
+			-- kart was. No CharacterAdded fires, so nothing spawns
+			-- anything, and the next grid simply un-hides them and
+			-- builds a kart the normal way.
 			if typeof(racer) == "Instance" and racer:IsA("Player") then
-				warn(
-					("[KartService] refusing to retire %s — players keep their kart. Something asked for this and should not have."):format(
-						racer.Name
-					)
-				)
-				karts[racer] = k
-				slots[racer] = slots[racer]
-				return
+				retired[racer] = true
+				stash(racer)
 			end
 			break
 		end
@@ -624,7 +674,21 @@ end
 function KartService.reviveRetired()
 	for player in retired do
 		retired[player] = nil
-		reload(player, "revived")
+		if player.Parent and player.Character then
+			-- Their body was only hidden, so it comes straight back and
+			-- the kart is built directly. No LoadCharacter, no
+			-- CharacterAdded, and therefore none of the second-spawn
+			-- trouble that path used to cause.
+			unstash(player)
+			local ok, err = pcall(spawnKartFor, player)
+			if not ok then
+				warn("[KartService] revive FAILED for " .. player.Name .. ": " .. tostring(err))
+			end
+		else
+			-- No body at all — they must have died or joined during the
+			-- round. This is the only case that needs a real spawn.
+			reload(player, "revived without a body")
+		end
 	end
 end
 
@@ -714,6 +778,7 @@ function KartService.start()
 	Players.PlayerRemoving:Connect(function(player)
 		spawningAt[player] = nil
 		reloadAt[player] = nil
+		stashed[player] = nil
 		local kart = karts[player]
 		karts[player] = nil
 		slots[player] = nil

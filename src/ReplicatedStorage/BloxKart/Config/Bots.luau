@@ -77,6 +77,13 @@ return {
 	--== SKILL =========================================================
 	-- Rolled per bot at spawn, and scales everything below. Kept away
 	-- from 1 at the top: a perfect bot is a boring one.
+	-- How often a seated rig's collision flags are put back. The
+	-- humanoid re-enables CanCollide on the torso parts whenever it
+	-- changes state and offers no event for it, so this is a poll — the
+	-- alternative was taking the humanoid out of its state machine,
+	-- which also takes it out of its seat.
+	RigCollideCheck = 1.5,
+
 	SkillMin = 0.45,
 	SkillMax = 0.92,
 

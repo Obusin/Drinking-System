@@ -2051,20 +2051,19 @@ function BotService.seatRig(bot)
 		seat:Sit(humanoid)
 		bot.rig = rig
 
-		-- THE HUMANOID PUTS CanCollide BACK, and the sweep above cannot
-		-- stop it. The state machine owns collision on the torso parts
-		-- and re-asserts it as it changes state, so an audit six seconds
-		-- later still finds UpperTorso and LowerTorso solid — which is
-		-- what "8 kart parts still have CanCollide on" was.
+		-- THE HUMANOID PUTS CanCollide BACK on the torso parts, and the
+		-- sweep above cannot stop it — the state machine owns collision
+		-- there and re-asserts it as it changes state.
 		--
-		-- Physics state hands the parts back to us: the humanoid stops
-		-- driving them, which is exactly right for a rig that is welded
-		-- to a seat and will never walk anywhere. pcall'd because the
-		-- state is engine-controlled and refusing it must not cost us the
-		-- rig.
-		pcall(function()
-			humanoid:ChangeState(Enum.HumanoidStateType.Physics)
-		end)
+		-- PHYSICS STATE WAS THE WRONG ANSWER TO THAT. It does hand the
+		-- parts back, and it also stops the humanoid being SEATED: the
+		-- rig came away from the kart and drifted alongside it, which is
+		-- the AI looking detached from its own kart. A collision flag is
+		-- not worth breaking the thing that holds a driver in.
+		--
+		-- Re-asserting the flag instead. The rig is welded and still, so
+		-- the sweep below costs a handful of property writes on a slow
+		-- timer, and the humanoid keeps its state machine and its seat.
 
 		-- ANYTHING THAT ARRIVES LATER GETS THE SAME TREATMENT.
 		--
@@ -2082,18 +2081,23 @@ function BotService.seatRig(bot)
 			end
 		end)
 
-		-- One more pass after the state settles. The change above is not
-		-- instant, and the parts it releases are released with whatever
-		-- the humanoid last set on them.
-		task.delay(0.3, function()
-			if not rig.Parent then
-				return
-			end
-			for _, d in rig:GetDescendants() do
-				if d:IsA("BasePart") then
-					d.CanCollide = false
-					d.CanQuery = false
+		-- KEPT OFF, on a slow timer. The humanoid puts it back whenever
+		-- it changes state and there is no event for that, so the only
+		-- honest options are a poll or breaking the state machine — and
+		-- breaking it takes the rig out of its seat.
+		--
+		-- Cheap: a dozen parts, a few times a second at most, on a rig
+		-- that never moves relative to its kart. It stops when the rig
+		-- does.
+		task.spawn(function()
+			while rig.Parent and bot.rig == rig do
+				for _, d in rig:GetDescendants() do
+					if d:IsA("BasePart") and d.CanCollide then
+						d.CanCollide = false
+						d.CanQuery = false
+					end
 				end
+				task.wait(B.RigCollideCheck)
 			end
 		end)
 

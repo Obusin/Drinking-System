@@ -421,9 +421,7 @@ local function finishKart(kart: Model, who: string, totalTime: number)
 	--
 	-- It goes back to them at the next grid through releaseTakeOvers,
 	-- which was always the plan for a taken-over kart.
-	if not kart:GetAttribute(Names.OWNER) then
-		scheduleRetire(kart, M.FinishDriveTime)
-	end
+	scheduleRetire(kart, M.FinishDriveTime)
 
 	if finishers == 1 then
 		-- The leader is home. Everyone else is on the clock now, so the
