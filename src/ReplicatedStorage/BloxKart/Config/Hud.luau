@@ -58,6 +58,12 @@ return {
 	-- which is indistinguishable from a warning that never fired.
 	IncomingHold = 0.7,
 
+	-- Shown while a wind-up item is on its way. NAMED, because "you are
+	-- about to be struck by Lightning" is a different thing to know than
+	-- "something is coming" — and it is the only warning that can name
+	-- what is coming before it arrives.
+	WarnedText = "%s INCOMING",
+
 	--== THE ICON =====================================================
 	-- Every warning carries the item's own icon, so what is coming is
 	-- readable before the words are. The catalogue already has one for
