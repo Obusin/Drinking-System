@@ -36,8 +36,13 @@ return {
 	-- the game runs exactly as it did before.
 	--
 	-- Find it in Studio: File > Game Settings, or the URL of the place
-	-- on the Creator Dashboard.
-	LobbyPlaceId = 0,
+	-- on the Creator Dashboard. It is also printed by the startup line
+	-- every server prints, which is where this one came from.
+	--
+	-- Set 2026-08-02 to "Go Karts! Go!". If this turns out to be the
+	-- TRACK rather than the hub, change this number rather than anything
+	-- else — it is the only place the distinction is made.
+	LobbyPlaceId = 105460873162172,
 
 	--== TESTING BEFORE THE IDS EXIST ====================================
 	-- Force the role, ignoring the place id entirely.
