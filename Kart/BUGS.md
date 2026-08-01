@@ -180,7 +180,38 @@ the server.
 
 ---
 
-# 5. OPEN — a player joining mid-race gets no kart
+# 5. CAUSE FOUND — a joining player's kart art floats free
+
+They drive normally; the bodywork drifts along behind. The kart's HITBOX
+is fine — only the visual came loose.
+
+**The skin swap.** `ApplyMesh` replaces a MeshPart's geometry, and a part
+whose geometry has been replaced can leave its assembly: unwelded,
+unanchored, free. The swap is asynchronous — `CreateMeshPartAsync`
+fetches over the network — so it lands AFTER `KartFactory` has welded
+everything, which is why nothing in the build path looked wrong.
+
+A joining player shows it most because their kart is built while the
+server is busy, so the race between the weld and the swap is at its
+widest.
+
+`Skins` now checks assembly identity after every swap and puts the part
+back. Assembly rather than "does it have a weld", because a part
+attached through several joints still shares a root with the hitbox and
+only a genuinely loose one does not.
+
+**Wheels get their Motor6D rebuilt, not a weld** — welding one back
+gives a kart that drives with four locked tyres, which looks fixed until
+somebody turns.
+
+**WATCH — unproven.** It warns when it fires:
+`[Skins] <part> came loose after the mesh swap`. If that line never
+appears and the art still floats, the cause is in `KartFactory` and this
+was the wrong tree.
+
+---
+
+# 5b. OPEN — a player joining mid-race gets no kart
 
 Reported 2026-08-02, **not yet traced.** Reading the path found nothing:
 `PlayerAdded` connects `CharacterAdded` and calls `reload`, which loads a

@@ -41,6 +41,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local BloxKart = ReplicatedStorage:WaitForChild("BloxKart")
 local Config = require(BloxKart:WaitForChild("Config"))
+local Names = require(BloxKart:WaitForChild("Names"))
+local Util = require(BloxKart:WaitForChild("Util"))
 
 local RIG = Config.Rig
 
@@ -86,6 +88,85 @@ end
 -- Applies one skin — the whole set — to one kart. Returns how many
 -- parts were found and how many actually took, so a caller can tell
 -- "the wheels are not named that" from "the swap does not work here".
+-- Wheel names come from the same config KartFactory matches on, so the
+-- two cannot disagree about what a wheel is.
+local function isFrontWheelName(name: string): boolean
+	for _, n in RIG.FrontWheelNames do
+		if n == name then
+			return true
+		end
+	end
+	return false
+end
+
+local function isWheelName(name: string): boolean
+	if isFrontWheelName(name) then
+		return true
+	end
+	for _, n in RIG.RearWheelNames do
+		if n == name then
+			return true
+		end
+	end
+	return false
+end
+
+-- PUT THE PART BACK IN THE KART.
+--
+-- ApplyMesh replaces a MeshPart's geometry, and a part whose geometry
+-- has been replaced can come out of its assembly — unwelded, unanchored,
+-- and free. The kart then drives perfectly while its bodywork drifts off
+-- behind it, which is exactly what a joining player saw.
+--
+-- The swap is asynchronous, so it lands AFTER KartFactory has welded
+-- everything. Re-asserting here is the only place that can know.
+--
+-- Assembly identity is the test, not the presence of a weld: a part
+-- attached through several joints still shares a root with the hitbox,
+-- and only a part that has genuinely come loose does not.
+local function reattach(kart: Model, part: BasePart)
+	local hitbox = kart.PrimaryPart
+	if not hitbox or part == hitbox then
+		return
+	end
+	if part.AssemblyRootPart == hitbox.AssemblyRootPart then
+		return -- still part of the kart
+	end
+
+	-- The flags go back too. They are set once at build and a replaced
+	-- mesh arrives with the defaults, so a swapped body could become
+	-- solid, queryable and heavy — a wall to every other racer's swept
+	-- collision.
+	part.Anchored = false
+	part.CanCollide = false
+	part.CanQuery = false
+	part.Massless = true
+
+	-- A WHEEL GETS ITS MOTOR BACK, NOT A WELD. Road wheels hang off a
+	-- Motor6D so they can spin and steer; welding one back would leave a
+	-- kart that drives with four locked tyres — which looks fixed until
+	-- somebody turns.
+	--
+	-- Rebuilt from the wheel's own pivot, exactly as KartFactory does it,
+	-- or an imported wheel orbits its model origin instead of its axle.
+	if isWheelName(part.Name) then
+		local motor = Instance.new("Motor6D")
+		motor.Name = "RoadWheelMotor"
+		motor.Part0, motor.Part1 = hitbox, part
+		motor.C0, motor.C1 = Util.pivotJoint(hitbox, part)
+		motor:SetAttribute(Names.WHEEL_FRONT, isFrontWheelName(part.Name))
+		motor.Parent = hitbox
+		warn(("[Skins] %s came loose after the mesh swap — motor rebuilt."):format(part:GetFullName()))
+		return
+	end
+
+	local weld = Instance.new("WeldConstraint")
+	weld.Name = "SkinReweld"
+	weld.Part0, weld.Part1 = hitbox, part
+	weld.Parent = hitbox
+	warn(("[Skins] %s came loose after the mesh swap and has been welded back."):format(part:GetFullName()))
+end
+
 local function applySet(kart: Model, skin: { [string]: string }): (number, number, string)
 	local found, changed, how = 0, 0, "nothing"
 	for name, id in skin do
@@ -95,10 +176,17 @@ local function applySet(kart: Model, skin: { [string]: string }): (number, numbe
 		local part = kart:FindFirstChild(name, true)
 		if part and part:IsA("MeshPart") and id ~= "" then
 			found += 1
+			-- Where it was, before the swap can move it. A part that comes
+			-- loose keeps whatever CFrame it had, so putting it back
+			-- needs the pose it should be in rather than the one it
+			-- drifted to.
+			local before = part.CFrame
 			local ok, route = apply(part, id)
 			if ok then
 				changed += 1
 				how = route
+				part.CFrame = before
+				reattach(kart, part)
 			end
 		end
 	end
