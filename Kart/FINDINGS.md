@@ -489,33 +489,35 @@ not the same as applying it. Grep for every write to the value you just
 learned is a threshold.
 
 ### A Studio sync can delete the entire source tree. Commit early.
-It has now happened THREE times. Argon syncing from a Studio session
-that doesn't have the files removes them from disk — all 68 at once the
-first time, silently, mid-session.
+It has happened twice. Argon syncing from a Studio session that doesn't
+have the files removes them from disk — all 68 at once, silently,
+mid-session.
 
-**The first two times git was the only thing that saved it.** Nothing
-else in the setup keeps a copy.
+**Both times git was the only thing that saved it.** Nothing else in the
+setup keeps a copy.
 
-**The third time git did NOT save it, and that is the sharper lesson.**
+### A NEW file has no recovery, and that is a different rule
+
 2 Aug: `Config/Places.luau` and `Place.luau` were written, passed
-`check.sh`, and were gone by the time `git add -A` ran about a minute
-later. The commit meant to add them contains six modifications and zero
-additions — so `Config/init.luau` went in requiring `script.Places`
-while `script.Places` no longer existed anywhere. Every module
-downstream of Config failed to load, on both sides, which reads as a
-total collapse and is actually one missing file.
+`check.sh`, and were gone from disk by the time `git add -A` ran about a
+minute later. The commit meant to add them contains six modifications
+and zero additions — so `Config/init.luau` went in requiring
+`script.Places` while `script.Places` existed nowhere. Every module
+downstream of Config failed to load on both sides, which reads as a
+total collapse and is one missing file.
 
-**A NEW file has no recovery.** Git protects what it has already seen.
-The window between writing a file and committing it is the only time
-this project has no backup at all, and a sync running in that window
-takes the file with nothing to restore from. `move_to_bin = true` in
-`~/.argon/config.toml` is supposed to make deletions recoverable from
-the Trash; the Trash was empty, so do not count on it.
+**The cause was not established.** Argon was serving, and `move_to_bin`
+should have put them in the Trash, which was empty — so it may not have
+been the sync at all. Worth naming precisely rather than assuming,
+because the rule that follows does not depend on knowing:
 
-**So the rule is stronger than "commit early":** commit a NEW file
-before doing anything else with it — before wiring it up, before
-type-checking, before touching Studio. A modified file can be recovered
-from HEAD. A new one cannot be recovered from anywhere.
+Git protects what it has already seen. A modified file can always come
+back from HEAD; **a file git has never seen cannot come back from
+anywhere.** The gap between writing a new file and committing it is the
+only window in this project with no backup at all.
+
+**So: commit a NEW file before doing anything else with it** — before
+wiring it up, before type-checking, before touching Studio.
 
 **Rules:**
 - Commit as soon as a change compiles. Uncommitted work is one sync away
