@@ -63,6 +63,10 @@ return {
 	-- airborne kart is immune from every angle, including one flying
 	-- straight at your face.
 	DodgeBelow = 1.2,
+	-- How close a missile gets before its target is told it is coming.
+	-- Late on purpose: a dodge committed early lands before the missile
+	-- arrives and dodges nothing.
+	DodgeWarnRange = 26,
 
 	ThreatConeAt = 90,
 	ThreatConeMin = 0.55,

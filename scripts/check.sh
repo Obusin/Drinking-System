@@ -24,6 +24,12 @@ cd "$(dirname "$0")/.."
 out=$(luau-analyze --mode=nonstrict $(find src -name '*.luau' -not -path '*/Packages/*') 2>&1 \
   | grep -vE "Unknown global|Unknown require|Unknown type|Unknown symbol")
 
+# Config keys the type checker cannot see. A missing one is a nil on the
+# frame something needs it — see scripts/config-keys.py.
+if ! python3 scripts/config-keys.py; then
+  exit 1
+fi
+
 if [ -z "$out" ]; then
   echo "ALL CLEAN"
   exit 0

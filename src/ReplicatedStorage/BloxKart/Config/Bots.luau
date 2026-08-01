@@ -91,9 +91,10 @@ return {
 	-- project has already paid to learn about nitro.
 	DodgeChanceMin = 0.15, -- at SkillMin
 	DodgeChanceMax = 0.75, -- at SkillMax
-	-- How close the missile gets before it hops. Late on purpose: an
-	-- early hop lands before the missile arrives and dodges nothing.
-	DodgeAt = 26, -- studs
+	-- NOTE: how close a missile has to be before its target is told
+	-- lives in Config.Items as DodgeWarnRange. It is a fact about the
+	-- projectile, and ProjectileService — which measures it — must not
+	-- be reading bot config.
 
 	--== CRUISE — the "I can't even chase it" dial =====================
 	-- The speed a bot settles at on a straight, as a fraction of

@@ -352,10 +352,10 @@ local function step(dt: number)
 			-- bot asking every frame about something that is almost
 			-- never true.
 			if ProjectileService.onMissileNear then
-				if range <= IT.DodgeAt and not p.warnedTarget then
+				if range <= IT.DodgeWarnRange and not p.warnedTarget then
 					p.warnedTarget = true
 					ProjectileService.onMissileNear(p.target)
-				elseif range > IT.DodgeAt and p.warnedTarget then
+				elseif range > IT.DodgeWarnRange and p.warnedTarget then
 					-- Opened back up. It gets a fresh decision if it
 					-- comes round again.
 					p.warnedTarget = false
