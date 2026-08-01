@@ -77,6 +77,19 @@ local ready: { [Player]: boolean } = {}
 --  One write per field, and only when it changes — every SetAttribute
 --  is a replication event to every client.
 --=====================================================================
+-- Karts that have not crossed the line. The only honest way to ask "is
+-- the race over", because it counts what is LEFT rather than comparing
+-- two numbers that move independently.
+local function stillRacing(): number
+	local n = 0
+	for _, kart in KartService.allKarts() do
+		if not kart:GetAttribute(Match.FINISH_PLACE) then
+			n += 1
+		end
+	end
+	return n
+end
+
 local function racerCount(): number
 	local n = 0
 	for _ in KartService.allKarts() do
@@ -244,6 +257,36 @@ local function enter(next: string, duration: number?)
 		sendRewards()
 	end
 	log("→ %s%s", next, if duration then (" (%.1fs)"):format(duration) else "")
+
+	-- THE LOOP, IN ONE LINE PER TRANSITION.
+	--
+	-- Every number here decides something: `people` gates every phase
+	-- change, `karts` is what racerCount compares against, `finishers`
+	-- is what ends a race early, and `bots` is what fill trims. A round
+	-- that misbehaves is diagnosable from these without reading a line
+	-- of code — which is how it should have been done from the start
+	-- rather than after the sixth downstream fix.
+	if M.LoopTrace then
+		local karts, mine = 0, 0
+		for racer in KartService.allKarts() do
+			karts += 1
+			if typeof(racer) == "Instance" then
+				mine += 1
+			end
+		end
+		print(
+			("[Loop] %-12s round %d | people %d | karts %d (%d player) | finishers %d | results %d"):format(
+				next,
+				round,
+				humanRacers(),
+				karts,
+				mine,
+				finishers,
+				#results
+			)
+		)
+	end
+
 	publish()
 end
 
@@ -431,7 +474,18 @@ local function finishKart(kart: Model, who: string, totalTime: number)
 		publish()
 	end
 
-	if finishers >= racerCount() then
+	-- IS ANYBODY STILL RACING?
+	--
+	-- This used to be `finishers >= racerCount()`, and retirement broke
+	-- it: a finished kart is destroyed five seconds later and leaves the
+	-- registry, so racerCount FALLS while finishers climbs. Four
+	-- finishers against four remaining karts reads as "everyone is in"
+	-- while four people are still driving — the race ending a lap in.
+	--
+	-- Counting who is LEFT cannot drift that way. A kart that has gone
+	-- is not still racing, whether it finished, retired or was never
+	-- there.
+	if stillRacing() == 0 then
 		-- Everyone's in; don't sit through the grace period.
 		endsAt = workspace:GetServerTimeNow() + M.FinishSettle
 		publish()

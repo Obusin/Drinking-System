@@ -31,6 +31,12 @@ return {
 	-- nothing could raise — so one player waited forever for the bots
 	-- that were waiting for them.
 	MinRacers = 1,
+
+	-- ONE LINE PER PHASE CHANGE, with the counts that decide the next
+	-- one. On by default: the loop has been debugged by inference for
+	-- long enough, and a round that goes wrong should say what it did
+	-- rather than leave it to be reconstructed.
+	LoopTrace = true,
 	-- NOTE: grid size lives in Rig.MaxRacers, not here. There was a second
 	-- copy of it in this file that nothing read — two numbers meaning one
 	-- thing, waiting to disagree.
