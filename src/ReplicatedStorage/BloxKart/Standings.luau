@@ -5,7 +5,7 @@
 	------------------------
 	One monotonic number per racer:
 
-		score = laps * 1e6  +  checkpoints * 1e3  +  metres past the last one
+		score = laps * 1e6  +  checkpoints * 1e3  +  fraction to the next * 999
 
 	Sorting descending gives the running order. Using a single scalar
 	rather than comparing lap-then-checkpoint-then-distance means the
@@ -54,9 +54,21 @@ function Standings.allKarts(): { Model }
 	return out
 end
 
--- Collapse lap / checkpoint / distance into one comparable number.
-function Standings.score(laps: number, checkpoints: number, distance: number): number
-	return laps * 1e6 + checkpoints * 1e3 + math.clamp(distance, 0, 999)
+-- Collapse lap / checkpoint / sub-checkpoint position into one
+-- comparable number.
+--
+-- `frac` is 0..1 — HOW FAR TO THE NEXT CHECKPOINT, not metres from the
+-- last one. Metres was wrong twice over: it clamped at 999, so everyone
+-- on a long straight tied at the clamp and stopped being sortable, and
+-- it meant different things on a short segment than on a long one.
+--
+-- BOTH PRODUCERS MUST PASS THE SAME THING. They did not: the client sent
+-- metres and the bots sent a hard 0, so a bot's place only ever moved
+-- when it crossed a gate and it could never gain on anyone in between.
+-- That is what "placement is based solely on checkpoints" looked like —
+-- for the bots it was literally true.
+function Standings.score(laps: number, checkpoints: number, frac: number): number
+	return laps * 1e6 + checkpoints * 1e3 + math.clamp(frac, 0, 0.999) * 1000
 end
 
 -- Laps out of a packed score. The counterpart to Route.passedFrom,

@@ -535,11 +535,17 @@ end
 -- One monotonic number describing how far round the track we are, for
 -- the standings relay. See Standings for why it's a single scalar.
 function Race:ProgressScore(sim): number
-	local distance = 0
-	if self.lastCheckpoint then
-		distance = (sim.pos - self.lastCheckpoint.Position).Magnitude
-	end
-	return Standings.score(self.lapsDone, self.cpPassed, distance)
+	-- The fractional part of the route position: how far between one
+	-- node and the next, 0..1. The same measure a bot reports, so the
+	-- two are comparable — previously this sent METRES from the last
+	-- checkpoint while bots sent nothing at all, and the standings were
+	-- sorting two different quantities against each other.
+	--
+	-- The integer half still comes from cpPassed, which is the VALIDATED
+	-- count: nearestU says where you are, cpPassed says what you have
+	-- actually banked, and a shortcut should not promote you.
+	local u = Route.nearestU(sim.pos)
+	return Standings.score(self.lapsDone, self.cpPassed, u % 1)
 end
 
 -- Our place in the field, from the replicated progress attributes.

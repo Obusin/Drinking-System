@@ -1422,7 +1422,13 @@ local function step(dt: number)
 		-- who hasn't finished. That is what finishing first means.
 		local nodes = #Route.nodes()
 		if nodes > 0 and not bot.kart:GetAttribute(Match.FINISH_PLACE) then
-			bot.kart:SetAttribute(Standings.ATTRIBUTE, Standings.score(bot.laps, math.floor(bot.u or 0), 0))
+			-- The fraction to the next node, not a hard zero. Sending 0
+			-- meant a bot's place only moved when it crossed a gate, so
+			-- it could never gain on anybody in between — and against a
+			-- player who WAS reporting sub-checkpoint progress, the bot
+			-- always looked like it was sitting still.
+			local u = bot.u or 0
+			bot.kart:SetAttribute(Standings.ATTRIBUTE, Standings.score(bot.laps, math.floor(u), u % 1))
 		end
 		-- And its steering, so Rider turns the wheel and the front tyres.
 		bot.kart:SetAttribute(Names.STEER, bot.sim.steer)
