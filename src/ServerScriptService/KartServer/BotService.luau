@@ -91,6 +91,24 @@ local function setShieldVisible(kart: Model, on: boolean)
 	end
 end
 
+-- SKILL AS A 0..1 FRACTION of the range bots are actually rolled in.
+--
+-- `bot.skill` is drawn between SkillMin and SkillMax — 0.45 to 0.92 —
+-- so lerping a chance by it directly never reaches either end. Every
+-- "at SkillMin" in the config was a lie by about half: the worst bot
+-- shielded 47% of the time against a configured 20%.
+--
+-- Normalised here so those numbers mean what they say, and so widening
+-- the skill range later does not silently squash every behaviour that
+-- reads it.
+local function skillFrac(bot): number
+	local span = B.SkillMax - B.SkillMin
+	if span <= 0 then
+		return 1
+	end
+	return math.clamp((bot.skill - B.SkillMin) / span, 0, 1)
+end
+
 local function newControls()
 	return {
 		touchThrottle = 0,
@@ -958,15 +976,63 @@ end
 --  like the client's. Anything a bot can do, a player can do — there is
 --  no bot-only item behaviour to balance separately.
 --=====================================================================
+-- IS THERE ANYBODY TO SHOOT AT?
+--
+-- Straight-line, in front, within range. Deliberately crude: this is a
+-- driver glancing up the road, not a targeting computer, and a bot that
+-- only ever fires on a perfect solution is a bot that never misses.
+local function somebodyAhead(bot, back: boolean): boolean
+	local sim = bot.sim
+	local sign = if back then -1 else 1
+	for _, k in Standings.allKarts() do
+		local hb = k.PrimaryPart
+		if k ~= bot.kart and hb then
+			local away = hb.Position - sim.pos
+			if away:Dot(sim.forward) * sign > 0 and away.Magnitude <= B.FireRange then
+				return true
+			end
+		end
+	end
+	return false
+end
+
 local function useItem(bot)
 	local item = bot.item
-	bot.item = nil
 	if not item then
 		return
 	end
 
 	local sim = bot.sim
 	local back = rng:NextNumber() > B.ForwardChance
+
+	----------------------------------------------------------------
+	-- HOLD FIRE, SOMETIMES.
+	--
+	-- A missile down an empty straight is wasted, and a bot that never
+	-- notices looks like it is firing at random — which it was.
+	--
+	-- Patience scales with skill, so a bad bot shoots at nothing and
+	-- keeps doing it. That is not a handicap bolted on afterwards, it is
+	-- what a bad player looks like, and it is the difference between
+	-- losing to a computer and losing to a driver.
+	--
+	-- PatienceLimit stops it becoming a bot that hoards: past that it
+	-- fires regardless, target or no target.
+	----------------------------------------------------------------
+	if item.Projectile and not somebodyAhead(bot, back) then
+		bot.itemHeldSince = bot.itemHeldSince or os.clock()
+		local waited = os.clock() - bot.itemHeldSince
+		local patience = B.PatienceMin + (B.PatienceMax - B.PatienceMin) * skillFrac(bot)
+		if waited < B.PatienceLimit and rng:NextNumber() < patience then
+			-- Look again shortly. Not every frame: a decision this cheap
+			-- still does not need making sixty times a second.
+			bot.itemAt = os.clock() + 0.4
+			return
+		end
+	end
+
+	bot.item = nil
+	bot.itemHeldSince = nil
 
 	local order = Standings.order(Standings.allKarts())
 	local ctx = {
@@ -1128,6 +1194,11 @@ local function collect(bot)
 
 	if item then
 		bot.item = item
+		-- Fresh item, fresh patience. Without this a bot that waited out
+		-- a whole PatienceLimit on one missile fires the next one
+		-- instantly, having inherited a clock that ran out before it
+		-- owned the thing.
+		bot.itemHeldSince = nil
 		-- Human-ish dithering before using it. The single biggest lever on
 		-- how nasty they feel, and it's why they don't fire the instant a
 		-- box is touched.
@@ -2122,7 +2193,34 @@ function BotService.missileNear(kart: Model)
 				return
 			end
 			bot.dodgeDecided = true
-			local chance = B.DodgeChanceMin + (B.DodgeChanceMax - B.DodgeChanceMin) * bot.skill
+
+			-- SHIELD FIRST, IF THEY HAVE ONE AND THINK OF IT. A shield
+			-- is certain and a hop is a timing test, so a bot that
+			-- manages both should prefer the shield — but only if it
+			-- notices in time, which is what the reaction delay decides.
+			if bot.item and bot.item.Id == "Shield" then
+				local sk = skillFrac(bot)
+				local notice = B.ShieldChanceMin + (B.ShieldChanceMax - B.ShieldChanceMin) * sk
+				if rng:NextNumber() < notice then
+					-- BROUGHT FORWARD, not fired. The existing use path
+					-- still runs it, so a shield goes up through exactly
+					-- the same door a player's does.
+					--
+					-- Better drivers react faster. A missile that lands
+					-- inside this window beats the shield, and the bot is
+					-- left holding one it was half a second too slow to
+					-- use — which is the most human thing in this file
+					-- and took no simulating at all.
+					local react = B.ShieldReactMax - (B.ShieldReactMax - B.ShieldReactMin) * sk
+					bot.itemAt = math.min(bot.itemAt or math.huge, os.clock() + react)
+					-- Committed to the shield; no need to also throw the
+					-- kart in the air.
+					bot.dodging = false
+					return
+				end
+			end
+
+			local chance = B.DodgeChanceMin + (B.DodgeChanceMax - B.DodgeChanceMin) * skillFrac(bot)
 			bot.dodging = rng:NextNumber() < chance
 			return
 		end

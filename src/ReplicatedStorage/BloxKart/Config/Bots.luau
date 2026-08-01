@@ -91,6 +91,37 @@ return {
 	-- project has already paid to learn about nitro.
 	DodgeChanceMin = 0.15, -- at SkillMin
 	DodgeChanceMax = 0.75, -- at SkillMax
+
+	--== USING ITEMS WITH JUDGEMENT ====================================
+	-- Bots decide, and decide BADLY sometimes. A computer opponent that
+	-- always makes the right call is not a good opponent, it is a wall —
+	-- every mistake below is deliberate and none of it is a handicap
+	-- applied after the fact.
+	--
+	-- SHIELDING A MISSILE. They are told one is closing, same signal the
+	-- dodge uses, and a bot holding a shield may put it up.
+	ShieldChanceMin = 0.2, -- at SkillMin
+	ShieldChanceMax = 0.8, -- at SkillMax
+	-- And they are not instant about it. This is where most of the
+	-- "human" comes from: a missile that arrives inside the reaction
+	-- window lands anyway, and the bot is left holding a shield it was
+	-- half a second too slow to use. Nothing simulates that — it falls
+	-- out of reacting in real time.
+	ShieldReactMin = 0.22, -- the best of them
+	ShieldReactMax = 0.65, -- the worst
+
+	-- HOLDING FIRE. A missile fired down an empty straight is wasted,
+	-- and a bot that never notices looks like it is firing at random —
+	-- which it currently is.
+	--
+	-- Better drivers are more patient. Worse ones shoot at nothing, keep
+	-- doing it, and that is exactly what a bad player looks like.
+	PatienceMin = 0.1, -- at SkillMin: almost never waits
+	PatienceMax = 0.85, -- at SkillMax: usually waits for a target
+	FireRange = 260, -- studs ahead that counts as somebody to shoot at
+	-- How long it will keep waiting before firing anyway. A bot holding
+	-- a missile for a whole lap is a bot that never uses items.
+	PatienceLimit = 6,
 	-- NOTE: how close a missile has to be before its target is told
 	-- lives in Config.Items as DodgeWarnRange. It is a fact about the
 	-- projectile, and ProjectileService — which measures it — must not
