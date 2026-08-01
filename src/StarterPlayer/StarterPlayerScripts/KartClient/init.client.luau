@@ -54,6 +54,7 @@ local Transition = require(script.Transition)
 local XpHud = require(script.XpHud)
 local Tally = require(script.Tally)
 local QuestHud = require(script.QuestHud)
+local Warp = require(script.Warp)
 local RaceHud = require(script.RaceHud)
 local ControlsHud = require(script.ControlsHud)
 local SpeedHud = require(script.SpeedHud)
@@ -97,6 +98,7 @@ local tally = Tally.new()
 local TALLY_FLUSH = 8 -- seconds between partial stat sends
 local flushAt = TALLY_FLUSH
 local questHud = QuestHud.new(tally)
+local warp = Warp.new()
 -- Bound directly rather than through Input: this is UI, it must work
 -- while spectating and out of a kart, and Input's bindings are released
 -- the moment you stop driving.
@@ -811,6 +813,12 @@ RunService.Heartbeat:Connect(function(dt)
 	matchHud:Update(match)
 	feedHud:Update()
 	xpHud:Update()
+	-- OUTSIDE step(), which returns early the moment there is no
+	-- simulation — finishing, spectating, or between rounds. Left in
+	-- there the streaks and the blur would freeze at whatever intensity
+	-- the last frame of the race had and stay on the screen. `sim` is
+	-- nil in all those cases, which reads as zero and decays out.
+	warp:Update(dt, sim)
 	questHud:Update()
 	-- Here rather than in step() because the soundtrack has to play in
 	-- the lobby, and step() returns early whenever there is no kart.
