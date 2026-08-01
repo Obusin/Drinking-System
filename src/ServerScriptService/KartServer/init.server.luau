@@ -37,6 +37,14 @@ local Ledger = require(script.Ledger)
 local DataService = require(script.DataService)
 local QuestService = require(script.QuestService)
 
+-- FIRST OF ALL: say what this is. Before any service starts, so a
+-- server that dies on startup still tells you which code died — and so
+-- two places can be compared without reading either of them.
+local B = require(ReplicatedStorage.BloxKart.Config).Build
+if B.Announce then
+	print(("[BloxKart] %s (%s) — %s place, id %d"):format(B.Version, B.Note, Place.role():upper(), game.PlaceId))
+end
+
 -- FIRST, before anything queries the world.
 --
 -- This is what makes a kart pass through other karts and through trigger

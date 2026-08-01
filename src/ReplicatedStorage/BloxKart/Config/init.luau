@@ -37,4 +37,5 @@ return {
 	Skins = require(script.Skins), -- what a kart can look like
 	Hud = require(script.Hud), -- shared on-screen styling
 	Places = require(script.Places), -- lobby vs race place, and the track list
+	Build = require(script.Build), -- which version this server is running
 }

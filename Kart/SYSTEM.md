@@ -125,6 +125,77 @@ player's profile.
 
 ---
 
+# 4b. The code must be a shared package, not a copy per place
+
+**NOT DONE YET. This is a note, not a description of what exists.**
+
+Every place runs identical code — that is the whole premise of §4, and
+`Place.luau` only works because it is true. Right now nothing enforces
+it. One Argon session syncs `src/` into whichever place happens to be
+open in Studio, so keeping N places identical is N manual acts, and the
+failure mode is silent: the lobby gets a fix, the race place does not,
+and the bug you are chasing exists in one server and not the other.
+
+**Drift between places is going to be the most confusing class of bug
+this project can have**, because every symptom will look like a
+place-specific problem and none of them will be.
+
+## What "shared package" can mean here, and which one is right
+
+**Roblox Packages** (right-click → Convert to Package) are the native
+answer for sharing instances across places in an experience, with an
+update badge and optional auto-update. They are *not* the right answer
+here: Packages store their linkage in `PackageLink` instances inside the
+tree, and Argon overwrites that tree on every sync. The two mechanisms
+both claim to own the same instances.
+
+**The source tree is already the shared package.** `src/` is the single
+definition of every script in the game, and git is its registry. What is
+missing is not a package format — it is **a repeatable way to push one
+version of it into every place**, plus a way to *see* when a place is
+stale.
+
+So the work is a deploy step, not a restructure:
+
+1. **A version stamp. DONE.** `Config/Build.luau`, printed by both
+   entry points at startup:
+
+   ```
+   [BloxKart] 2026-08-02a (places split: lobby vs race) — LOBBY place, id 0
+   [BloxKart] client 2026-08-02a — LOBBY place
+   ```
+
+   Bumped **by hand at publish**, not stamped from git. The obvious
+   automatic version chases its own tail: stamping writes a tracked
+   file, committing that changes HEAD, and the stamp is stale again
+   immediately. The stamp belongs to the deploy step in item 3, where
+   it is written once per publish and cannot lag.
+
+   It prints before any service starts, so a server that dies on
+   startup still says which code died.
+2. **A place list.** `Config.Places.Tracks` already holds the place ids.
+   A deploy script reads the same table rather than a second copy of it.
+3. **Build once, publish N times.** `argon build` produces a place file
+   from `src/`; Open Cloud can upload a place file to a place id. That
+   makes "ship the code" one command against a list, instead of opening
+   each place in Studio and remembering to sync.
+
+Until step 3 exists, the manual rule is: **sync and publish every place
+in the same sitting, and check the version stamps match before
+debugging anything.**
+
+## The constraint that shapes it
+
+Content and code have to be separated for any of this to work. A deploy
+that overwrites a place wholesale would destroy that place's *map* —
+which is currently the only copy of the map (§3, and `BUGS.md` #13).
+
+That makes §3 a hard prerequisite rather than good hygiene: **the track
+and kart art have to leave the `.rbxl` before code can be deployed
+automatically.** Publish them as Models referenced by asset id, or sync
+them as `.rbxmx` alongside the code. Either way the place file stops
+being where anything irreplaceable lives.
+
 # 5. Code layout
 
 **Single Script Architecture.** Exactly one `Script` on the server and

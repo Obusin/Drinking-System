@@ -147,6 +147,9 @@ local hud = RaceHud.new()
 -- Hidden rather than skipped, because a nil hud would mean guarding
 -- every one of its call sites for a state that lasts the whole session.
 local lobby = Place.isLobby()
+if Config.Build.Announce then
+	print(("[BloxKart] client %s — %s place"):format(Config.Build.Version, Place.role():upper()))
+end
 if lobby then
 	hud:SetVisible(false)
 	matchHud:SetVisible(false)
