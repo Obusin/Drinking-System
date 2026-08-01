@@ -76,6 +76,7 @@ local Music = require(script.Music)
 local Spectate = require(script.Spectate)
 
 local H = Config.Hud
+local IT = Config.Items
 local HAP = Config.Haptics
 
 local player = Players.LocalPlayer
@@ -106,9 +107,17 @@ local flushAt = TALLY_FLUSH
 -- fraction-of-a-second missile is still readable.
 local incomingUntil = 0
 local incomingEta = 0
+-- The icon of whatever is inbound. A missile today; read from the
+-- catalogue so a second homing item needs no change here.
+local incomingIcon = nil
 -- What last hit us, and for how long to say so.
 local hitByUntil = 0
 local hitByName = nil
+local hitByIcon = nil
+-- A wind-up item on its way: what it is, and when it lands.
+local warnedUntil = 0
+local warnedName = nil
+local warnedIcon = nil
 local questHud = QuestHud.new(tally)
 local warp = Warp.new()
 local minimap = Minimap.new()
@@ -363,7 +372,21 @@ local function step(dt: number)
 	-- person is told. Two racers side by side do not both get it, and an
 	-- alarm that fires when you are not in danger is one people learn to
 	-- ignore.
-	local eta = Projectiles.threatTo(sim.model)
+	local alertIcon = nil
+
+	-- A WIND-UP ITEM ALREADY ON ITS WAY outranks a missile still
+	-- crossing the map: this one is certain and timed, and the missile
+	-- may still miss.
+	if warnedName and os.clock() < warnedUntil then
+		local left = warnedUntil - os.clock()
+		alertText = H.WarnedText:format(warnedName)
+		alertColour = H.IncomingColor
+		alertIcon = warnedIcon
+		-- Counts down to the strike, so the blink arrives with it.
+		alertUrgency = 1 - math.clamp(left / math.max(IT.LightningWindUp, 0.01), 0, 1)
+	end
+
+	local eta = if alertText then nil else Projectiles.threatTo(sim.model)
 	if eta and eta <= H.IncomingLead then
 		-- HELD, so a threat that exists for two frames is still seen. A
 		-- missile fired from close behind closes in a fraction of a
@@ -371,10 +394,15 @@ local function step(dt: number)
 		-- indistinguishable from one that never fired.
 		incomingUntil = math.max(incomingUntil, os.clock() + H.IncomingHold)
 		incomingEta = eta
+		local missile = ItemRegistry.byId("Missile")
+		incomingIcon = if missile then missile.Icon else nil
 	end
 
-	if os.clock() < incomingUntil then
+	if alertText then
+		-- already claimed by the wind-up warning above
+	elseif os.clock() < incomingUntil then
 		alertText, alertColour = H.IncomingText, H.IncomingColor
+		alertIcon = incomingIcon
 		-- Counts down from whatever the last real reading was, so the
 		-- held tail keeps escalating rather than freezing mid-blink.
 		incomingEta = math.max(incomingEta - dt, 0)
@@ -385,6 +413,7 @@ local function step(dt: number)
 		-- an explanation, not an alarm, and there is nothing to count
 		-- down to.
 		alertText, alertColour = H.HitByText:format(hitByName), H.HitByColor
+		alertIcon = hitByIcon
 		alertUrgency = 0
 	elseif race:WrongWay(sim, dt) then
 		-- NAME THE GATE THEY STILL OWE.
@@ -407,7 +436,7 @@ local function step(dt: number)
 		-- steering back.
 		alertUrgency = 1 - sim:ScrambleFrac()
 	end
-	hud:SetAlert(alertText, alertColour, dt, alertUrgency)
+	hud:SetAlert(alertText, alertColour, dt, alertUrgency, alertIcon)
 
 	-- Fell off, drove into a void zone, or asked for a reset.
 	local why = respawn:Check(sim, race, Input, dt)
@@ -442,6 +471,16 @@ local function step(dt: number)
 	if itemEvents.failed then
 		audio:PlayTick()
 	end
+	if itemEvents.warned then
+		-- Something with a wind-up is on its way. Named and iconed,
+		-- because "you are about to be struck by Lightning" is a
+		-- different thing to know than "something is coming".
+		local def = ItemRegistry.byId(itemEvents.warned.item)
+		warnedName = string.upper(if def then def.Name else tostring(itemEvents.warned.item))
+		warnedIcon = if def then def.Icon else nil
+		warnedUntil = os.clock() + (itemEvents.warned.in_ or 0)
+	end
+
 	if itemEvents.hit then
 		camera:BoostPunch(1)
 		haptics:Punch(HAP.HitPunch)
@@ -455,7 +494,10 @@ local function step(dt: number)
 		if what then
 			local def = ItemRegistry.byId(what)
 			hitByName = string.upper(if def then def.Name else tostring(what))
+			hitByIcon = if def then def.Icon else nil
 			hitByUntil = os.clock() + H.HitByHold
+			-- It has landed; stop saying it is coming.
+			warnedUntil = 0
 		end
 
 		-- The thump of being spun, plus an item layer over it when there

@@ -17,6 +17,9 @@
 	fire and stays in your hand rather than being wasted.
 --]]
 
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local IT = require(ReplicatedStorage:WaitForChild("BloxKart"):WaitForChild("Config")).Items
+
 return {
 	Id = "Lightning",
 	Tint = Color3.fromRGB(255, 230, 90),
@@ -47,6 +50,13 @@ return {
 				keep = 0.25,
 				stun = 0.0,
 				note = 3,
+				-- WIND-UP. Lightning used to land the instant it was
+				-- used, which meant being spun with nothing to see and
+				-- nothing that could have warned you. The delay is not
+				-- for balance — it is so the warning has somewhere to
+				-- live. The server holds the effect and tells the victim
+				-- first.
+				windUp = IT.LightningWindUp,
 			})
 		end
 		return true

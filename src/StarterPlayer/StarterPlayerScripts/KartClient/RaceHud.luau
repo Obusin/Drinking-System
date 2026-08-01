@@ -111,8 +111,20 @@ function RaceHud.new()
 	wrong.Visible = false
 	wrong.Parent = gui
 
+	-- The item's own picture, beside the words. Sized and placed each
+	-- time the alert is set, since which item it is decides both.
+	local alertIcon = Instance.new("ImageLabel")
+	alertIcon.Name = "AlertIcon"
+	alertIcon.AnchorPoint = Vector2.new(1, 0.5)
+	alertIcon.Position = H.WrongWayPosition
+	alertIcon.Size = UDim2.fromOffset(H.AlertIconSize, H.AlertIconSize)
+	alertIcon.BackgroundTransparency = 1
+	alertIcon.Visible = false
+	alertIcon.Parent = gui
+
 	return setmetatable({
 		gui = gui,
+		alertIcon = alertIcon,
 		lap = lap,
 		time = time,
 		total = total,
@@ -139,11 +151,28 @@ end
 -- The phase is ACCUMULATED, not recomputed from a clock, so a rate that
 -- changes speeds the blinking up smoothly instead of jumping the wave
 -- to a new position every time the urgency moves.
-function RaceHud:SetAlert(text: string?, colour: Color3?, dt: number, urgency: number?)
+-- `icon` is an item image id, or nil. Shown to the LEFT of the words and
+-- fading with them, so a glance says what is coming before the text has
+-- been read — which at racing speed is most glances.
+function RaceHud:SetAlert(text: string?, colour: Color3?, dt: number, urgency: number?, icon: string?)
 	if not text then
 		self.wrong.Visible = false
+		self.alertIcon.Visible = false
 		self.wrongPhase = 0
 		return
+	end
+
+	local hasIcon = icon ~= nil and icon ~= ""
+	self.alertIcon.Visible = hasIcon
+	if hasIcon then
+		if self.alertIcon.Image ~= icon then
+			self.alertIcon.Image = icon
+			Util.verifyImage(self.alertIcon, icon, "RaceHud")
+		end
+		-- Sat off the left edge of the text rather than centred with it,
+		-- so adding an icon never moves the words.
+		self.alertIcon.Position = H.WrongWayPosition
+			- UDim2.fromOffset(self.wrong.TextBounds.X * 0.5 + H.AlertIconGap, 0)
 	end
 	self.wrong.Visible = true
 	self.wrong.Text = text
@@ -156,6 +185,7 @@ function RaceHud:SetAlert(text: string?, colour: Color3?, dt: number, urgency: n
 		-- to when the situation actually gets urgent.
 		self.wrongPhase = 0
 		self.wrong.TextTransparency = 0
+		self.alertIcon.ImageTransparency = 0
 		return
 	end
 
@@ -169,6 +199,7 @@ function RaceHud:SetAlert(text: string?, colour: Color3?, dt: number, urgency: n
 	-- a warning that blinks off entirely is easy to miss between blinks.
 	local pulse = (math.sin(self.wrongPhase * math.pi * 2) + 1) * 0.5
 	self.wrong.TextTransparency = pulse * H.WrongWayFade
+	self.alertIcon.ImageTransparency = pulse * H.WrongWayFade
 end
 
 -- Flash the checkpoint line when a lap is refused, so a rejected lap

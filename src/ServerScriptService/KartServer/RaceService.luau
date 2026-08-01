@@ -148,6 +148,7 @@ function RaceService.relayHit(byName: string?, targetKart: Model, payload, byPla
 	-- client-supplied table and the only thing between it and somebody
 	-- else's simulation; clamps are generous enough for any real item but
 	-- finite, so a forged payload can't stun anyone for a minute.
+	local windUp = math.clamp(tonumber(payload.windUp) or 0, 0, 3)
 	local effect = {
 		item = payload.item,
 		spin = math.clamp(tonumber(payload.spin) or 1, 0, 5),
@@ -175,12 +176,42 @@ function RaceService.relayHit(byName: string?, targetKart: Model, payload, byPla
 
 	if victim then
 		RaceService.announce(tostring(effect.item), byName, victim.DisplayName)
-		-- Only the victim's own client applies it, same rule as always.
-		hitRemote:FireClient(victim, effect)
+		if windUp > 0 then
+			-- TOLD FIRST, HIT SECOND. The warning is the whole reason the
+			-- wind-up exists, so it goes out now and the effect follows.
+			-- Sent as its own message rather than as a flag on the hit,
+			-- because the hit has not happened yet and a client that
+			-- treats it as one would spin early.
+			hitRemote:FireClient(victim, { warn = effect.item, in_ = windUp })
+			task.delay(windUp, function()
+				-- Re-checked: a round can end, or the kart can leave the
+				-- world, inside a second.
+				if victim.Parent and targetKart.Parent then
+					hitRemote:FireClient(victim, effect)
+				end
+			end)
+		else
+			-- Only the victim's own client applies it, same rule as always.
+			hitRemote:FireClient(victim, effect)
+		end
 		return
 	end
 
 	if RaceService.onNonPlayerHit then
+		-- Bots have no client to warn, so the wind-up is just a delay for
+		-- them. Applied all the same, or a bot would be hit before the
+		-- player it is racing beside.
+		if windUp > 0 then
+			task.delay(windUp, function()
+				if targetKart.Parent and RaceService.onNonPlayerHit then
+					local n = RaceService.onNonPlayerHit(targetKart, effect)
+					if n then
+						RaceService.announce(tostring(effect.item), byName, n)
+					end
+				end
+			end)
+			return
+		end
 		local name = RaceService.onNonPlayerHit(targetKart, effect)
 		if name then
 			RaceService.announce(tostring(effect.item), byName, name)

@@ -47,7 +47,7 @@ return {
 	-- Something is locked onto you. Shares the alert slot and OUTRANKS
 	-- everything in it: wrong way and scrambled will still be true in a
 	-- second, and a missile will not.
-	IncomingText = "◤  INCOMING",
+	IncomingText = "INCOMING",
 	IncomingColor = Color3.fromRGB(255, 120, 110),
 	-- Seconds out at which the warning appears. Long enough to use a
 	-- shield, short enough that it is not on screen for half the lap.
@@ -69,8 +69,20 @@ return {
 	-- screen and the one moment nobody reads it is while their kart is
 	-- spinning.
 	HitByText = "HIT BY %s",
+	-- Shown while a wind-up item is on its way. Named, because "you are
+	-- about to be struck by Lightning" is a different thing to know than
+	-- "something is coming".
+	WarnedText = "%s INCOMING",
 	HitByColor = Color3.fromRGB(255, 150, 110),
 	HitByHold = 1.4,
+
+	--== THE ICON =====================================================
+	-- Every warning carries the item's own icon, so what is coming is
+	-- readable before the words are. The catalogue already has one for
+	-- every item; the alert was the one place still describing them in
+	-- text alone.
+	AlertIconSize = 34,
+	AlertIconGap = 12,
 
 	--== BLINK RATE AS A CLOCK =========================================
 	-- The pulse carries the time remaining: slow while there is room,

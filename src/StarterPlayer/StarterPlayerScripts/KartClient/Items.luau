@@ -360,6 +360,16 @@ function Items:Update(sim, input): { [string]: any }
 	if self.incoming then
 		local payload = self.incoming
 		self.incoming = nil
+
+		-- A WARNING, NOT A HIT. Sent ahead of a wind-up item so the
+		-- victim is told before it lands. Surfaced as its own event and
+		-- returned early: treating it as a hit would spin them a second
+		-- before anything actually happened.
+		if payload.warn then
+			events.warned = { item = payload.warn, in_ = payload.in_ or 0 }
+			return events
+		end
+
 		local landed = sim:Spinout(payload.spin, payload.keep, payload.stun)
 		-- Scramble carries no spin, so Spinout reports nothing landed and
 		-- the shield check has to be asked separately — otherwise a

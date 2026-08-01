@@ -38,6 +38,11 @@ return {
 	-- A fixed cone cannot work. Wide enough to give useful warning at
 	-- 400 studs and it fires at anything on the map; tight enough to be
 	-- certain and it says nothing until the missile is on top of you.
+	-- How long Lightning is held before it lands, so the warning has
+	-- somewhere to live. Long enough to read and react to, short enough
+	-- that it still feels like lightning.
+	LightningWindUp = 1.1,
+
 	ThreatConeAt = 90,
 	ThreatConeMin = 0.55,
 

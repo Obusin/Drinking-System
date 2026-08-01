@@ -155,6 +155,17 @@ local function sendRewards()
 	if not MatchService.reward then
 		return
 	end
+
+	-- WHO THE BOARD THINKS RACED. Logged because "the results only
+	-- showed bots" cannot be diagnosed from the code — every path sets a
+	-- name, so the question is which racers were in the list at all, and
+	-- that is only answerable from a round where it happened.
+	local board = MatchService.standings()
+	local who = {}
+	for _, r in board do
+		table.insert(who, tostring(r.name) .. (if r.userId then "" else " [bot]"))
+	end
+	log("results: %d racer(s) — %s", #board, table.concat(who, ", "))
 	for _, player in Players:GetPlayers() do
 		MatchService.reward:FireClient(player, {
 			level = Progress.summary(player),
@@ -163,7 +174,7 @@ local function sendRewards()
 			-- drops. They are added here, at the
 			-- one moment the whole field is known, rather than tracked
 			-- alongside the record and kept in step with it.
-			standings = MatchService.standings(),
+			standings = board,
 		})
 	end
 end

@@ -59,6 +59,10 @@ return {
 	-- generic hit and is none the worse for it.
 	ItemHitIds = {
 		Missile = "rbxassetid://122840050680240", -- explosion
+		-- The strike. Lightning arrives with no projectile and no engine
+		-- cue, so the sound IS the event — it is the only thing that
+		-- says what just happened at the moment it happens.
+		Lightning = "rbxassetid://116644751820648",
 	},
 	ItemHitVolume = 1,
 
