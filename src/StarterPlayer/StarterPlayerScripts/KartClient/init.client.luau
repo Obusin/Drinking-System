@@ -110,9 +110,6 @@ local incomingEta = 0
 -- catalogue so a second homing item needs no change here.
 local incomingIcon = nil
 -- What last hit us, and for how long to say so.
-local hitByUntil = 0
-local hitByName = nil
-local hitByIcon = nil
 -- A wind-up item on its way: what it is, and when it lands.
 local warnedUntil = 0
 local warnedName = nil
@@ -408,14 +405,6 @@ local function step(dt: number)
 		-- held tail keeps escalating rather than freezing mid-blink.
 		incomingEta = math.max(incomingEta - dt, 0)
 		alertUrgency = 1 - math.clamp(incomingEta / H.IncomingLead, 0, 1)
-	elseif hitByName and os.clock() < hitByUntil then
-		-- Below INCOMING, which is about to happen, and above wrong way,
-		-- which will still be true in a second. Solid throughout: it is
-		-- an explanation, not an alarm, and there is nothing to count
-		-- down to.
-		alertText, alertColour = H.HitByText:format(hitByName), H.HitByColor
-		alertIcon = hitByIcon
-		alertUrgency = 0
 	elseif race:WrongWay(sim, dt) then
 		-- NAME THE GATE THEY STILL OWE.
 		--
@@ -485,21 +474,18 @@ local function step(dt: number)
 	if itemEvents.hit then
 		camera:BoostPunch(1)
 		haptics:Punch(HAP.HitPunch)
-		-- SAY WHAT IT WAS. Lightning has no projectile and no travel
-		-- time — it lands the instant it is used — so nothing was ever
-		-- going to warn you and the only honest thing left is to explain
-		-- it afterwards. The feed already names it, but the one moment
-		-- nobody reads small text at the top of the screen is while
-		-- their kart is spinning.
-		local what = itemEvents.hit.item
-		if what then
-			local def = ItemRegistry.byId(what)
-			hitByName = string.upper(if def then def.Name else tostring(what))
-			hitByIcon = if def then def.Icon else nil
-			hitByUntil = os.clock() + H.HitByHold
-			-- It has landed; stop saying it is coming.
-			warnedUntil = 0
-		end
+		-- The wind-up warning has done its job; stop saying it is coming.
+		--
+		-- Nothing replaces it. A "HIT BY" line used to go here, added
+		-- when Lightning could arrive with no visible cause — and the
+		-- wind-up warning now names Lightning BEFORE it lands, which is
+		-- the same information a second earlier and actually useful.
+		-- Everything else already announces itself: you saw the missile,
+		-- you drove into the hazard, or your steering inverted and the
+		-- alert slot says so. Saying it again afterwards was a third
+		-- thing on screen describing an event the player had just
+		-- experienced.
+		warnedUntil = 0
 
 		-- The thump of being spun, plus an item layer over it when there
 		-- is one. `item` is only present on hits relayed by the server —

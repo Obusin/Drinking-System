@@ -58,24 +58,6 @@ return {
 	-- which is indistinguishable from a warning that never fired.
 	IncomingHold = 0.7,
 
-	--== WHAT HIT YOU =================================================
-	-- Some items have no projectile and no travel time. Lightning
-	-- reaches everyone ahead the instant it is used, so there is nothing
-	-- to see coming and nothing a warning could have told you — you are
-	-- simply spinning, which reads as "a missile I did not see".
-	--
-	-- A warning is impossible; an EXPLANATION is not. The hit feed
-	-- already names it, but the feed is small text at the top of the
-	-- screen and the one moment nobody reads it is while their kart is
-	-- spinning.
-	HitByText = "HIT BY %s",
-	-- Shown while a wind-up item is on its way. Named, because "you are
-	-- about to be struck by Lightning" is a different thing to know than
-	-- "something is coming".
-	WarnedText = "%s INCOMING",
-	HitByColor = Color3.fromRGB(255, 150, 110),
-	HitByHold = 1.4,
-
 	--== THE ICON =====================================================
 	-- Every warning carries the item's own icon, so what is coming is
 	-- readable before the words are. The catalogue already has one for
