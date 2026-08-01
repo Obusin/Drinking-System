@@ -685,8 +685,53 @@ function KartService.start()
 	task.spawn(function()
 		while true do
 			task.wait(RIG.OwnershipCheck)
+
+			--=========================================================
+			--  NO KART AT ALL.
+			--
+			--  The loop below can only fix a player it can SEE, and it
+			--  iterates `karts` — so a player with no entry in it is
+			--  invisible to the thing meant to catch this. That is the
+			--  case that does not self-correct: spawnKartFor is called
+			--  once from CharacterAdded and pcall'd, so a failure there
+			--  leaves the player on foot beside a kart that was never
+			--  registered, and nothing ever tries again. It looks like
+			--  the kart is there and broken, because it very nearly is.
+			--
+			--  Retired players are meant to have none, and test mode
+			--  hands them out by walking into one.
+			--=========================================================
+			if not RIG.TestMode then
+				for _, player in Players:GetPlayers() do
+					if karts[player] or retired[player] then
+						continue
+					end
+					local character = player.Character
+					local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+					if humanoid and humanoid.Health > 0 then
+						warn(
+							("[KartService] %s has no kart — rebuilding. Their first spawn failed or was lost."):format(
+								player.Name
+							)
+						)
+						local ok, err = pcall(spawnKartFor, player)
+						if not ok then
+							warn("[KartService] rebuild FAILED for " .. player.Name .. ": " .. tostring(err))
+						end
+					end
+				end
+			end
+
 			for racer, kart in karts do
 				if isBot(racer) then
+					continue
+				end
+				-- Registered but gone: destroyed by a sync, a retire that
+				-- half-ran, or anything else. Clearing it lets the pass
+				-- above build a fresh one rather than re-seating into a
+				-- model that is not in the world.
+				if not kart.Parent then
+					karts[racer] = nil
 					continue
 				end
 
