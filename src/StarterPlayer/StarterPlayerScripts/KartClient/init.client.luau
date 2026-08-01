@@ -38,6 +38,7 @@ local Names = require(ReplicatedStorage.BloxKart.Names)
 -- The shared match contract (phase names, finish attributes), distinct
 -- from script.Match which is the client's mirror of it.
 local Shared = require(ReplicatedStorage.BloxKart.Match)
+local Place = require(ReplicatedStorage.BloxKart.Place)
 local WorldFilter = require(ReplicatedStorage.BloxKart.WorldFilter)
 local Simulation = require(ReplicatedStorage.BloxKart.Simulation)
 local Input = require(script.Input)
@@ -132,6 +133,26 @@ UserInputService.InputBegan:Connect(function(input, typing)
 	end
 end)
 local hud = RaceHud.new()
+
+-- THE LOBBY IS A PLACE YOU DRIVE, NOT A RACE.
+--
+-- Everything else on the client is either inert without a track (no
+-- checkpoints, so no laps; no boxes, so no items) or wanted in the hub
+-- anyway — the speedo, the quest panel, the XP toasts, the music.
+--
+-- These two are the exception: they would draw a lap counter and a
+-- countdown for a round that does not exist, and a HUD confidently
+-- reporting nothing is worse than no HUD at all.
+--
+-- Hidden rather than skipped, because a nil hud would mean guarding
+-- every one of its call sites for a state that lasts the whole session.
+local lobby = Place.isLobby()
+if lobby then
+	hud:SetVisible(false)
+	matchHud:SetVisible(false)
+	print("[KartClient] LOBBY — race HUD off.")
+end
+
 local controls = ControlsHud.new()
 local speedo = SpeedHud.new()
 local itemHud = ItemHud.new()

@@ -238,6 +238,12 @@ function RaceHud:Update(race)
 	end
 end
 
+-- Off in a lobby: laps, position and the alert slot are all race
+-- readings. See MatchHud:SetVisible.
+function RaceHud:SetVisible(on: boolean)
+	self.gui.Enabled = on
+end
+
 function RaceHud:Destroy()
 	self.gui:Destroy()
 end

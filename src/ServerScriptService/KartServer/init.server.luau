@@ -58,16 +58,32 @@ WorldFilter.start()
 Assets.start()
 
 KartService.start()
--- After KartService: MatchService counts the karts it owns to decide
--- whether there are enough racers to start.
-MatchService.start()
-RaceService.start()
--- After RaceService: it waits on the KartItemHit remote that one makes.
-ProjectileService.start()
 
--- Last: bots need every service they drive through to exist first, and
--- they fill the grid on the match's cue rather than at startup.
-BotService.start()
+-- IS THERE A RACE HERE?
+--
+-- The lobby runs this same script. What separates it from a race server
+-- is four services and nothing else: the round loop, lap timing, items
+-- and the AI. Everything above and below this block runs in both,
+-- because a hub you can drive around, earn in and spend in needs the
+-- kart, the profile and the quests exactly as much as a track does.
+--
+-- Config.Places.LobbyStarts says the same thing in a table, and this is
+-- where it is believed.
+local racing = Place.isRace()
+if racing then
+	-- After KartService: MatchService counts the karts it owns to decide
+	-- whether there are enough racers to start.
+	MatchService.start()
+	RaceService.start()
+	-- After RaceService: it waits on the KartItemHit remote that one makes.
+	ProjectileService.start()
+
+	-- Last: bots need every service they drive through to exist first, and
+	-- they fill the grid on the match's cue rather than at startup.
+	BotService.start()
+else
+	print("[KartServer] LOBBY — no round loop, no laps, no items, no bots.")
+end
 
 -- Last, and only a probe: cycles a kart mesh to establish whether a skin
 -- can be an asset id rather than a separate model. Rig.SkinTest = false
@@ -81,22 +97,37 @@ Ledger.start()
 -- is safe to leave wired while the trust seams are still open.
 DataService.start()
 QuestService.start()
-MatchService.onGrid = BotService.onGrid
--- A finished player's kart is handed to the AI for the rest of the
--- round, and handed back before the next grid. Hooks rather than
--- requires, so MatchService never learns BotService exists.
-MatchService.onFinished = function(kart, who)
-	BotService.takeOver(kart, who .. " (AI)")
+
+-- The wiring BETWEEN the race services. Gated with them rather than
+-- left assigned unconditionally: the assignment itself is harmless in a
+-- lobby, and a hook that is set but can never fire is a lie the next
+-- person reading this has to disprove.
+if racing then
+	MatchService.onGrid = BotService.onGrid
+	-- A finished player's kart is handed to the AI for the rest of the
+	-- round, and handed back before the next grid. Hooks rather than
+	-- requires, so MatchService never learns BotService exists.
+	MatchService.onFinished = function(kart, who)
+		BotService.takeOver(kart, who .. " (AI)")
+	end
+	-- The flag: every kart still driven by a person carries on without
+	-- them, so the results play over a moving track.
+	MatchService.onResults = BotService.takeOverAll
+	MatchService.onRelease = function()
+		BotService.releaseTakeOvers()
+	end
+
+	-- A hit on a kart with no Player behind it goes to the bots. A hook
+	-- rather than a require: RaceService is upstream of BotService and
+	-- shouldn't have to know it exists.
+	RaceService.onNonPlayerHit = BotService.applyHit
+	-- A missile inside hopping range of a bot. Hooks rather than
+	-- requires: ProjectileService is upstream of BotService and should
+	-- not learn it exists — the same reason the hit relay works this way.
+	ProjectileService.onMissileNear = BotService.missileNear
+	ProjectileService.onMissileGone = BotService.missileGone
 end
--- The flag: every kart still driven by a person carries on without
--- them, so the results play over a moving track.
-MatchService.onResults = BotService.takeOverAll
-MatchService.onRelease = function()
-	BotService.releaseTakeOvers()
-end
--- A kart leaving the world, by either route. The AI is unhooked FIRST:
--- a bot stepping a Simulation against a destroyed model is a stream of
--- errors rather than a visible bug.
+
 -- XP as it is earned, so a hit is worth something visibly rather than
 -- only on the results screen ten laps later.
 local xpRemote = Instance.new("RemoteEvent")
@@ -115,14 +146,4 @@ statsRemote.Parent = ReplicatedStorage.BloxKart
 statsRemote.OnServerEvent:Connect(function(player, batch)
 	Progress.report(player, batch)
 end)
-
--- A hit on a kart with no Player behind it goes to the bots. A hook
--- rather than a require: RaceService is upstream of BotService and
--- shouldn't have to know it exists.
-RaceService.onNonPlayerHit = BotService.applyHit
--- A missile inside hopping range of a bot. Hooks rather than requires:
--- ProjectileService is upstream of BotService and should not learn it
--- exists — the same reason the hit relay works this way.
-ProjectileService.onMissileNear = BotService.missileNear
-ProjectileService.onMissileGone = BotService.missileGone
 

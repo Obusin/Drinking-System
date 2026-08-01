@@ -26,6 +26,7 @@ local BloxKart = ReplicatedStorage:WaitForChild("BloxKart")
 
 local Config = require(BloxKart:WaitForChild("Config"))
 local Shared = require(BloxKart:WaitForChild("Match"))
+local Place = require(BloxKart:WaitForChild("Place"))
 
 local M = Config.Match
 local P = Shared.Phase
@@ -73,11 +74,20 @@ local function checkBindings()
 end
 
 function Match.new()
-	local state = BloxKart:WaitForChild(Shared.FOLDER, 10)
-	local finishRemote = BloxKart:WaitForChild(Shared.FINISH_REMOTE, 10)
-	local readyRemote = BloxKart:WaitForChild(Shared.READY_REMOTE, 10)
+	-- IN A LOBBY THERE IS NO ROUND, AND WAITING FOR ONE COSTS 30 SECONDS.
+	--
+	-- Three ten-second timeouts, in sequence, at the top of a client boot
+	-- that is otherwise straight-line — so the hub would sit there doing
+	-- nothing for half a minute before the kart appeared. Every read
+	-- below already handles a nil state, so an inert Match is a complete
+	-- one; there is simply never anything to report.
+	local lobby = Place.isLobby()
 
-	if not state then
+	local state = if lobby then nil else BloxKart:WaitForChild(Shared.FOLDER, 10)
+	local finishRemote = if lobby then nil else BloxKart:WaitForChild(Shared.FINISH_REMOTE, 10)
+	local readyRemote = if lobby then nil else BloxKart:WaitForChild(Shared.READY_REMOTE, 10)
+
+	if not state and not lobby then
 		warn("[Match] no MatchState folder — is MatchService running?")
 	end
 	checkBindings()
@@ -122,6 +132,12 @@ end
 -- not grid slots — "1 / 8" while the round is gated on one human reads
 -- as six missing players.
 function Match:Humans(): number
+	-- The only read here that was missing this guard. Harmless while
+	-- MatchService always existed; in a LOBBY there is no state folder
+	-- at all and this is an error every frame.
+	if not self.state then
+		return 0
+	end
 	return self.state:GetAttribute(Shared.HUMANS) or 0
 end
 

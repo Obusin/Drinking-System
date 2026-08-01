@@ -301,6 +301,16 @@ function MatchHud:Update(match)
 	end
 end
 
+-- Off in a lobby. The countdown, the ready line and the standings all
+-- describe a round; with no round they describe nothing, and a frozen
+-- "0 / 1 PLAYERS" in a hub reads as a broken game rather than an idle
+-- one.
+--
+-- The decision lives in the entry point, not here — this only obeys.
+function MatchHud:SetVisible(on: boolean)
+	self.gui.Enabled = on
+end
+
 function MatchHud:Destroy()
 	self.gui:Destroy()
 end
