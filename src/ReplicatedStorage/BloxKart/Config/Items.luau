@@ -29,6 +29,18 @@ return {
 	--
 	-- NOTE: E is also Input.ExitKeys, which only binds when AllowExit is
 	-- on — i.e. in test mode. Change one of them if you turn that on.
+	--== INCOMING WARNING ==============================================
+	-- How wide a cone counts as "that is coming at me" for an unguided
+	-- missile. The cone tightens with distance: at ThreatConeAt studs
+	-- the required aim is 0, and it closes toward ThreatConeMin as the
+	-- missile gets closer.
+	--
+	-- A fixed cone cannot work. Wide enough to give useful warning at
+	-- 400 studs and it fires at anything on the map; tight enough to be
+	-- certain and it says nothing until the missile is on top of you.
+	ThreatConeAt = 90,
+	ThreatConeMin = 0.55,
+
 	UseKeys = { Enum.KeyCode.Q, Enum.KeyCode.ButtonX },
 	UseBackKeys = { Enum.KeyCode.E, Enum.KeyCode.ButtonB },
 

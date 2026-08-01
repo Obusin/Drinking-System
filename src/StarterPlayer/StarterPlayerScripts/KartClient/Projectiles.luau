@@ -474,10 +474,20 @@ end
 -- so the warning is early rather than late, which is the correct way for
 -- a warning to be wrong.
 --
--- ONLY THE LOCKED TARGET. A missile can still catch somebody else by
--- proximity, but warning everyone nearby would make the warning mean
--- "somebody fired something" — and an alarm that fires when you are not
--- in danger is one people learn to ignore.
+-- A LOCK IS NOT ENOUGH TO WARN ON, and the numbers say so. A missile
+-- acquires within AcquireRange — 60 studs — at 210 studs/s, so a lock
+-- happens between 0.2 and 1.0 seconds before it lands, and for 97% of
+-- its flight it is unguided and flying straight. Warning only on the
+-- lock is a warning that arrives with the explosion.
+--
+-- So an unlocked missile counts too, if it is pointed at us and
+-- closing. That is most of the danger and all of the lead time.
+--
+-- WHICH RE-OPENS "WHO DO WE WARN", and honestly: an unguided missile
+-- flying between two karts threatens BOTH, and both are told. That is
+-- not the warning being vague, it is the situation being vague — and it
+-- resolves itself, because once the missile locks it converges on one
+-- of them and the other's angle opens up and drops the warning.
 function Projectiles.threatTo(kart: Model?): number?
 	if not kart then
 		return nil
@@ -488,12 +498,41 @@ function Projectiles.threatTo(kart: Model?): number?
 	end
 
 	local soonest = nil
+	local function consider(eta: number)
+		if not soonest or eta < soonest then
+			soonest = eta
+		end
+	end
+
 	for _, p in live do
-		if p.target == kart and p.item and p.item.Speed and p.item.Speed > 0 then
-			local away = (hitbox.Position - p.pos).Magnitude
-			local eta = away / p.item.Speed
-			if not soonest or eta < soonest then
-				soonest = eta
+		local item = p.item
+		if not (item and item.Speed and item.Speed > 0) then
+			continue
+		end
+
+		local toward = hitbox.Position - p.pos
+		local away = toward.Magnitude
+		if away < 1e-3 then
+			continue
+		end
+
+		if p.target == kart then
+			-- Locked on. It is coming, whatever direction it is pointing
+			-- this instant while it turns.
+			consider(away / item.Speed)
+		elseif not p.locked then
+			-- Unguided and still travelling. Only a threat if it is
+			-- actually pointed at us — a missile crossing the track is
+			-- somebody else's problem.
+			--
+			-- The cone TIGHTENS with distance, so a far-off missile has
+			-- to be aimed well to count while a near one counts from a
+			-- wider angle. A fixed cone either cries wolf across the map
+			-- or says nothing until impact.
+			local aim = toward.Unit:Dot(p.dir)
+			local need = math.clamp(1 - (IT.ThreatConeAt / math.max(away, 1)), IT.ThreatConeMin, 0.999)
+			if aim >= need then
+				consider(away / item.Speed)
 			end
 		end
 	end
