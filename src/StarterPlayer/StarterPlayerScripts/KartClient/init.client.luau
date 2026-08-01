@@ -55,6 +55,7 @@ local XpHud = require(script.XpHud)
 local Tally = require(script.Tally)
 local QuestHud = require(script.QuestHud)
 local Warp = require(script.Warp)
+local Minimap = require(script.Minimap)
 local RaceHud = require(script.RaceHud)
 local ControlsHud = require(script.ControlsHud)
 local SpeedHud = require(script.SpeedHud)
@@ -103,6 +104,7 @@ local incomingUntil = 0
 local incomingEta = 0
 local questHud = QuestHud.new(tally)
 local warp = Warp.new()
+local minimap = Minimap.new()
 -- Bound directly rather than through Input: this is UI, it must work
 -- while spectating and out of a kart, and Input's bindings are released
 -- the moment you stop driving.
@@ -853,6 +855,10 @@ RunService.Heartbeat:Connect(function(dt)
 	-- the last frame of the race had and stay on the screen. `sim` is
 	-- nil in all those cases, which reads as zero and decays out.
 	warp:Update(dt, sim)
+	-- Outside step() for the same reason the warp is: the map should keep
+	-- showing the race while you spectate it, and step() returns the
+	-- moment there is no kart.
+	minimap:Update(sim)
 	questHud:Update()
 	-- Here rather than in step() because the soundtrack has to play in
 	-- the lobby, and step() returns early whenever there is no kart.
