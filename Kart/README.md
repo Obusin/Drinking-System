@@ -4,6 +4,10 @@
 what is only suspected, and the patterns that keep producing it. Most of
 the bugs in it were caused by the fix for another one.
 
+**`SECURITY.md` is the trust surface** — every inbound remote, what it
+actually checks, and why the server can only referee a client-simulated
+kart rather than own it. Read before adding a RemoteEvent.
+
 **`SYSTEM.md` explains the whole thing from zero** — architecture, the
 authority model, the tag-driven world, the round loop, and the two rules
 that explain most of the decisions. Hand that to anyone (or anything)
