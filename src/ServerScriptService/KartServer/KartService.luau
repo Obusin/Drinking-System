@@ -502,12 +502,35 @@ local function onCharacterAdded(player: Player, character: Model)
 	-- coroutine and look exactly like "the car doesn't spawn".
 	local ok, err = pcall(spawnKartFor, player)
 	if not ok then
-		warn("[KartService] spawnKartFor FAILED: " .. tostring(err))
+		warn("[KartService] spawnKartFor FAILED for " .. player.Name .. ": " .. tostring(err))
+		return
 	end
+
+	-- The end of the chain, and the only line that means it worked. A
+	-- kart that exists but has nobody in it is the failure this reports
+	-- separately, because it needs a different fix from a kart that was
+	-- never built.
+	local kart = karts[player]
+	local seat = kart and kart:FindFirstChild("Seat") :: VehicleSeat?
+	local seated = seat ~= nil and seat.Occupant ~= nil
+	print(
+		("[KartService] %s kart %s, seated %s"):format(
+			player.Name,
+			if kart then "BUILT" else "MISSING",
+			if seated then "yes" else "NO — the watchdog will retry"
+		)
+	)
 end
 
 local function onPlayerAdded(player: Player)
+	-- SPOKEN, not logged behind a debug flag. A join happens a handful of
+	-- times a session and is the start of a chain — character, seat,
+	-- kart — that has three places to fail silently. When somebody
+	-- arrives without a kart, these lines say which link went, and that
+	-- is worth four prints a session.
+	print(("[KartService] %s joined — waiting for a character"):format(player.Name))
 	player.CharacterAdded:Connect(function(character)
+		print(("[KartService] %s character arrived"):format(player.Name))
 		onCharacterAdded(player, character)
 	end)
 	if player.Character then

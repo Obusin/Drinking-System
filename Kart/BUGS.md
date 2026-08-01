@@ -180,7 +180,40 @@ the server.
 
 ---
 
-# 5. OPEN — two client-authority seams
+# 5. OPEN — a player joining mid-race gets no kart
+
+Reported 2026-08-02, **not yet traced.** Reading the path found nothing:
+`PlayerAdded` connects `CharacterAdded` and calls `reload`, which loads a
+character, which spawns a kart, which seats them. Every link exists and
+every failure is already pcall'd and warned.
+
+So it is instrumented rather than guessed at. A join now prints three
+lines, unconditionally:
+
+```
+[KartService] <name> joined — waiting for a character
+[KartService] <name> character arrived
+[KartService] <name> kart BUILT, seated yes
+```
+
+**Whichever line is missing is the answer, and they need different
+fixes:**
+
+| Missing | Means |
+|---|---|
+| "joined" | `PlayerAdded` never fired — the service started after they joined |
+| "character arrived" | `LoadCharacter` did not produce one; autoloads are OFF, so nothing else will |
+| "kart BUILT" | `spawnKartFor` threw — the warn above it names the error |
+| `seated NO` | the kart exists and they are not in it; a seating problem, not a spawn one |
+
+Note that a mid-race joiner is placed on the **grid**, because that is
+where `createKart` puts a kart and `assignGrid` only runs at
+`startGrid`. That is a separate question — where a late joiner SHOULD
+start — and worth deciding once the kart itself appears.
+
+---
+
+# 6. OPEN — two client-authority seams
 
 Marked in code, not bugs today, and blocking a lot.
 
@@ -198,7 +231,7 @@ Both TODOs already describe their own fix.
 
 ---
 
-# 6. OPEN — nine quests can never complete
+# 7. OPEN — nine quests can never complete
 
 `skinsEquipped`, `kartsRaced`, `partsOwned`, `craftsClaimed`,
 `matchedSetRaces`, `friendsRaced`, `clubmatesRaced`, `fullLobbyRaces`,
@@ -211,7 +244,7 @@ exists.
 
 ---
 
-# 7. OPEN — MatchService is past Luau's inference budget
+# 8. OPEN — MatchService is past Luau's inference budget
 
 `BotService` is 2393 lines, `init.client` 1039, `RaceService` 987. Not
 urgent, and it makes everything after it slower — including the analysis
