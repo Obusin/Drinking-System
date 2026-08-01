@@ -1603,6 +1603,20 @@ function BotService.takeOver(kart: Model, name: string): boolean
 		return false
 	end
 
+	-- READ THE SPEED BEFORE ANCHORING, because anchoring destroys it.
+	-- The hitbox is a physics part right up to this line and its velocity
+	-- is the only record of how fast the driver was going. A frame later
+	-- it is zero and unrecoverable.
+	local carried = 0
+	local pose = hitbox.CFrame
+	pcall(function()
+		local vel = hitbox.AssemblyLinearVelocity
+		-- Along the kart's own heading, not the raw magnitude: a kart
+		-- dropping off a ledge is moving fast downward and should not
+		-- inherit that as forward speed.
+		carried = math.max(vel:Dot(pose.LookVector), 0)
+	end)
+
 	-- ORDER IS LOAD-BEARING. Mark first so the watchdog can never race
 	-- us, then take ownership back, then anchor. Anchoring while a client
 	-- still owns the part is the one ordering that visibly breaks.
@@ -1611,6 +1625,13 @@ function BotService.takeOver(kart: Model, name: string): boolean
 		hitbox:SetNetworkOwner(nil)
 	end)
 	hitbox.Anchored = true
+	-- PINNED TO WHERE IT ACTUALLY WAS. Handing ownership back and
+	-- anchoring in the same frame lets the physics system settle the part
+	-- on the server's own last authoritative pose, which can be behind
+	-- the one the driver was looking at. Writing the captured pose back
+	-- makes the handover start exactly where the kart appeared to be, and
+	-- an anchored part will not be moved out from under it.
+	hitbox.CFrame = pose
 
 	local bot = makeBot(name, { Name = name, Bot = true }, kart, hitbox, seat)
 	-- It inherits the race in progress rather than starting a fresh one:
@@ -1619,6 +1640,20 @@ function BotService.takeOver(kart: Model, name: string): boolean
 	-- lapsFrom, NOT Route.passedFrom. Both decode the same packed score
 	-- and they return different fields — passedFrom gives checkpoints,
 	-- which as a lap count is nonsense.
+	-- AND IT INHERITS THE SPEED. A new Simulation starts at zero, so the
+	-- AI used to take the wheel from a dead stop — the kart braked to
+	-- nothing the instant you crossed the line and then pulled away
+	-- again, which is the stop-and-restart at the flag.
+	--
+	-- Clamped to the real maximum: a kart that was boosting hands over
+	-- above it, and inheriting that would let the AI keep boost speed it
+	-- never earned.
+	bot.sim.speed = math.min(carried, Config.Handling.MaxSpeed)
+	-- Travel matches the heading it actually had, or the first frames of
+	-- AI driving are spent unwinding a direction the kart was never
+	-- going in.
+	bot.sim.travel = pose.LookVector
+
 	bot.laps = Standings.lapsFrom(kart:GetAttribute(Standings.ATTRIBUTE))
 	bot.u = Route.nearestU(bot.sim.pos)
 	bot.nextIdx = math.floor(bot.u) + 1
