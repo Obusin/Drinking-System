@@ -390,6 +390,37 @@ Which one is the decision in front of the matchmaking work.
 
 ---
 
+# 13. STRUCTURAL — none of the content is in source control
+
+`Drinking System.project.json` syncs ReplicatedStorage,
+ServerScriptService, ServerStorage, StarterGui, StarterPack and
+StarterPlayer. **There is no Workspace key**, and `src/ServerStorage` is
+empty apart from a `.DS_Store`.
+
+So git has every line of code and none of the content:
+
+- the track — every road part, every tagged checkpoint, void zone,
+  boost pad and item box
+- the kart art model `KartFactory` clones
+- the missile model `Assets` copies out
+
+All of it exists in exactly one place: the `.rbxl`. A Studio sync has
+already deleted the entire source tree once, and **git was the only copy
+and it was enough** — that is in FINDINGS. It would not be enough now.
+The code would come back and the track would not.
+
+This has been survivable while there is one place. It stops being
+survivable the moment a second place exists, because then the question
+"which place has the good copy of the track" has two answers and no
+authority.
+
+**Fix it before duplicating anything.** Either sync Workspace and
+ServerStorage as `.rbxmx`, or publish the track and the kart as Models
+and reference them by asset id — the second is also what a map-per-place
+setup wants anyway.
+
+---
+
 # WATCH — recently fixed, unproven
 
 Each of these has run for at most one session. If something in this area
@@ -462,11 +493,13 @@ the wrong table errored every frame. **`scripts/check.sh` now runs
    independent of the loop.
 3. **The two trust seams.** Cheap, scoped, and they unblock leaderboards
    and safe persistence.
-4. **#11 first, it is one word.** Studio is writing live profile data.
-5. **#9 before any second map exists.** A generation number on the route
+4. **#13 before any second place exists.** The track is not in git.
+   Everything below is safe to get wrong; this one is not recoverable.
+5. **#11 first, it is one word.** Studio is writing live profile data.
+6. **#9 before any second map exists.** A generation number on the route
    cache. Cheap now, and it is the thing that will make a map swap look
    like the bots have gone mad.
-6. **#10 with the matchmaking work**, not before — the fix is the same
+7. **#10 with the matchmaking work**, not before — the fix is the same
    fix, and doing it twice is Pattern 1 all over again.
-7. **The two trust seams**, then **the shop** — see the vault README.
+8. **The two trust seams**, then **the shop** — see the vault README.
    Everything built earns currency and nothing spends it.
