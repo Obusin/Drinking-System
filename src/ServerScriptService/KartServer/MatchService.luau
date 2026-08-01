@@ -25,6 +25,7 @@ local BloxKart = ReplicatedStorage:WaitForChild("BloxKart")
 local Config = require(BloxKart:WaitForChild("Config"))
 local Match = require(BloxKart:WaitForChild("Match"))
 local Names = require(BloxKart:WaitForChild("Names"))
+local Place = require(BloxKart:WaitForChild("Place"))
 -- For the progress attribute, which has to be cleared with the finish
 -- attributes or a new round starts holding the last one's scores.
 local Standings = require(BloxKart:WaitForChild("Standings"))
@@ -640,6 +641,23 @@ MatchService.onResults = nil :: (() -> ())?
 
 function MatchService.phase(): string
 	return phase
+end
+
+-- MAY ITEMS BE PICKED UP AND USED RIGHT NOW?
+--
+-- On a track: only while a round is actually running. The rule exists
+-- so nobody hoovers up every box during the intermission and arrives on
+-- the grid holding a full stack.
+--
+-- In a LOBBY there is no grid to arrive at and no round to stockpile
+-- for, so the rule has nothing to protect and items are simply live.
+-- The hub is where you practise with them.
+--
+-- ONE function rather than the same condition written at each of the
+-- three gates. It was already three copies of `Match.isDriving(phase)`,
+-- and three copies of a rule is three chances to update two of them.
+function MatchService.itemsLive(): boolean
+	return Place.isLobby() or Match.isDriving(phase)
 end
 
 return MatchService

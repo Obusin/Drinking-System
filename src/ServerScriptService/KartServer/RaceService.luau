@@ -705,7 +705,7 @@ function RaceService.start()
 		-- between rounds, so without this they could hoover up every box
 		-- on the track during the intermission and arrive on the grid
 		-- holding a full stack.
-		if not Match.isDriving(MatchService.phase()) then
+		if not MatchService.itemsLive() then
 			return
 		end
 		if typeof(box) ~= "Instance" or not box:IsA("BasePart") then
@@ -843,7 +843,7 @@ function RaceService.start()
 			-- Racing only, same reason as the boxes. "hit" is deliberately
 			-- NOT gated: a hazard left on the track when the round ended
 			-- still has to be removable, or it sits there forever.
-			if not Match.isDriving(MatchService.phase()) then
+			if not MatchService.itemsLive() then
 				return
 			end
 			if typeof(arg) ~= "CFrame" or typeof(itemId) ~= "string" then

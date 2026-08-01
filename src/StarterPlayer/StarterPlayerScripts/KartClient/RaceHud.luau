@@ -125,6 +125,7 @@ function RaceHud.new()
 	return setmetatable({
 		gui = gui,
 		alertIcon = alertIcon,
+		panel = panel,
 		lap = lap,
 		time = time,
 		total = total,
@@ -238,10 +239,17 @@ function RaceHud:Update(race)
 	end
 end
 
--- Off in a lobby: laps, position and the alert slot are all race
--- readings. See MatchHud:SetVisible.
+-- Off in a lobby — but only the READOUTS.
+--
+-- Time, lap and checkpoint progress all describe a round, and a hub
+-- reporting "LAP 0/3" reads as a broken game. The alert slot and the
+-- wrong-way warning are NOT round readings: items are live in the
+-- lobby, so an incoming missile still has to be able to shout.
+--
+-- Hiding the whole ScreenGui took the alert with it, which would have
+-- made the practice ring the one place a warning never arrives.
 function RaceHud:SetVisible(on: boolean)
-	self.gui.Enabled = on
+	self.panel.Visible = on
 end
 
 function RaceHud:Destroy()

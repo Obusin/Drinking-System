@@ -62,28 +62,38 @@ KartService.start()
 
 -- IS THERE A RACE HERE?
 --
--- The lobby runs this same script. What separates it from a race server
--- is four services and nothing else: the round loop, lap timing, items
--- and the AI. Everything above and below this block runs in both,
--- because a hub you can drive around, earn in and spend in needs the
--- kart, the profile and the quests exactly as much as a track does.
+-- The lobby runs this same script, and the difference is smaller than it
+-- first looks: TWO services, the round loop and the AI.
 --
--- Config.Places.LobbyStarts says the same thing in a table, and this is
--- where it is believed.
+-- Items stay ON in the lobby. A hub with karts and no power-ups is a
+-- driving demo; the practice ring is where you learn what a missile
+-- feels like, and none of that needs a round. RaceService and
+-- ProjectileService are happy without one — the only thing they asked
+-- MatchService was "may items be used", and that question now has a
+-- lobby answer.
+--
+-- Lap timing comes along with RaceService and does nothing, because a
+-- hub has no checkpoints tagged. That is the right kind of nothing: it
+-- costs a few idle connections and it means the practice ring works the
+-- day somebody DOES tag one.
 local racing = Place.isRace()
-if racing then
-	-- After KartService: MatchService counts the karts it owns to decide
-	-- whether there are enough racers to start.
-	MatchService.start()
-	RaceService.start()
-	-- After RaceService: it waits on the KartItemHit remote that one makes.
-	ProjectileService.start()
 
+if racing then
+	-- Before RaceService: MatchService counts the karts KartService owns
+	-- to decide whether there are enough racers to start.
+	MatchService.start()
+end
+
+RaceService.start()
+-- After RaceService: it waits on the KartItemHit remote that one makes.
+ProjectileService.start()
+
+if racing then
 	-- Last: bots need every service they drive through to exist first, and
 	-- they fill the grid on the match's cue rather than at startup.
 	BotService.start()
 else
-	print("[KartServer] LOBBY — no round loop, no laps, no items, no bots.")
+	print("[KartServer] LOBBY — karts and items, no round loop and no bots.")
 end
 
 -- Last, and only a probe: cycles a kart mesh to establish whether a skin

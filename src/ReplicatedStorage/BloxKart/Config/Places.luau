@@ -91,12 +91,16 @@ return {
 
 	--== WHAT RUNS WHERE =================================================
 	-- The lobby is a place you can DRIVE, not a menu. You get your kart,
-	-- the world is solid, and the garage is somewhere you park.
+	-- you get power-ups, and the practice ring is where you learn what a
+	-- missile feels like before it matters.
 	--
-	-- What it does NOT get is anything that implies a race: no round
-	-- loop, no lap timing, no items, no bots. Those services would find
-	-- an empty world and either idle or complain, and a HUD reading
-	-- "LAP 0/3" in a hub is worse than no HUD.
+	-- What it does NOT get is a ROUND: no grid, no countdown, no laps
+	-- being banked, no AI field. Those are the two services below, and
+	-- they are the whole difference between the two kinds of server.
+	--
+	-- Lap timing rides along with RaceService and does nothing, because
+	-- a hub has no checkpoints tagged. Harmless, and it means a practice
+	-- ring starts working the day one is.
 	--
 	-- Listed rather than hard-coded in the entry point so this file
 	-- answers "what is the difference between the two" on its own.
@@ -108,10 +112,10 @@ return {
 		Ledger = true,
 		DataService = true, -- the whole point: your profile is here
 		QuestService = true,
+		RaceService = true, -- item boxes and hazards
+		ProjectileService = true, -- missiles
 
-		MatchService = false,
-		RaceService = false,
-		ProjectileService = false,
-		BotService = false,
+		MatchService = false, -- no round
+		BotService = false, -- no field to fill
 	},
 }

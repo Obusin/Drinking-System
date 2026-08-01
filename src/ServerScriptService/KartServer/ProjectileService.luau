@@ -54,7 +54,6 @@ local RunService = game:GetService("RunService")
 local BloxKart = ReplicatedStorage:WaitForChild("BloxKart")
 local Items = require(BloxKart:WaitForChild("Items"))
 local Names = require(BloxKart:WaitForChild("Names"))
-local Match = require(BloxKart:WaitForChild("Match"))
 local Route = require(BloxKart:WaitForChild("Route"))
 local Triggers = require(BloxKart:WaitForChild("Triggers"))
 local Ballistics = require(BloxKart:WaitForChild("Ballistics"))
@@ -525,7 +524,7 @@ function ProjectileService.start()
 		-- Racing only. Between rounds players are free to drive but not to
 		-- shoot: a missile fired during the countdown would arrive while
 		-- the field is still pinned on the grid and unable to dodge.
-		if not Match.isDriving(MatchService.phase()) then
+		if not MatchService.itemsLive() then
 			return
 		end
 		if typeof(itemId) ~= "string" then
