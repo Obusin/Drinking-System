@@ -405,7 +405,24 @@ local function spawnKartFor(player: Player)
 end
 
 local function onCharacterAdded(player: Player, character: Model)
-	character:WaitForChild("Humanoid", 10)
+	local humanoid = character:WaitForChild("Humanoid", 10)
+
+	-- SAFETY NET. With CharacterAutoLoads off, a death is permanent
+	-- unless we act — and being left with no avatar and no way back is a
+	-- worse failure than the respawn bug that made us turn autoloads off
+	-- in the first place.
+	--
+	-- Skipped for a retired player: they are meant to have no body, and
+	-- reviveRetired hands it back at the lobby.
+	if humanoid and humanoid:IsA("Humanoid") then
+		humanoid.Died:Connect(function()
+			task.wait(Players.RespawnTime)
+			if player.Parent == Players and not retired[player] then
+				player:LoadCharacter()
+			end
+		end)
+	end
+
 	task.wait(RIG.SeatDelay)
 	-- An error in here would otherwise die quietly inside the connection
 	-- coroutine and look exactly like "the car doesn't spawn".
@@ -421,6 +438,10 @@ local function onPlayerAdded(player: Player)
 	end)
 	if player.Character then
 		task.spawn(onCharacterAdded, player, player.Character)
+	else
+		-- Spawned explicitly, because CharacterAutoLoads is off — see
+		-- KartService.start for why we took that decision back.
+		player:LoadCharacter()
 	end
 end
 
@@ -571,6 +592,22 @@ function KartService.start()
 	log("starting")
 	setupCollisionGroup()
 
+	-- WE DECIDE WHEN A PLAYER SPAWNS, NOT THE ENGINE.
+	--
+	-- With CharacterAutoLoads on, destroying a character makes Roblox
+	-- respawn it at the SpawnLocation a few seconds later. Retiring a
+	-- finisher does exactly that — so the player was dropped back on the
+	-- spawn pad mid-race, CharacterAdded fired, and they were handed a
+	-- brand new kart and drove off again.
+	--
+	-- That is the "it ends, it stops, then the player moves again" bug,
+	-- and no amount of care in the retire path could have fixed it: the
+	-- respawn was the engine's, not ours.
+	--
+	-- A player's avatar now appears when THIS module says so — on join,
+	-- and when a retired player is revived at the next lobby.
+	Players.CharacterAutoLoads = false
+
 	-- TEST MODE ONLY. This is the spare kart that sits on the pad waiting
 	-- to be walked into.
 	--
@@ -591,6 +628,18 @@ function KartService.start()
 
 	if RIG.TestMode then
 		log("TEST MODE — kart is on the pad, walk into it. E to get out.")
+		-- Nothing else spawns anybody in test mode, and with autoloads
+		-- off that would mean no avatar at all.
+		Players.PlayerAdded:Connect(function(player)
+			player:LoadCharacter()
+		end)
+		for _, player in Players:GetPlayers() do
+			if not player.Character then
+				task.spawn(function()
+					player:LoadCharacter()
+				end)
+			end
+		end
 	else
 		Players.PlayerAdded:Connect(onPlayerAdded)
 		for _, player in Players:GetPlayers() do
