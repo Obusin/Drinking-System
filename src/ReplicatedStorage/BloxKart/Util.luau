@@ -129,20 +129,47 @@ end
 --=====================================================================
 local warnedImages = {}
 
+-- POLLED, NOT CHECKED ONCE.
+--
+-- The first version looked at IsLoaded a single time, three seconds in,
+-- and warned if it was false. A cold asset routinely takes longer than
+-- that, so it reported failures for images that went on to render
+-- perfectly — which is the worst thing a diagnostic can do. A warning
+-- that is wrong some of the time gets ignored all of the time, and then
+-- it is not there for the real failure either.
+--
+-- It now gives the asset twenty seconds and gives up quietly the moment
+-- it loads.
+local VERIFY_FOR = 20
+local VERIFY_EVERY = 2
+
 function Util.verifyImage(label: ImageLabel, id: string, tag: string)
 	if id == "" or warnedImages[id] then
 		return
 	end
 	warnedImages[id] = true
-	task.delay(3, function()
-		if label.Parent and label.Image == id and not label.IsLoaded then
-			warn(
-				("[%s] image failed to load: %s — if that's a Decal id it won't render; use the Image id instead."):format(
-					tag,
-					id
-				)
-			)
+
+	task.spawn(function()
+		local waited = 0
+		while waited < VERIFY_FOR do
+			task.wait(VERIFY_EVERY)
+			waited += VERIFY_EVERY
+			-- Gone, or reused for something else. Either way not our
+			-- business any more.
+			if not label.Parent or label.Image ~= id then
+				return
+			end
+			if label.IsLoaded then
+				return
+			end
 		end
+		warn(
+			("[%s] image still not loaded after %ds: %s — most likely a Decal id where an Image id is needed, or an asset that is not approved."):format(
+				tag,
+				VERIFY_FOR,
+				id
+			)
+		)
 	end)
 end
 
