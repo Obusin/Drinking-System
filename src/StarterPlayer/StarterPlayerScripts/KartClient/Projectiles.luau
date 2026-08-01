@@ -25,6 +25,7 @@
 	sliding sideways, it snaps instead and accepts one jump.
 --]]
 
+local Debris = game:GetService("Debris")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -37,6 +38,7 @@ local Route = require(BloxKart:WaitForChild("Route"))
 local WorldFilter = require(BloxKart:WaitForChild("WorldFilter"))
 
 local IT = Config.Items
+local A = Config.Audio
 
 local Projectiles = {}
 
@@ -213,6 +215,29 @@ local function makePart(item): BasePart
 		local weld = Instance.new("WeldConstraint")
 		weld.Part0, weld.Part1 = part, d
 		weld.Parent = part
+	end
+
+
+	-- THE THRUSTER, looped on the missile itself so it arrives with the
+	-- thing rather than from nowhere. A missile you can hear coming is a
+	-- missile you can react to, which is most of what makes one
+	-- frightening rather than arbitrary — and it is the cue that makes a
+	-- dodge feel timed instead of lucky.
+	--
+	-- Keyed off the item HAVING a projectile rather than off its id.
+	-- `Id == "Missile"` silently stops working the moment that item is
+	-- renamed or a second homing item is added — the same trap Items.roll
+	-- calls out about Filler.
+	if A.MissileThrustId ~= "" and item.Projectile then
+		local thrust = Instance.new("Sound")
+		thrust.Name = "Thrust"
+		thrust.SoundId = A.MissileThrustId
+		thrust.Looped = true
+		thrust.Volume = A.MissileThrustVolume
+		thrust.RollOffMaxDistance = A.MissileThrustRollOff
+		thrust.RollOffMode = Enum.RollOffMode.InverseTapered
+		thrust.Parent = part
+		thrust:Play()
 	end
 
 	return part
@@ -404,6 +429,45 @@ local function onSync(msg)
 	end
 end
 
+-- The bang, at the position it ended, whether or not it hit anybody.
+--
+-- Parented to a throwaway attachment rather than the projectile part —
+-- that part is destroyed on the same frame, and a Sound goes with its
+-- parent mid-playback. The holder cleans itself up.
+local function boom(pos: Vector3, item, hit: boolean)
+	local id = item and A.ItemHitIds[item.Id]
+	if not id or id == "" then
+		id = A.HitSoundId
+	end
+	if not id or id == "" then
+		return
+	end
+
+	local holder = Instance.new("Part")
+	holder.Name = "Boom"
+	holder.Anchored = true
+	holder.CanCollide = false
+	holder.CanQuery = false
+	holder.CanTouch = false
+	holder.Transparency = 1
+	holder.Size = Vector3.one
+	holder.CFrame = CFrame.new(pos)
+	holder.Parent = workspace
+
+	local s = Instance.new("Sound")
+	s.SoundId = id
+	-- A miss is quieter than a kill. Still audible — a dodge that made
+	-- no sound was the one moment most deserving of a bang — but it
+	-- should not sound like it landed.
+	s.Volume = A.ProjectileBoomVolume * (if hit then 1 else A.ProjectileMissScale)
+	s.RollOffMaxDistance = A.ProjectileBoomRollOff
+	s.RollOffMode = Enum.RollOffMode.InverseTapered
+	s.Parent = holder
+	s:Play()
+
+	Debris:AddItem(holder, 5)
+end
+
 local function onGone(msg)
 	local p = live[msg.uid]
 	if p and msg.pos then
@@ -413,6 +477,11 @@ local function onGone(msg)
 		if p.part then
 			p.part.CFrame = drawnCF(p)
 		end
+	end
+	-- Read BEFORE destroy, which takes the item reference with it.
+	local item = p and p.item
+	if msg.pos then
+		boom(msg.pos, item, msg.hit == true)
 	end
 	destroy(msg.uid)
 end

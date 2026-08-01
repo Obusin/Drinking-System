@@ -80,6 +80,24 @@ return {
 	-- instance per bang is churn for something that lasts a second.
 	RemoteHitVoices = 6,
 
+	--== PROJECTILES ==================================================
+	-- The thruster, looped on the missile itself while it flies. A
+	-- missile you can hear coming is a missile you can react to, which
+	-- is most of what makes one frightening rather than arbitrary.
+	MissileThrustId = "rbxassetid://128535433880811",
+	MissileThrustVolume = 0.6,
+	MissileThrustRollOff = 180,
+
+	-- IT GOES OFF WHEREVER IT ENDS, hit or not. A missile that detonates
+	-- on a wall, expires, or passes under somebody who jumped it made no
+	-- sound at all — so a successful dodge was silent, which is the one
+	-- moment that most deserves a bang.
+	ProjectileBoomVolume = 0.9,
+	ProjectileBoomRollOff = 320,
+	-- Quieter when it hit nobody. Still audible, still satisfying, but a
+	-- miss should not sound the same as a kill.
+	ProjectileMissScale = 0.7,
+
 	PickupSoundId = "rbxassetid://117570443671176", -- roulette lands
 	PickupVolume = 0.85,
 	-- One click per name the roulette cycles past. A single Sound is
