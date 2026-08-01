@@ -1806,11 +1806,35 @@ function BotService.takeOverAll()
 	end
 end
 
+-- EVERY TAKEOVER GOES BACK, unconditionally.
+--
+-- This used to require the kart to still exist AND still be AI_DRIVEN.
+-- Anything failing either test stayed in `bots` forever — stepped every
+-- frame, counted by the flying watchdog, and accumulating one more
+-- stranded entry per round.
+--
+-- That is the whole of what was going wrong at the end of a race:
+--
+--   * four "Racer (AI) recovered by the flying watchdog" during
+--     Intermission, one per stranded takeover
+--   * a kart welded to its player that would not move — AI_DRIVEN never
+--     cleared, so it stayed anchored and server-owned
+--   * a frozen camera — the client's step() returns early on AI_DRIVEN,
+--     and everything after that line, the camera included, stops running
+--
+-- The identity is `takenOver`, which is intrinsic to the entry. AI_DRIVEN
+-- is an attribute on a kart that anything can clear, and keying the
+-- release on it meant one stray write stranded a player for the rest of
+-- the server's life.
 function BotService.releaseTakeOvers()
 	for i = #bots, 1, -1 do
 		local bot = bots[i]
-		if bot.kart.Parent and bot.kart:GetAttribute(Names.AI_DRIVEN) then
-			bot.kart:SetAttribute(Names.AI_DRIVEN, nil)
+		if bot.takenOver then
+			-- Released if there is anything left to release. Dropped from
+			-- the list either way — a takeover whose kart has gone has
+			-- nothing to drive and no business being stepped.
+			if bot.kart and bot.kart.Parent then
+				bot.kart:SetAttribute(Names.AI_DRIVEN, nil)
 			-- HANDED BACK EXPLICITLY.
 			--
 			-- The first version left it anchored and unowned, on the
@@ -1820,7 +1844,8 @@ function BotService.releaseTakeOvers()
 			-- in the kart the entire time. The kart would have stayed
 			-- anchored and server-owned forever, with its driver unable to
 			-- move — for the rest of the server's life.
-			KartService.restoreOwnership(bot.kart)
+				KartService.restoreOwnership(bot.kart)
+			end
 			bot.boxes:Destroy()
 			bot.drops:Destroy()
 			bot.hazards:Destroy()

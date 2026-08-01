@@ -93,6 +93,10 @@ Studio, read back the `Texture` property, replace the ids in
 
 # 3. SUSPECTED — spectating does not work properly
 
+**Most likely the same cause as #4.** A frozen camera is what a stranded
+takeover produces, and it was reported as "spectate doesn't work".
+Re-test before investigating.
+
 Reported, not yet traced. Every code path checks out on inspection:
 starts on finish or at the flag, holds your own kart through the finish
 shot, falls through when a subject disappears, releases the driving
@@ -108,21 +112,55 @@ different bugs.
 
 ---
 
-# 4. SUSPECTED — takeover bots outlive the round
+# 4. CONFIRMED AND FIXED — takeover bots outlived the round
+
+**This was the cause of the frozen camera, the wobbling immovable kart,
+and most of what looked like disappearance.** Promoted from SUSPECTED by
+a traced round, then fixed.
+
+`releaseTakeOvers` required the kart to still exist AND still be
+`AI_DRIVEN`. Anything failing either test stayed in `bots` forever —
+stepped every frame, counted by the flying watchdog, one more stranded
+entry per round:
 
 ```
-21:37:25 [Loop] Intermission round 1 | karts 1 (1 player)
-21:37:29 [BotService] Racer (AI) recovered by the flying watchdog (x2)
-21:37:29 [Loop] Grid round 2 | karts 5 (1 player)
+23:37:44 [Loop] Intermission round 1
+23:37:48 Racer (AI) recovered by the flying watchdog  ×4
 ```
 
-Two `Racer (AI)` entries were still being stepped four seconds into
-Intermission, after every bot kart had gone. `releaseTakeOvers` removes
-a takeover only when its kart still exists AND is still `AI_DRIVEN`; a
-takeover failing both is stranded in `bots` forever.
+Three consequences, all reported as separate bugs:
 
-Retirement was destroying those karts, so this may be gone with it.
-**Verify before fixing** — the whole point of this file.
+- **The kart welded to you that will not move.** `AI_DRIVEN` never
+  cleared, so it stayed anchored and server-owned.
+- **The frozen camera.** The client's `step()` returns early on
+  `AI_DRIVEN`, and everything after that line — the camera included —
+  stops running.
+- **The wobble.** An anchored kart with a seated character, replicating
+  at 20Hz and going nowhere.
+
+Released on `takenOver` now, which is intrinsic to the entry, and dropped
+from the list either way. `AI_DRIVEN` is an attribute anything can
+clear, and keying the release on it meant one stray write stranded a
+player for the life of the server.
+
+**WATCH:** unproven, one session old.
+
+---
+
+# 4b. FIXED — Sit threw every watchdog sweep
+
+```
+Sit : param is not a Humanoid or humanoid is dead
+```
+
+A humanoid can be in the `Dead` state with `Health` still above zero for
+a frame — mid-respawn, or as its character is replaced — and the seat
+watchdog's `Health > 0` guard let it through. Sit then threw once per
+sweep, forever.
+
+Guarded on the state and pcall'd. A failed seating is a retry in two
+seconds; a thrown error is a red line every two seconds for the life of
+the server.
 
 ---
 
@@ -229,9 +267,10 @@ the wrong table errored every frame. **`scripts/check.sh` now runs
 
 # ORDER OF ATTACK
 
-1. **Verify the loop closes over three rounds.** Everything else is
-   guesswork until the trace is clean — and two entries above are marked
-   SUSPECTED precisely because retirement may already have taken them.
+1. ~~Verify the loop closes.~~ **DONE 2026-08-02.** It does:
+   `karts 5 (3 player)` held from Grid through Results into round 2,
+   with three players. The trace also caught #4, which was the real
+   cause of three separately-reported bugs.
 2. **Bots leaving the track.** The biggest quality problem and entirely
    independent of the loop.
 3. **The two trust seams.** Cheap, scoped, and they unblock leaderboards

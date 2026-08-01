@@ -394,10 +394,31 @@ local function seatPlayer(player: Player, kart: Model)
 		log("seat FAILED for %s", player.Name)
 		return
 	end
+	-- DEAD BY THE ENGINE'S RECKONING, not by Health. A humanoid can be
+	-- in the Dead state with Health still above zero for a frame or two
+	-- — mid-respawn, or on the frame its character is being replaced —
+	-- and Sit throws on it: "param is not a Humanoid or humanoid is
+	-- dead", once per watchdog sweep, forever.
+	if humanoid:GetState() == Enum.HumanoidStateType.Dead then
+		log("seat SKIPPED for %s — humanoid is dead", player.Name)
+		return
+	end
+
 	humanoid.JumpHeight = 0
 	humanoid.JumpPower = 0
 	humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, false)
-	seat:Sit(humanoid)
+
+	-- pcall'd because Sit is the engine's and every reason it can refuse
+	-- is a state we do not control. A failed seating is a watchdog retry
+	-- in two seconds; a thrown error is a red line every two seconds for
+	-- the life of the server.
+	local ok, err = pcall(function()
+		seat:Sit(humanoid)
+	end)
+	if not ok then
+		log("seat FAILED for %s: %s", player.Name, tostring(err))
+		return
+	end
 	log("seated %s", player.Name)
 end
 
