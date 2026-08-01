@@ -58,6 +58,7 @@ local QuestHud = require(script.QuestHud)
 local Minimap = require(script.Minimap)
 local RaceHud = require(script.RaceHud)
 local ControlsHud = require(script.ControlsHud)
+local VehicleHud = require(script.VehicleHud)
 local SpeedHud = require(script.SpeedHud)
 local ItemHud = require(script.ItemHud)
 local FeedHud = require(script.FeedHud)
@@ -150,10 +151,14 @@ local lobby = Place.isLobby()
 if Config.Build.Announce then
 	print(("[BloxKart] client %s — %s place"):format(Config.Build.Version, Place.role():upper()))
 end
+local vehicleHud = nil
 if lobby then
 	hud:SetVisible(false)
 	matchHud:SetVisible(false)
-	print("[KartClient] LOBBY — race HUD off.")
+	-- Only in a hub. A race place hands you a kart because a round is
+	-- starting, so there is nothing to call for.
+	vehicleHud = VehicleHud.new()
+	print("[KartClient] LOBBY — race HUD off, kart button on.")
 end
 
 local controls = ControlsHud.new()
@@ -1016,6 +1021,13 @@ RunService.Heartbeat:Connect(function(dt)
 	-- you spectate it, and step() returns the moment there is no kart.
 	minimap:Update(dt, sim)
 	questHud:Update()
+	-- Lobby only, and nil everywhere else. Here rather than in step()
+	-- for the same reason as the music: in a hub there is usually no
+	-- kart at all, and step() returns the moment that is true — which
+	-- is exactly when the button that calls one has to work.
+	if vehicleHud then
+		vehicleHud:Update(dt)
+	end
 	-- Here rather than in step() because the soundtrack has to play in
 	-- the lobby, and step() returns early whenever there is no kart.
 	music:Update(dt, match:Phase())

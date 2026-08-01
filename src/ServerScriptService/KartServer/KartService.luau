@@ -14,16 +14,22 @@ local PhysicsService = game:GetService("PhysicsService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+-- Read for the jump values a despawn has to put back. StarterPlayer is
+-- the place's own answer to "how high does a character jump", so taking
+-- it from here follows the place instead of duplicating the number.
+local StarterPlayer = game:GetService("StarterPlayer")
 
 local Config = require(ReplicatedStorage.BloxKart.Config)
 local Names = require(ReplicatedStorage.BloxKart.Names)
 local Util = require(ReplicatedStorage.BloxKart.Util)
 local Match = require(ReplicatedStorage.BloxKart.Match)
+local Place = require(ReplicatedStorage.BloxKart.Place)
 local KartFactory = require(script.Parent.KartFactory)
 local Skins = require(script.Parent.Skins)
 local Placement = require(script.Parent.Placement)
 
 local RIG = Config.Rig
+local LOBBY = Config.Lobby
 local log = Util.logger("KartService", RIG.Debug)
 
 local KartService = {}
@@ -497,6 +503,22 @@ local function onCharacterAdded(player: Player, character: Model)
 		end)
 	end
 
+	-- IN A LOBBY YOU ARRIVE ON FOOT.
+	--
+	-- A hub is somewhere you walk around; the kart is something you call
+	-- for. Returning here rather than building-and-parking is deliberate
+	-- — a parked kart with nobody in it still has to be owned, stepped
+	-- and cleaned up, and "there is no kart" is a much simpler state
+	-- than "there is a kart nobody is in".
+	--
+	-- PlayerVehicleService builds one when the player asks, through the
+	-- same spawnKartFor below. There is still exactly one way a player's
+	-- kart comes into existence.
+	if Place.isLobby() then
+		spawningAt[player] = nil
+		return
+	end
+
 	task.wait(RIG.SeatDelay)
 	-- An error in here would otherwise die quietly inside the connection
 	-- coroutine and look exactly like "the car doesn't spawn".
@@ -609,6 +631,70 @@ function KartService.removeBots()
 			kart:Destroy()
 		end
 	end
+end
+
+-- BUILD ONE ON REQUEST. The lobby's route in.
+--
+-- The same function the race path uses, exposed rather than copied:
+-- two ways to build a player's kart is two places for the ownership,
+-- the slot, the paint and the skin to drift apart.
+--
+-- WHETHER somebody may ask is not decided here. PlayerVehicleService
+-- owns that, and it is the only caller.
+function KartService.spawnFor(player: Player): Model?
+	local ok, err = pcall(spawnKartFor, player)
+	if not ok then
+		warn("[KartService] spawnFor FAILED for " .. player.Name .. ": " .. tostring(err))
+		return nil
+	end
+	return karts[player]
+end
+
+-- PUT IT AWAY.
+--
+-- Deregisters BEFORE destroying, which is what stops bindLockIn from
+-- re-seating the player into a kart that is on its way out — that guard
+-- reads `karts[player] ~= kart` and this makes it true.
+--
+-- Restores the jump that seating took away. Seating zeroes JumpPower,
+-- JumpHeight and the Jumping state so nobody can hop out of a moving
+-- kart; if that is not undone, the hub becomes a place you can walk and
+-- never jump, which looks like a physics bug and is near-impossible to
+-- guess at from the symptom.
+--
+-- The values come from StarterPlayer rather than from Config, so they
+-- follow whatever this place is actually set to.
+function KartService.despawnFor(player: Player): boolean
+	local kart = karts[player]
+	if not kart then
+		return false
+	end
+
+	local body = kart.PrimaryPart
+	karts[player] = nil
+	-- The slot is KEPT. It decides paint colour as well as grid
+	-- position, so releasing it here would change the player's colour
+	-- every time they put their kart away.
+
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+
+	kart:Destroy()
+
+	-- Stand them beside where it was rather than dropping them through
+	-- the space it occupied.
+	if body and character and character.PrimaryPart then
+		local at = body.CFrame * CFrame.new(LOBBY.DismountSide, 0, 0)
+		character:PivotTo(CFrame.new(at.Position, at.Position + body.CFrame.LookVector))
+	end
+
+	if humanoid and LOBBY.RestoreJumpOnDespawn then
+		humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
+		humanoid.JumpPower = StarterPlayer.CharacterJumpPower
+		humanoid.JumpHeight = StarterPlayer.CharacterJumpHeight
+	end
+
+	return true
 end
 
 function KartService.kartFor(player: any): Model?
@@ -778,7 +864,19 @@ function KartService.start()
 			--  Retired players are meant to have none, and test mode
 			--  hands them out by walking into one.
 			--=========================================================
-			if not RIG.TestMode then
+			--  IN A LOBBY, "NO KART" IS THE CORRECT STATE.
+			--
+			--  Every player on foot has none, which is the whole design.
+			--  Left unguarded this sweep hands a kart to everybody in
+			--  the hub every couple of seconds, forever — a watchdog
+			--  fighting the thing it is watching, which is the fifth
+			--  recurring shape in BUGS.md and the reason that list
+			--  exists.
+			--
+			--  The sweep below this one, for karts that are REGISTERED
+			--  and gone, still runs in a lobby: that failure is real
+			--  wherever it happens.
+			if not RIG.TestMode and not Place.isLobby() then
 				for _, player in Players:GetPlayers() do
 					if karts[player] then
 						continue

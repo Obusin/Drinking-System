@@ -95,5 +95,8 @@ Names.REWARD_REMOTE = "KartReward"
 Names.XP_REMOTE = "KartXp"
 Names.STATS_REMOTE = "KartStats"
 Names.QUEST_REMOTE = "KartQuests"
+-- Lobby only: "spawn" / "despawn" in, a result string back. The client
+-- sends an INTENT and never a position — see PlayerVehicleService.
+Names.VEHICLE_REMOTE = "KartVehicle"
 
 return Names

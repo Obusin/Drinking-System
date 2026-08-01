@@ -36,6 +36,7 @@ local Progress = require(script.Progress)
 local Ledger = require(script.Ledger)
 local DataService = require(script.DataService)
 local QuestService = require(script.QuestService)
+local PlayerVehicleService = require(script.PlayerVehicleService)
 
 -- FIRST OF ALL: say what this is. Before any service starts, so a
 -- server that dies on startup still tells you which code died — and so
@@ -102,6 +103,10 @@ if racing then
 	BotService.start()
 else
 	print("[KartServer] LOBBY — karts and items, no round loop and no bots.")
+	-- After KartService, because it drives it. Policy only: KartService
+	-- still owns how a kart is built and seated, and this owns whether
+	-- somebody may ask for one.
+	PlayerVehicleService.start()
 end
 
 -- Last, and only a probe: cycles a kart mesh to establish whether a skin
