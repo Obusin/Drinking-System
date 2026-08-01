@@ -97,6 +97,10 @@ local tally = Tally.new()
 -- flush is for the SERVER's benefit, not the display's.
 local TALLY_FLUSH = 8 -- seconds between partial stat sends
 local flushAt = TALLY_FLUSH
+-- The incoming warning outlives the threat by IncomingHold so a
+-- fraction-of-a-second missile is still readable.
+local incomingUntil = 0
+local incomingEta = 0
 local questHud = QuestHud.new(tally)
 local warp = Warp.new()
 -- Bound directly rather than through Input: this is UI, it must work
@@ -352,10 +356,20 @@ local function step(dt: number)
 	-- ignore.
 	local eta = Projectiles.threatTo(sim.model)
 	if eta and eta <= H.IncomingLead then
+		-- HELD, so a threat that exists for two frames is still seen. A
+		-- missile fired from close behind closes in a fraction of a
+		-- second, and a warning that appears and vanishes inside that is
+		-- indistinguishable from one that never fired.
+		incomingUntil = math.max(incomingUntil, os.clock() + H.IncomingHold)
+		incomingEta = eta
+	end
+
+	if os.clock() < incomingUntil then
 		alertText, alertColour = H.IncomingText, H.IncomingColor
-		-- Closer is faster. Blinks gently at the far edge of the warning
-		-- and frantically just before impact.
-		alertUrgency = 1 - (eta / H.IncomingLead)
+		-- Counts down from whatever the last real reading was, so the
+		-- held tail keeps escalating rather than freezing mid-blink.
+		incomingEta = math.max(incomingEta - dt, 0)
+		alertUrgency = 1 - math.clamp(incomingEta / H.IncomingLead, 0, 1)
 	elseif race:WrongWay(sim, dt) then
 		-- NAME THE GATE THEY STILL OWE.
 		--

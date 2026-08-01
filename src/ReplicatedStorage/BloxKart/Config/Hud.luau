@@ -52,14 +52,27 @@ return {
 	-- Seconds out at which the warning appears. Long enough to use a
 	-- shield, short enough that it is not on screen for half the lap.
 	IncomingLead = 3.0,
+	-- MINIMUM TIME ON SCREEN once it appears. A missile fired from close
+	-- behind is only a threat for a fraction of a second, and a warning
+	-- that comes and goes inside a few frames is one nobody ever sees —
+	-- which is indistinguishable from a warning that never fired.
+	IncomingHold = 0.7,
 
 	--== BLINK RATE AS A CLOCK =========================================
 	-- The pulse carries the time remaining: slow while there is room,
 	-- accelerating as it runs out. It is the same information a bar
 	-- would carry, in a thing that is already blinking, without adding
 	-- another readout to a racing screen.
-	AlertPulseSlow = 1.4, -- pulses per second with time in hand
-	AlertPulseFast = 8.0, -- about to happen
+	-- STATIC FIRST, THEN BLINK. Below this urgency the alert is simply
+	-- on — solid and readable. Above it, it starts blinking and speeds
+	-- up as it runs out.
+	--
+	-- A warning that blinks from the moment it appears is a warning with
+	-- nothing left to say when the situation actually gets urgent. The
+	-- blink has to MEAN something, so it has to start somewhere.
+	AlertBlinkFrom = 0.55,
+	AlertPulseSlow = 1.6, -- pulses per second as blinking begins
+	AlertPulseFast = 9.0, -- about to happen
 
 	--== HIT FEED ======================================================
 	-- "MISSILE hit Obus1n". Top centre, under the countdown's slot, so it

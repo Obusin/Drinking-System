@@ -149,7 +149,21 @@ function RaceHud:SetAlert(text: string?, colour: Color3?, dt: number, urgency: n
 	self.wrong.Text = text
 	self.wrong.TextColor3 = colour or H.WrongWayColor
 	local u = math.clamp(urgency or 0, 0, 1)
-	local rate = H.AlertPulseSlow + (H.AlertPulseFast - H.AlertPulseSlow) * u
+
+	if u < H.AlertBlinkFrom then
+		-- SOLID. There is time; the alert is information, not an alarm.
+		-- Blinking from the moment it appears leaves nothing to escalate
+		-- to when the situation actually gets urgent.
+		self.wrongPhase = 0
+		self.wrong.TextTransparency = 0
+		return
+	end
+
+	-- Past the threshold it starts blinking, from slow to frantic across
+	-- the REMAINING range rather than the whole one — so the first blink
+	-- is a slow blink, not a mid-speed one.
+	local t = (u - H.AlertBlinkFrom) / math.max(1 - H.AlertBlinkFrom, 1e-3)
+	local rate = H.AlertPulseSlow + (H.AlertPulseFast - H.AlertPulseSlow) * t
 	self.wrongPhase += dt * rate
 	-- Biased into 0..1 and scaled, so it never fades to fully invisible —
 	-- a warning that blinks off entirely is easy to miss between blinks.
