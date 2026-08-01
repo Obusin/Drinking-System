@@ -219,6 +219,10 @@ return {
 	-- LoadCharacter is asynchronous, and retrying it on every sweep
 	-- while one is still arriving queues spawns behind each other.
 	ReloadCooldown = 6,
+	-- Slack on top of SeatDelay before the watchdog will call a kart
+	-- missing. Building one is asynchronous, and a watchdog that races
+	-- the normal path destroys what that path just made.
+	SpawnGrace = 3,
 
 	-- Seconds before auditing kart parts for anything still collidable
 	-- outside the kart group. Delayed because art streams in.

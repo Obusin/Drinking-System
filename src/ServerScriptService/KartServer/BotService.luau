@@ -1739,6 +1739,10 @@ function BotService.takeOver(kart: Model, name: string): boolean
 	-- Clamped to the real maximum: a kart that was boosting hands over
 	-- above it, and inheriting that would let the AI keep boost speed it
 	-- never earned.
+	-- MARKED, because this entry drives somebody else's kart. When that
+	-- kart goes, this bot goes with it — it must never build a
+	-- replacement.
+	bot.takenOver = true
 	bot.sim.speed = math.min(carried, Config.Handling.MaxSpeed)
 	-- Travel matches the heading it actually had, or the first frames of
 	-- AI driving are spent unwinding a direction the kart was never
@@ -2131,6 +2135,32 @@ function BotService.revive(bot)
 	-- carries on from its last safe point exactly as before.
 	if bot.kart.Parent then
 		RaceService.creditVoidKill(bot.kart, bot.name)
+	end
+
+	-- A TAKEN-OVER KART IS NOT A BOT'S TO REPLACE.
+	--
+	-- When a player's kart is handed to the AI, this entry drives a kart
+	-- that belongs to somebody else. If that kart then leaves the world —
+	-- retired at the flag, or rebuilt by the kart watchdog — the code
+	-- below used to spawn a REPLACEMENT through addBot, which produces a
+	-- brand new kart named after the takeover: "Racer (AI)", airborne,
+	-- speed zero, five studs off the racing line.
+	--
+	-- That is where the extra kart came from, and it is why the player's
+	-- own kart appeared to vanish: theirs was rebuilt while an orphan
+	-- carried on in its place.
+	--
+	-- Nothing to revive. The player is getting their kart back through
+	-- KartService, which is the only thing that should be building one.
+	if not bot.kart.Parent and bot.takenOver then
+		for i = #bots, 1, -1 do
+			if bots[i] == bot then
+				table.remove(bots, i)
+				break
+			end
+		end
+		log("%s dropped — its kart was a player's and has gone", bot.name)
+		return
 	end
 
 	if not bot.kart.Parent then

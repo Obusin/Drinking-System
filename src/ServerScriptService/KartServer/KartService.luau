@@ -57,6 +57,9 @@ local retired: { [Player]: boolean } = {}
 -- expensive and asynchronous; retrying it every two seconds while one is
 -- still arriving would queue spawns behind each other forever.
 local reloadAt: { [Player]: number } = {}
+-- When a character last arrived and a kart was therefore already on its
+-- way. The watchdog waits this out rather than racing it.
+local spawningAt: { [Player]: number } = {}
 
 -- THE ONLY THING THAT GIVES A PLAYER A BODY.
 --
@@ -449,6 +452,15 @@ local function spawnKartFor(player: Player)
 end
 
 local function onCharacterAdded(player: Player, character: Model)
+	-- A KART IS ON ITS WAY. The watchdog must not decide one is missing
+	-- while this is still walking to it — SeatDelay alone is a window
+	-- wide enough for it to fire, and two spawnKartFor calls means the
+	-- second destroys the kart the first just built.
+	--
+	-- That race is what produced "has no kart — rebuilding" two seconds
+	-- after a perfectly normal spawn.
+	spawningAt[player] = os.clock()
+
 	local humanoid = character:WaitForChild("Humanoid", 10)
 
 	-- SAFETY NET. With CharacterAutoLoads off, a death is permanent
@@ -690,6 +702,8 @@ function KartService.start()
 	end
 
 	Players.PlayerRemoving:Connect(function(player)
+		spawningAt[player] = nil
+		reloadAt[player] = nil
 		local kart = karts[player]
 		karts[player] = nil
 		slots[player] = nil
@@ -746,6 +760,12 @@ function KartService.start()
 			if not RIG.TestMode then
 				for _, player in Players:GetPlayers() do
 					if karts[player] or retired[player] then
+						continue
+					end
+					-- A spawn already in flight. Give it room; racing it
+					-- builds a kart and then destroys it.
+					local since = os.clock() - (spawningAt[player] or -math.huge)
+					if since < RIG.SeatDelay + RIG.SpawnGrace then
 						continue
 					end
 					local character = player.Character
