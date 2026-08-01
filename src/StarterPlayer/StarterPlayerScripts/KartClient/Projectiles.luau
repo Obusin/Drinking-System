@@ -463,6 +463,43 @@ end
 --=====================================================================
 --  START
 --=====================================================================
+-- IS SOMETHING CHASING THIS KART, and how long have they got?
+--
+-- Answered locally. The client already draws every projectile and is
+-- told who the server locked, so the danger is on this machine already —
+-- asking the server for it would be replicating a number we can read.
+--
+-- Returns seconds to impact, or nil if nothing is coming. Straight-line
+-- closing time: a missile that is turning takes longer than this says,
+-- so the warning is early rather than late, which is the correct way for
+-- a warning to be wrong.
+--
+-- ONLY THE LOCKED TARGET. A missile can still catch somebody else by
+-- proximity, but warning everyone nearby would make the warning mean
+-- "somebody fired something" — and an alarm that fires when you are not
+-- in danger is one people learn to ignore.
+function Projectiles.threatTo(kart: Model?): number?
+	if not kart then
+		return nil
+	end
+	local hitbox = kart.PrimaryPart
+	if not hitbox then
+		return nil
+	end
+
+	local soonest = nil
+	for _, p in live do
+		if p.target == kart and p.item and p.item.Speed and p.item.Speed > 0 then
+			local away = (hitbox.Position - p.pos).Magnitude
+			local eta = away / p.item.Speed
+			if not soonest or eta < soonest then
+				soonest = eta
+			end
+		end
+	end
+	return soonest
+end
+
 function Projectiles.start()
 	local viewRemote = BloxKart:WaitForChild("KartProjectileView", 10)
 	if not viewRemote then

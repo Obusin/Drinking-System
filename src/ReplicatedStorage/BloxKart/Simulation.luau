@@ -179,6 +179,7 @@ function Simulation.new(model: Model, hitbox: BasePart, seat: VehicleSeat, _char
 		-- spin/stun timers because it's the one effect that leaves you in
 		-- full control and still ruins the corner.
 		reverseUntil = 0,
+		reverseSpan = 0,
 		spinFrom = 0,
 		shieldUntil = 0,
 
@@ -281,10 +282,34 @@ function Simulation:Scramble(duration: number)
 	-- Extends rather than replaces, so two Scrambles in a row don't let
 	-- the second one shorten the first.
 	self.reverseUntil = math.max(self.reverseUntil, os.clock() + duration)
+	-- Remembered so the warning can show a FRACTION rather than raw
+	-- seconds. Taken from the actual hit rather than from config,
+	-- because two scrambles overlapping make the real span longer than
+	-- any single item's duration.
+	self.reverseSpan = math.max(self.reverseUntil - os.clock(), 0.01)
 end
 
 function Simulation:IsScrambled(): boolean
 	return os.clock() < self.reverseUntil
+end
+
+-- Seconds of inverted steering left, or 0. Exposed so the warning can
+-- say how long you have rather than only that it is happening — a
+-- blinking alert that never changes tells you nothing about when it
+-- ends, which is the one thing you want to know while it is on.
+function Simulation:ScrambleLeft(): number
+	return math.max(self.reverseUntil - os.clock(), 0)
+end
+
+-- How much of the scramble is LEFT, 0..1. 1 the instant it lands, 0 as
+-- it releases. Self-contained: the caller does not have to know which
+-- item caused it or how long that item lasts.
+function Simulation:ScrambleFrac(): number
+	local span = self.reverseSpan or 0
+	if span <= 0 then
+		return 0
+	end
+	return math.clamp(self:ScrambleLeft() / span, 0, 1)
 end
 
 -- True if a shield ate the hit. Checked by the caller so it can play

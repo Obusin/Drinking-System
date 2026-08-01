@@ -340,7 +340,23 @@ local function step(dt: number)
 	-- race, whereas inverted steering is survivable and self-explanatory
 	-- the moment you touch the stick.
 	local alertText, alertColour = nil, nil
-	if race:WrongWay(sim, dt) then
+	local alertUrgency = 0
+
+	-- INCOMING OUTRANKS EVERYTHING. Wrong way and scrambled will both
+	-- still be true in a second; a missile will not, and it is the only
+	-- one of the three you can still do something about — a shield, or a
+	-- corner. It also answers "who do we warn": the missile has a locked
+	-- target and the client knows which kart that is, so exactly one
+	-- person is told. Two racers side by side do not both get it, and an
+	-- alarm that fires when you are not in danger is one people learn to
+	-- ignore.
+	local eta = Projectiles.threatTo(sim.model)
+	if eta and eta <= H.IncomingLead then
+		alertText, alertColour = H.IncomingText, H.IncomingColor
+		-- Closer is faster. Blinks gently at the far edge of the warning
+		-- and frantically just before impact.
+		alertUrgency = 1 - (eta / H.IncomingLead)
+	elseif race:WrongWay(sim, dt) then
 		-- NAME THE GATE THEY STILL OWE.
 		--
 		-- "WRONG WAY" alone says you're facing the wrong direction. It
@@ -356,8 +372,12 @@ local function step(dt: number)
 		alertColour = H.WrongWayColor
 	elseif sim:IsScrambled() then
 		alertText, alertColour = H.ScrambledText, H.ScrambledColor
+		-- Counts DOWN: slow while you are stuck with it, hurrying as it
+		-- is about to let go, so the blink tells you when to expect your
+		-- steering back.
+		alertUrgency = 1 - sim:ScrambleFrac()
 	end
-	hud:SetAlert(alertText, alertColour, dt)
+	hud:SetAlert(alertText, alertColour, dt, alertUrgency)
 
 	-- Fell off, drove into a void zone, or asked for a reset.
 	local why = respawn:Check(sim, race, Input, dt)

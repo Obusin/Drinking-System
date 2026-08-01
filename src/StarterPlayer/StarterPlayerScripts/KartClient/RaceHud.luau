@@ -132,7 +132,14 @@ end
 --
 -- Pulsed rather than static. A steady label reads as HUD furniture you
 -- learn to ignore; a pulse reads as an alarm.
-function RaceHud:SetAlert(text: string?, colour: Color3?, dt: number)
+-- `urgency` is 0..1 and drives the BLINK RATE: 0 blinks slowly, 1 blinks
+-- hard. That is the time remaining, carried by the thing that is already
+-- flashing rather than by another readout on a racing screen.
+--
+-- The phase is ACCUMULATED, not recomputed from a clock, so a rate that
+-- changes speeds the blinking up smoothly instead of jumping the wave
+-- to a new position every time the urgency moves.
+function RaceHud:SetAlert(text: string?, colour: Color3?, dt: number, urgency: number?)
 	if not text then
 		self.wrong.Visible = false
 		self.wrongPhase = 0
@@ -141,7 +148,9 @@ function RaceHud:SetAlert(text: string?, colour: Color3?, dt: number)
 	self.wrong.Visible = true
 	self.wrong.Text = text
 	self.wrong.TextColor3 = colour or H.WrongWayColor
-	self.wrongPhase += dt * H.WrongWayPulse
+	local u = math.clamp(urgency or 0, 0, 1)
+	local rate = H.AlertPulseSlow + (H.AlertPulseFast - H.AlertPulseSlow) * u
+	self.wrongPhase += dt * rate
 	-- Biased into 0..1 and scaled, so it never fades to fully invisible —
 	-- a warning that blinks off entirely is easy to miss between blinks.
 	local pulse = (math.sin(self.wrongPhase * math.pi * 2) + 1) * 0.5

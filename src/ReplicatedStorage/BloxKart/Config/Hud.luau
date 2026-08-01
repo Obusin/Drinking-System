@@ -43,6 +43,24 @@ return {
 	ScrambledText = "⇄  CONTROLS SCRAMBLED",
 	ScrambledColor = Color3.fromRGB(200, 130, 255),
 
+	--== INCOMING ======================================================
+	-- Something is locked onto you. Shares the alert slot and OUTRANKS
+	-- everything in it: wrong way and scrambled will still be true in a
+	-- second, and a missile will not.
+	IncomingText = "◤  INCOMING",
+	IncomingColor = Color3.fromRGB(255, 120, 110),
+	-- Seconds out at which the warning appears. Long enough to use a
+	-- shield, short enough that it is not on screen for half the lap.
+	IncomingLead = 3.0,
+
+	--== BLINK RATE AS A CLOCK =========================================
+	-- The pulse carries the time remaining: slow while there is room,
+	-- accelerating as it runs out. It is the same information a bar
+	-- would carry, in a thing that is already blinking, without adding
+	-- another readout to a racing screen.
+	AlertPulseSlow = 1.4, -- pulses per second with time in hand
+	AlertPulseFast = 8.0, -- about to happen
+
 	--== HIT FEED ======================================================
 	-- "MISSILE hit Obus1n". Top centre, under the countdown's slot, so it
 	-- reads without competing with the instruments in the corners.
