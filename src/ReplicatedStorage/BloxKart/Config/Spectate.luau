@@ -50,7 +50,7 @@ return {
 	-- on, the camera swings out to a wider, lower angle and orbits, and
 	-- the board arrives after — so finishing is a moment rather than a
 	-- transition.
-	FinishHold = 2.6, -- seconds of it before the wipe
+	FinishHold = 3.0, -- seconds of it before the wipe
 	FinishDistance = 34, -- further out than the normal chase
 	FinishPitch = -14, -- degrees: low, looking slightly up at the kart
 	FinishOrbit = 0.5, -- radians per second the camera drifts around it

@@ -870,7 +870,12 @@ RunService.Heartbeat:Connect(function(dt)
 		-- Your board, over your finish. Provisional — the race is still
 		-- running — and dismissing it with SPECTATE is how you get back
 		-- to watching. The FINAL board is a separate event at the flag.
-		if not rewardHud:IsShowing() then
+		--
+		-- SKIPPED IF THE FLAG HAS ALREADY DROPPED. Finishing on the last
+		-- lap puts both boards up within a second of each other, which
+		-- is two wipes and two panels for one ending. The final one is
+		-- better in every way, so it wins.
+		if not rewardHud:IsShowing() and phase ~= Shared.Phase.Results then
 			transition:Play(function()
 				rewardHud:Show(buildRewardPayload())
 			end)

@@ -405,9 +405,25 @@ local function finishKart(kart: Model, who: string, totalTime: number)
 		userId = kart:GetAttribute(Names.OWNER),
 	})
 
-	-- Drive on for a moment, then leave. Applies to bots too, which is
-	-- the whole reason a finished racer stops lapping the field.
-	scheduleRetire(kart, M.FinishDriveTime)
+	-- BOTS LEAVE. PLAYERS DO NOT.
+	--
+	-- A finished bot that keeps racing laps the field two or three more
+	-- times and clutters the track for everyone still trying to finish,
+	-- which is what retirement was for.
+	--
+	-- A player's kart stays. Retiring it meant destroying the kart AND
+	-- the character, which meant reviving them later, which meant
+	-- LoadCharacter, which meant a fresh kart at the grid slot — a kart
+	-- appearing at the spawn point and driving away, twice over. None of
+	-- that machinery buys anything a player wants: the AI already has
+	-- their kart and drives it round like any other, which is exactly
+	-- what should happen to it.
+	--
+	-- It goes back to them at the next grid through releaseTakeOvers,
+	-- which was always the plan for a taken-over kart.
+	if not kart:GetAttribute(Names.OWNER) then
+		scheduleRetire(kart, M.FinishDriveTime)
+	end
 
 	if finishers == 1 then
 		-- The leader is home. Everyone else is on the clock now, so the

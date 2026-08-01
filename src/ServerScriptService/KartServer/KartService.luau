@@ -552,16 +552,26 @@ function KartService.retire(kart: Model)
 		if k == kart then
 			karts[racer] = nil
 			slots[racer] = nil
+			-- A PLAYER SHOULD NEVER REACH HERE. Only bots retire now:
+			-- retiring a player meant destroying their character, which
+			-- meant reviving them, which meant a fresh kart at the grid
+			-- slot appearing mid-round and driving away. Their kart
+			-- stays with the AI instead and goes back to them at the
+			-- next grid.
+			--
+			-- Guarded rather than deleted, because something calling
+			-- this on a player would otherwise remove their kart and
+			-- leave them on foot with no way back — silently, which is
+			-- how the last three of these went.
 			if typeof(racer) == "Instance" and racer:IsA("Player") then
-				-- REMEMBERED, then removed. A player's kart is only ever
-				-- built from CharacterAdded, so destroying the character
-				-- without ever loading another one locks them out of the
-				-- game permanently — not for the round, for the session.
-				retired[racer] = true
-				local character = racer.Character
-				if character then
-					character:Destroy()
-				end
+				warn(
+					("[KartService] refusing to retire %s — players keep their kart. Something asked for this and should not have."):format(
+						racer.Name
+					)
+				)
+				karts[racer] = k
+				slots[racer] = slots[racer]
+				return
 			end
 			break
 		end
