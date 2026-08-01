@@ -1844,13 +1844,17 @@ function BotService.fill()
 	-- A parked bot needs no racing line, and checking a rig on an
 	-- unfinished track is exactly what idle mode is for.
 	if #Route.nodes() == 0 and not B.Idle then
-		if #bots > 0 then
-			for _, bot in bots do
+		-- Same rule as the trim below: a taken-over kart belongs to a
+		-- player and is not this function's to delete, whatever the
+		-- track looks like.
+		for j = #bots, 1, -1 do
+			local bot = bots[j]
+			if not bot.takenOver then
+				table.remove(bots, j)
 				bot.boxes:Destroy()
 				bot.drops:Destroy()
 				bot.kart:Destroy()
 			end
-			table.clear(bots)
 		end
 		if not warnedNoRoute then
 			warnedNoRoute = true
@@ -1863,8 +1867,39 @@ function BotService.fill()
 	local humans = #Players:GetPlayers()
 	local want = math.clamp(B.FillTo - humans, 0, B.MaxBots)
 
-	while #bots > want do
-		local bot = table.remove(bots)
+	--=================================================================
+	--  A TAKEN-OVER KART IS NOT THIS FUNCTION'S TO DESTROY.
+	--
+	--  When a player's kart goes to the AI it joins `bots`, and this
+	--  trim removed entries from the end and destroyed their karts. So a
+	--  player's kart, sitting in that list, was deleted the moment the
+	--  field needed to be smaller — which is the kart that goes missing
+	--  after the first race.
+	--
+	--  releaseTakeOvers is supposed to have removed them by now, and
+	--  usually has. "Usually" is not good enough when the failure is a
+	--  player permanently without a kart, and this function has no
+	--  business deciding the fate of one either way.
+	--
+	--  So the count and the trim both look at REAL bots only.
+	--=================================================================
+	local owned = 0
+	for _, bot in bots do
+		if not bot.takenOver then
+			owned += 1
+		end
+	end
+
+	local i = #bots
+	while owned > want and i >= 1 do
+		local bot = bots[i]
+		if bot.takenOver then
+			i -= 1
+			continue
+		end
+		table.remove(bots, i)
+		i -= 1
+		owned -= 1
 		bot.boxes:Destroy()
 		bot.drops:Destroy()
 		bot.hazards:Destroy()
@@ -1875,8 +1910,8 @@ function BotService.fill()
 		bot.kart:Destroy()
 	end
 
-	while #bots < want do
-		local name = B.Names[(#bots % #B.Names) + 1] .. tostring(#bots + 1)
+	while owned < want do
+		local name = B.Names[(owned % #B.Names) + 1] .. tostring(owned + 1)
 		local racer, kart = KartService.addBot(name)
 		local hitbox = kart.PrimaryPart
 		local seat = kart:FindFirstChild("Seat")
@@ -1887,6 +1922,7 @@ function BotService.fill()
 
 		local bot = makeBot(name, racer, kart, hitbox, seat)
 		table.insert(bots, bot)
+		owned += 1
 		BotService.seatRig(bot)
 		log("%s joined, skill %.2f", name, bot.skill)
 	end
