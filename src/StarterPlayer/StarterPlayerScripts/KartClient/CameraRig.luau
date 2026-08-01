@@ -14,17 +14,33 @@ local Util = require(BloxKart:WaitForChild("Util"))
 
 local CAM = Config.Camera
 
+local Lighting = game:GetService("Lighting")
+
 local CameraRig = {}
 CameraRig.__index = CameraRig
 
 function CameraRig.new(sim)
 	local camera = workspace.CurrentCamera
+	-- One blur, created once and left in Lighting. Toggled rather than
+	-- added and removed: churning post-processing instances is a hitch
+	-- every time a boost starts.
+	local blur = Instance.new("BlurEffect")
+	blur.Name = "BloxKartSpeedBlur"
+	blur.Size = 0
+	blur.Enabled = false
+	blur.Parent = Lighting
+
 	return setmetatable({
 		camera = camera,
 		-- Seeded behind the kart so the first frame doesn't fly in.
 		pos = sim.pos - sim.forward * CAM.Distance + Vector3.yAxis * CAM.Height,
 		up = Vector3.yAxis,
 		snap = false,
+		blur = blur,
+		boostBack = 0,
+		boostDrop = 0,
+		lag = 0,
+		shakePhase = 0,
 	}, CameraRig)
 end
 
@@ -43,6 +59,10 @@ end
 -- Scriptable camera on foot.
 function CameraRig:Restore(humanoid: Humanoid?)
 	self.camera.FieldOfView = CAM.FovBase
+	if self.blur then
+		self.blur.Size = 0
+		self.blur.Enabled = false
+	end
 	self.camera.CameraType = Enum.CameraType.Custom
 	if humanoid then
 		self.camera.CameraSubject = humanoid
@@ -51,6 +71,16 @@ end
 
 -- The kick when a stage BEGINS. The width it settles at is handled in
 -- Update from the live burn stage — this is only the arrival.
+-- The value for a burn stage, or 0 when nothing is burning. One helper,
+-- so the field of view, the pull-back, the shake and the blur cannot
+-- disagree about how fast things currently are.
+local function pick(list: { number }, stage: number): number
+	if stage <= 0 then
+		return 0
+	end
+	return list[math.min(stage, #list)] or 0
+end
+
 function CameraRig:BoostPunch(tier: number)
 	local n = math.max(#CAM.BoostFovStage, 1)
 	self.camera.FieldOfView += CAM.BoostFovPunch * (tier / n)
@@ -60,6 +90,13 @@ end
 -- teleports the kart — a respawn, or being placed on the starting grid.
 -- Letting the camera fly across the map to catch up is disorienting, and
 -- on a long track it takes seconds.
+-- The camera falling behind at the start of a burn. Strongest speed cue
+-- there is: being overtaken by your own kart for a quarter of a second
+-- says "that accelerated" better than any amount of blur.
+function CameraRig:BoostLag(tier: number)
+	self.lag = math.max(self.lag, pick(CAM.BoostLag, tier))
+end
+
 function CameraRig:Snap()
 	self.snap = true
 end
@@ -104,7 +141,16 @@ function CameraRig:Update(dt: number, sim, input)
 	-- Build the offset in the kart's frame, then orbit it. Rotating
 	-- about camUp (not world Y) is what keeps looking around sane while
 	-- upside-down on a loop.
-	local offset = -camLook * pull + camUp * CAM.Height
+	-- THE SPEED FEEL, all of it on the camera. Pulled back and dropped
+	-- toward the road as the burn stage climbs: a wider view with the
+	-- kart smaller in it reads as covering ground, and height is most of
+	-- why a chase cam feels slow — the further above the surface you
+	-- are, the less of it appears to move.
+	local stage = if sim then math.min(sim.burnStage or 0, #CAM.BoostPullBack) else 0
+	self.boostBack = Util.approach(self.boostBack, pick(CAM.BoostPullBack, stage), CAM.FovRiseRate, dt)
+	self.boostDrop = Util.approach(self.boostDrop, pick(CAM.BoostDrop, stage), CAM.FovRiseRate, dt)
+
+	local offset = -camLook * (pull + self.boostBack) + camUp * (CAM.Height - self.boostDrop)
 	if input.lookYaw ~= 0 or input.lookPitch ~= 0 then
 		offset = Util.rotateAbout(offset, camUp, input.lookYaw)
 		local pitchAxis = offset:Cross(camUp)
@@ -174,6 +220,34 @@ function CameraRig:Update(dt: number, sim, input)
 	-- kart rather than a point out in front of it.
 	local ahead = CAM.LookAhead * (1 - math.min(math.abs(input.lookYaw) / math.pi, 1))
 	local aim = sim.pos + camLook * ahead + camUp * CAM.LookHeight
+
+	-- LAG. Held back along the view direction and reeled in, so the kart
+	-- pulls away from the camera for a moment when a stage fires.
+	if self.lag > 0.001 then
+		eye -= camLook * self.lag
+		self.lag = math.max(self.lag - CAM.BoostLagRecover * dt, 0)
+	end
+
+	-- SHAKE. Engine vibration, not an earthquake: anything you can
+	-- consciously see becomes motion sickness inside a lap. Sine rather
+	-- than random, because random noise on a camera reads as a dropped
+	-- frame.
+	local shake = pick(CAM.BoostShake, stage)
+	if shake > 0 then
+		self.shakePhase += dt * CAM.BoostShakeSpeed
+		local side = camLook:Cross(camUp)
+		eye += side * math.sin(self.shakePhase) * shake
+		eye += camUp * math.sin(self.shakePhase * 1.7) * shake * 0.6
+	end
+
+	-- BLUR, kept because it is a camera effect rather than something
+	-- drawn over the world.
+	local wantBlur = pick(CAM.BoostBlur, stage)
+	self.blur.Size = Util.approach(self.blur.Size, wantBlur, CAM.BlurRate, dt)
+	local blurOn = self.blur.Size > 0.05
+	if self.blur.Enabled ~= blurOn then
+		self.blur.Enabled = blurOn
+	end
 
 	-- lookAt fails if up is parallel to the view direction.
 	local viewDir = aim - eye

@@ -54,7 +54,6 @@ local Transition = require(script.Transition)
 local XpHud = require(script.XpHud)
 local Tally = require(script.Tally)
 local QuestHud = require(script.QuestHud)
-local Warp = require(script.Warp)
 local Minimap = require(script.Minimap)
 local RaceHud = require(script.RaceHud)
 local ControlsHud = require(script.ControlsHud)
@@ -119,7 +118,6 @@ local warnedUntil = 0
 local warnedName = nil
 local warnedIcon = nil
 local questHud = QuestHud.new(tally)
-local warp = Warp.new()
 local minimap = Minimap.new()
 -- Bound directly rather than through Input: this is UI, it must work
 -- while spectating and out of a kart, and Input's bindings are released
@@ -309,6 +307,9 @@ local function step(dt: number)
 		effects:Boost(events.nitroStage)
 		audio:Boost(events.nitroStage)
 		camera:BoostPunch(events.nitroStage)
+		-- The camera falls behind for a moment. Only on the stage
+		-- STARTING, which is what this event is.
+		camera:BoostLag(events.nitroStage)
 		haptics:Punch(HAP.BoostPunch)
 	end
 
@@ -923,10 +924,8 @@ RunService.Heartbeat:Connect(function(dt)
 	-- there the streaks and the blur would freeze at whatever intensity
 	-- the last frame of the race had and stay on the screen. `sim` is
 	-- nil in all those cases, which reads as zero and decays out.
-	warp:Update(dt, sim)
-	-- Outside step() for the same reason the warp is: the map should keep
-	-- showing the race while you spectate it, and step() returns the
-	-- moment there is no kart.
+	-- Outside step() because the map should keep showing the race while
+	-- you spectate it, and step() returns the moment there is no kart.
 	minimap:Update(dt, sim)
 	questHud:Update()
 	-- Here rather than in step() because the soundtrack has to play in

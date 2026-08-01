@@ -33,6 +33,46 @@ return {
 	-- ended.
 	FovRiseRate = 13,
 
+	--== THE REST OF THE SPEED FEEL ====================================
+	-- All of it lives on the camera. Streaks flying at the screen were
+	-- tried and removed: they are drawn ON the glass, so they say the
+	-- SCREEN is moving fast rather than the kart, and at three stages
+	-- they turned the track into confetti at the moment it most needed
+	-- reading.
+	--
+	-- Everything below moves the actual camera instead, which is the
+	-- only thing that can make the WORLD look fast.
+
+	-- Pulled back per burn stage. A wider view with the kart smaller in
+	-- it reads as covering ground, and it compounds with the field of
+	-- view rather than fighting it.
+	BoostPullBack = { 1.6, 3.4, 5.8 },
+
+	-- And dropped slightly, so the camera is closer to the road. Height
+	-- is most of why a kart cam feels slow: the further above the
+	-- surface you are, the less of it appears to move.
+	BoostDrop = { 0.3, 0.7, 1.2 },
+
+	-- Positional noise, in studs. TINY on purpose — this is engine
+	-- vibration, not an earthquake, and anything you can consciously see
+	-- becomes motion sickness within a lap.
+	BoostShake = { 0.06, 0.14, 0.26 },
+	BoostShakeSpeed = 34, -- how fast the noise moves
+
+	-- The camera falls behind at the start of a burn and catches up.
+	-- This is the strongest speed cue available and the cheapest: being
+	-- overtaken by your own kart for a quarter of a second says "that
+	-- accelerated" better than any amount of blur.
+	BoostLag = { 0.9, 2.0, 3.4 },
+	BoostLagRecover = 3.5, -- studs per second it reels back in
+
+	--== BLUR ==========================================================
+	-- Kept, because it is a camera effect rather than something drawn
+	-- over the world. Small numbers: this is a suggestion of motion, and
+	-- more makes the track unreadable exactly when it needs reading.
+	BoostBlur = { 3, 6, 10 },
+	BlurRate = 6,
+
 	--== CHASE CAM =====================================================
 	-- The default Roblox camera is locked to world-up, so it would stay
 	-- upright while the kart rolled around a loop — unwatchable. This
