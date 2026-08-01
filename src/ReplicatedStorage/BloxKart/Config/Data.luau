@@ -44,5 +44,10 @@ return {
 	--
 	-- It writes to the SAME KEYS a published server would, so anything
 	-- saved here is real player data on your own account.
-	LiveInStudio = true,
+	--
+	-- Turned on 2026-08-01 to prove a profile survives a rejoin. It did.
+	-- OFF again 2026-08-02 — it had been left on, so every playtest was
+	-- reading and writing the real profile, and a test that corrupts
+	-- data looks exactly like a bug that does.
+	LiveInStudio = false,
 }

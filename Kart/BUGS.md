@@ -283,6 +283,113 @@ that would catch the next bug in this file.
 
 ---
 
+# 9. FOUND BY INSPECTION — the track is cached by COUNT
+
+Not reported by anyone. Found while auditing what a second map would
+break, and it would break this immediately.
+
+`Route.nodes()` is the single source for the racing line — bots steer by
+it, missiles follow it round corners, the minimap is drawn from it. It
+caches, and it invalidates the cache like this:
+
+```lua
+local parts = CollectionService:GetTagged(R.CheckpointTag)
+if cache and cachedCount == #parts then
+	return cache      -- Route.luau:129
+end
+```
+
+**The number of checkpoints is not the identity of a track.** Swap map A
+for map B with the same checkpoint count and every consumer keeps
+steering to map A's coordinates. Bots drive at where the old corners
+were; missiles curve toward a road that is not there.
+
+It is also wrong without any map swap: MOVE a checkpoint in a live
+server and nothing notices, because the count did not change.
+
+**The fix is a generation number**, not a deeper comparison. Anything
+that changes the track bumps it; the cache stores the generation it was
+built from. One integer, and it is correct for edits, swaps and reloads
+alike — a comparison can only ever be correct for the cases somebody
+thought of.
+
+### The same bug, again, on the client
+
+`Minimap.luau:137`:
+
+```lua
+if #nodes < MIN_NODES or #nodes <= self.builtCount then
+	return                -- only ever redraws when the count GROWS
+end
+```
+
+A track with the same number of checkpoints, or fewer, leaves the old
+outline on screen for the rest of the session.
+
+**Two modules, one mistake, and it is PATTERN 1 — one question answered
+in two places.** Both are asking "is this still the same track", and
+neither can actually tell.
+
+---
+
+# 10. FOUND BY INSPECTION — a mid-race joiner is entered into the race
+
+`KartService` does not know what phase it is. Not "gets it wrong" —
+there is no reference to `MatchService.phase()` anywhere in the file.
+
+So a player who joins during RACING is handed a kart at the spawn pad
+and is in the round, on lap 0, two laps behind. Consequences, all real:
+
+- They appear in the standings, last, and stay there.
+- `stillRacing()` counts them, so the "everyone is in, settle fast" path
+  can never fire for the rest of the round. The round now always runs
+  the full `FinishGrace`.
+- If they do cross the line they are given a finish place, a time, XP,
+  and a Bolt payout for a race they were not in.
+
+Nothing deadlocks, which is why it has never been reported. It is just
+wrong every time it happens.
+
+**The fix is the same shape as the matchmaking work**: a joiner should
+be a spectator until the next GRID, which is the one place a round is
+set up. `startGrid` already reloads and reseats everybody, so the entry
+point exists — what is missing is anything saying "not yet".
+
+---
+
+# 11. CONFIRMED — Studio is writing to real profiles
+
+`Config.Data.LiveInStudio = true`. It was turned on deliberately to
+prove persistence survives a rejoin, and it was never turned back off.
+
+Every Studio playtest is now reading and writing the REAL profile on
+your account, with the same keys a published server uses. A test that
+corrupts data is indistinguishable from a bug that does.
+
+Turn it off. The mock store behaves identically in every way except
+surviving, and the question it cannot answer has already been answered.
+
+---
+
+# 12. STRUCTURAL — two maps cannot share one place
+
+Everything about the track is discovered by CollectionService tag:
+`RaceStart`, `RaceEnd`, `Checkpoint`, `VoidZone`, `Surface`, boost pads,
+item boxes, plus the SpawnLocation that `Placement.findSpawn` picks by
+walking the workspace for the first enabled one.
+
+Put two maps in one place and every one of those queries returns both
+maps' parts. Checkpoint orders collide, the route becomes a line
+stitched between two tracks, and the grid lands on whichever spawn pad
+the descendant walk happened to reach first.
+
+This is not a defect — the tag design is right, and it is why a track is
+built by tagging rather than by wiring. It is a constraint: **one map
+per place, or exactly one map parented into the workspace at a time.**
+Which one is the decision in front of the matchmaking work.
+
+---
+
 # WATCH — recently fixed, unproven
 
 Each of these has run for at most one session. If something in this area
@@ -355,5 +462,11 @@ the wrong table errored every frame. **`scripts/check.sh` now runs
    independent of the loop.
 3. **The two trust seams.** Cheap, scoped, and they unblock leaderboards
    and safe persistence.
-4. **Then the shop** — see the vault README. Everything built earns
-   currency and nothing spends it.
+4. **#11 first, it is one word.** Studio is writing live profile data.
+5. **#9 before any second map exists.** A generation number on the route
+   cache. Cheap now, and it is the thing that will make a map swap look
+   like the bots have gone mad.
+6. **#10 with the matchmaking work**, not before — the fix is the same
+   fix, and doing it twice is Pattern 1 all over again.
+7. **The two trust seams**, then **the shop** — see the vault README.
+   Everything built earns currency and nothing spends it.
