@@ -49,8 +49,11 @@ function CameraRig:Restore(humanoid: Humanoid?)
 	end
 end
 
+-- The kick when a stage BEGINS. The width it settles at is handled in
+-- Update from the live burn stage — this is only the arrival.
 function CameraRig:BoostPunch(tier: number)
-	self.camera.FieldOfView += CAM.BoostFovPunch * (tier / 3)
+	local n = math.max(#CAM.BoostFovStage, 1)
+	self.camera.FieldOfView += CAM.BoostFovPunch * (tier / n)
 end
 
 -- Cut instead of sweep on the next frame. Call it after anything that
@@ -64,8 +67,22 @@ end
 function CameraRig:Update(dt: number, sim, input)
 	local camera = self.camera
 
-	local fovTarget = CAM.FovBase + (CAM.FovAtTopSpeed - CAM.FovBase) * sim.speedFrac
-	camera.FieldOfView = Util.approach(camera.FieldOfView, fovTarget, CAM.FovRate, dt)
+	-- READ FROM THE LIVE BURN STAGE, not from the event that started it.
+	-- An event fires once; the width has to be held for as long as the
+	-- stage lasts, or it decays back to the speed-only target and the
+	-- next stage starts from scratch — which is exactly what made three
+	-- boosts feel like the same boost three times.
+	local burn = sim.burnStage or 0
+	local hold = 0
+	if burn > 0 then
+		hold = CAM.BoostFovStage[math.min(burn, #CAM.BoostFovStage)] or 0
+	end
+
+	local fovTarget = CAM.FovBase + (CAM.FovAtTopSpeed - CAM.FovBase) * sim.speedFrac + hold
+	-- Opens faster than it closes. Symmetrical rates make the widest
+	-- stage look like it is still arriving after the burn has ended.
+	local fovRate = if fovTarget > camera.FieldOfView then CAM.FovRiseRate else CAM.FovRate
+	camera.FieldOfView = Util.approach(camera.FieldOfView, fovTarget, fovRate, dt)
 
 	if not CAM.Enabled then
 		return

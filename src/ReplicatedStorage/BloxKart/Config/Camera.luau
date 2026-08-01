@@ -10,8 +10,28 @@ return {
 	-- pace without costing you any control.
 	FovBase = 70,
 	FovAtTopSpeed = 92, -- most of "feeling fast" is this
-	BoostFovPunch = 16,
-	FovRate = 5,
+
+	-- HELD while a burn stage is running, and each stage is wider than
+	-- the last. This is the escalation: one tank opens the view, two
+	-- opens it further, three is the widest the camera ever goes.
+	--
+	-- A punch alone could not do that. It was added to the CURRENT field
+	-- of view and then eased back toward a speed-only target, so by the
+	-- time the next stage fired the last one had already decayed —
+	-- every stage started from the same place and none of them built.
+	BoostFovStage = { 5, 12, 21 },
+
+	-- The kick ON TOP, when a stage begins. Smaller than it was, because
+	-- the hold above is now doing the work the punch was being asked to
+	-- do on its own.
+	BoostFovPunch = 7,
+
+	FovRate = 5, -- easing back DOWN
+	-- Easing UP is faster on purpose. A boost should arrive rather than
+	-- drift in, and the same rate in both directions makes the widest
+	-- stage feel like it is still opening when the burn has already
+	-- ended.
+	FovRiseRate = 13,
 
 	--== CHASE CAM =====================================================
 	-- The default Roblox camera is locked to world-up, so it would stay
