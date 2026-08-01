@@ -510,9 +510,22 @@ function Projectiles.threatTo(kart: Model?): number?
 			continue
 		end
 
+		-- NEVER YOUR OWN. A missile spawns AT the kart that fired it, so
+		-- for the first frames `toward` is a near-zero vector whose
+		-- direction is numerical noise — it dots however it likes against
+		-- the missile's heading and passes the cone. One frame of that
+		-- used to be invisible; with the warning now held for
+		-- IncomingHold, one frame became a seven-tenths-of-a-second alarm
+		-- telling you that you had shot yourself.
+		if p.shooter == kart then
+			continue
+		end
+
 		local toward = hitbox.Position - p.pos
 		local away = toward.Magnitude
-		if away < 1e-3 then
+		-- Too close to have a meaningful direction. Anything this near is
+		-- either about to hit regardless or is still leaving the barrel.
+		if away < 6 then
 			continue
 		end
 
