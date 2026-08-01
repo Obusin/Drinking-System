@@ -4,6 +4,11 @@
 what is only suspected, and the patterns that keep producing it. Most of
 the bugs in it were caused by the fix for another one.
 
+**`SYSTEM.md` explains the whole thing from zero** — architecture, the
+authority model, the tag-driven world, the round loop, and the two rules
+that explain most of the decisions. Hand that to anyone (or anything)
+arriving without context.
+
 `FINDINGS.md` is the permanent record of mechanisms this project has
 learned. `BUGS.md` is the live list. **`GAME-LOOP.md` is what the round
 loop is supposed to do** — the five phases, what each owns, and the six
