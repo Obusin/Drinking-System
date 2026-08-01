@@ -609,7 +609,8 @@ return {
 	--    side, that's PursuitGain or YawDamp. If it turns in too late for
 	--    corners, that's FeedForward.
 	--
-	-- Cheap enough to leave on while testing; turn it off before anyone
-	-- else plays, because everything it draws is a real part.
-	Debug = false,
+	-- Cheap enough to leave on while testing; TURN IT OFF BEFORE ANYONE
+	-- ELSE PLAYS, because everything it draws is a real part — every
+	-- viewer sees them, and they are drawn on the server.
+	Debug = true,
 }
