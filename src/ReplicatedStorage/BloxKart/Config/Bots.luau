@@ -84,6 +84,12 @@ return {
 	-- which also takes it out of its seat.
 	RigCollideCheck = 1.5,
 
+	-- How long after being pulled out of the void before a bot can be
+	-- pulled out again. Kept per bot rather than on the shared zone
+	-- helper, which remembers touches per PART and would otherwise let
+	-- one bot's fall swallow another's.
+	VoidCooldown = 1.5,
+
 	SkillMin = 0.45,
 	SkillMax = 0.92,
 

@@ -63,6 +63,14 @@ local BotService = {}
 
 local bots = {}
 local rng = Random.new()
+
+-- THE VOID ZONES, one query set for every bot rather than one each.
+--
+-- Built with NO cooldown of its own: TagZones remembers the last touch
+-- per PART, so a shared instance with a cooldown would let the first
+-- bot to hit a pit swallow everyone else's touch of the same pit. The
+-- wait is kept per bot instead, where it belongs.
+local voidZones = nil
 local warnedNoRoute = false
 local warnedNoRig = false
 
@@ -1380,6 +1388,36 @@ local function step(dt: number)
 			BotService.revive(bot)
 		end
 
+		--=============================================================
+		--  THE VOID, WHICH BOTS USED TO DRIVE STRAIGHT THROUGH.
+		--
+		--  A player gets three ways back: the VoidZone tag, freefall
+		--  time, and a world floor. A bot only ever had the floor — so a
+		--  void that is a PLANE at track level (water, lava, a shallow
+		--  pit) never triggered, and the bot drove through it and kept
+		--  going until it happened to fall far enough.
+		--
+		--  That is most of "bots leave the track": they were not leaving
+		--  it once, they were leaving it and continuing to drive around
+		--  outside it, reported each time they eventually dropped.
+		--
+		--  Same tag, same helper, same rule as the player. It has to be
+		--  the same one — a second answer to "where is the void" is the
+		--  oldest bug shape in this project.
+		--=============================================================
+		if voidZones and now - (bot.voidAt or 0) > B.VoidCooldown then
+			local hitbox = bot.kart.PrimaryPart
+			if hitbox and voidZones:Touch(hitbox.CFrame, hitbox.Size) then
+				bot.voidAt = now
+				-- Counted as leaving the track, because it is, and the
+				-- existing message already says where and how far off.
+				bot.revives = (bot.revives or 0) + 1
+				BotService.noteWentOff(bot)
+				BotService.revive(bot)
+				continue
+			end
+		end
+
 		if bot.sim.pos.Y < Config.Rig.RespawnBelow then
 			-- Counted, because a bot that rejoins the line over and over is
 			-- not falling off the map — something is putting it back, and
@@ -2385,6 +2423,10 @@ function BotService.all()
 end
 
 function BotService.start()
+	-- The same tagged parts the player's Respawn watches. One instance,
+	-- no cooldown of its own — see the declaration.
+	voidZones = TagZones.new(Config.Respawn.VoidTag, { cooldown = 0, forceQueryable = true })
+
 	-- Filled when the field changes, NOT only at the start of a round.
 	-- The match won't leave Waiting until there are enough racers, and
 	-- bots are what make up the numbers — waiting for the grid to fill

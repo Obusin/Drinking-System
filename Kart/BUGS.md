@@ -38,7 +38,7 @@ because six of the bugs below were misdiagnosed by reading code.
 
 ---
 
-# 1. CONFIRMED — bots leave the track constantly
+# 1. CAUSE FOUND — bots leave the track constantly
 
 **The biggest open problem, and the oldest.**
 
@@ -57,19 +57,35 @@ off, takes ages to get round, and a three-lap race runs the full
 five-minute limit. Every "the race never ends" complaint traces back
 here.
 
-**Not yet investigated.** Different nodes each time rules out one bad
-corner. Candidates, in the order worth checking:
+### Cause found 2026-08-02: bots ignored void zones entirely
+
+A player gets three ways back — the `VoidZone` tag, freefall time, and a
+world floor. **A bot only ever had the floor.** So a void that is a
+PLANE at track level (water, lava, a shallow pit) never triggered, and
+the bot drove straight through it and kept going outside the track until
+it happened to fall far enough to trip `RespawnBelow`.
+
+They were not leaving the track once. They were leaving it and
+continuing to drive around out there, reported each time they eventually
+dropped.
+
+Bots now use the same tag and the same `TagZones` helper as the player.
+It has to be the same one — a second answer to "where is the void" is
+this project's oldest bug shape.
+
+One instance shared by every bot, with **no cooldown of its own**:
+`TagZones` remembers the last touch per PART, so a shared cooldown would
+let the first bot into a pit swallow every other bot's touch of the same
+pit. The wait is per bot instead.
+
+**WATCH — unproven.** If bots still wander, the remaining candidates
+are:
 
 - The pure-pursuit lookahead against `cruise` speed — the controller was
-  tuned against a specific speed range and `CruiseMin` has since been
-  raised to 0.92
-- `lineBias` — bots deliberately drive off-centre; if the bias plus the
-  corner-cutting exceeds the road width, the line itself leaves the road
-- The route's own width data (`leftWidth`/`rightWidth`) being wrong at
-  those nodes, so the bot thinks it is on tarmac
-
-**Start by drawing the racing line** (`Bots.Debug`) and watching one bot
-through node 1–2 rather than guessing from the log.
+  tuned for a speed range and `CruiseMin` has since risen to 0.92
+- `lineBias` — bots deliberately drive off-centre; bias plus corner
+  cutting may exceed the road width
+- The route's own width data being wrong at those nodes
 
 ---
 
