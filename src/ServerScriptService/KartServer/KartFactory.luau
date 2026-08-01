@@ -38,9 +38,17 @@ end
 
 -- `slot` is the grid position; colour follows from it, wrapping if more
 -- players turn up than there are colours.
+-- Rotated once per round, so slot 0 is not red for the rest of time.
+--
+-- An OFFSET rather than a shuffle, deliberately: adding a constant to
+-- every slot is still a one-to-one mapping, so no two racers can land
+-- on the same colour. A shuffle would give variety and could collide;
+-- this gives variety and cannot.
+KartFactory.paintOffset = 0
+
 function KartFactory.colorFor(slot: number): Color3
 	local palette = RIG.Colors
-	return palette[(slot % #palette) + 1]
+	return palette[((slot + KartFactory.paintOffset) % #palette) + 1]
 end
 
 -- `visualName` overrides which ServerStorage model is used as the art.

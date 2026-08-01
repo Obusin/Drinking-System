@@ -34,5 +34,6 @@ return {
 	Quests = require(script.Quests), -- the daily/weekly/monthly pools
 	Data = require(script.Data), -- persistence, off by default
 	Minimap = require(script.Minimap), -- the track, drawn from Route
+	Skins = require(script.Skins), -- what a kart can look like
 	Hud = require(script.Hud), -- shared on-screen styling
 }

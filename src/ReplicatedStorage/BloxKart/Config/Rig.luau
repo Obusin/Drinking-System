@@ -87,7 +87,7 @@ return {
 	-- vault note "BloxKart Kart Customization and Skinning".
 	--
 	-- The probe has served its purpose. Set false once you have seen it.
-	SkinTest = true,
+	SkinTest = false,
 	SkinTestInterval = 3,
 	-- A SKIN IS A SET, NOT A PART. Swapping the body alone leaves the
 	-- old wheels on the new shell, so the unit that has to swap

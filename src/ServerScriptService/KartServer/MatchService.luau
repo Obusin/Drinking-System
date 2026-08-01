@@ -30,6 +30,7 @@ local Names = require(BloxKart:WaitForChild("Names"))
 local Standings = require(BloxKart:WaitForChild("Standings"))
 local Util = require(BloxKart:WaitForChild("Util"))
 local KartService = require(script.Parent.KartService)
+local KartFactory = require(script.Parent.KartFactory)
 local Progress = require(script.Parent.Progress)
 
 local M = Config.Match
@@ -277,6 +278,13 @@ end
 
 local function startGrid()
 	round += 1
+
+	-- A new spread of colours each race. Every racer still gets one
+	-- nobody else has — it is an offset, not a shuffle — so this buys
+	-- variety across races without costing distinctness within one.
+	if Config.Skins.RotatePaintPerRound then
+		KartFactory.paintOffset = round
+	end
 	-- RELEASE FIRST, then top up. Karts handed to the AI last round are
 	-- still counted as bots until they're given back, so filling the
 	-- field before releasing them would size it against a bot count that

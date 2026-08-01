@@ -20,6 +20,7 @@ local Names = require(ReplicatedStorage.BloxKart.Names)
 local Util = require(ReplicatedStorage.BloxKart.Util)
 local Match = require(ReplicatedStorage.BloxKart.Match)
 local KartFactory = require(script.Parent.KartFactory)
+local Skins = require(script.Parent.Skins)
 local Placement = require(script.Parent.Placement)
 
 local RIG = Config.Rig
@@ -329,6 +330,21 @@ local function createKart(name: string, slot: number, player: any?): Model
 	-- client at all, so both read this instead.
 	if player then
 		kart:SetAttribute(Names.RACER_NAME, player.Name)
+	end
+
+	-- ITS OWN LOOK. Keyed by identity rather than by slot, so a player
+	-- keeps the same kart across respawns, retirement and every rebuild
+	-- the watchdog does — a kart that changed shape whenever it was
+	-- rebuilt would read as a glitch, not as variety.
+	--
+	-- SPAWNED, because the swap yields: the working route is
+	-- CreateMeshPartAsync and it fetches over the network. A kart must
+	-- never wait on art to exist.
+	if player then
+		local key = if isBot(player) then "bot:" .. tostring(player.Name) else "user:" .. tostring(player.UserId)
+		task.spawn(function()
+			Skins.dress(kart, key)
+		end)
 	end
 	kart:PivotTo(Placement.cframeFor(pad, slot))
 	kart.Parent = workspace

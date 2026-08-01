@@ -208,6 +208,47 @@ function Skins.start()
 	end)
 end
 
+--=====================================================================
+--  WHO LOOKS LIKE WHAT
+--
+--  Stable per racer: the same key always produces the same look, so a
+--  player keeps their kart across respawns, retirement and rebuilds
+--  rather than changing shape every time the watchdog hands them a new
+--  one.
+--
+--  The GARAGE REPLACES THIS FUNCTION AND NOTHING ELSE. Everything below
+--  it — the set shape, applyTo, the fact that a skin is mesh ids and
+--  cannot reach handling — is already what a chosen skin needs.
+--=====================================================================
+local SK = Config.Skins
+
+local function hash(key: string): number
+	local h = 5381
+	for i = 1, #key do
+		h = (h * 33 + string.byte(key, i)) % 2147483647
+	end
+	return h
+end
+
+function Skins.randomFor(key: string): { [string]: string }
+	local h = hash(key)
+	local body = SK.Bodies[h % #SK.Bodies + 1]
+	-- Front and rear from the SAME entry. Mismatched axles read as a bug
+	-- rather than as a build.
+	local wheel = SK.Wheels[math.floor(h / 7) % #SK.Wheels + 1]
+	return { Body = body, FWheel = wheel, RWheel = wheel }
+end
+
+-- Gives a kart its look. YIELDS — the working swap route is
+-- CreateMeshPartAsync, which fetches over the network — so this is
+-- spawned by the caller and never sits on the path that builds a kart.
+function Skins.dress(kart: Model, key: string)
+	if not SK.Enabled or not kart.Parent then
+		return
+	end
+	Skins.applyTo(kart, Skins.randomFor(key))
+end
+
 -- The real entry point for later: one kart, one skin, no loop. The test
 -- above exists to prove this line is possible; this is the line.
 function Skins.applyTo(kart: Model, skin: { [string]: string }): boolean
