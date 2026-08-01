@@ -53,6 +53,34 @@ local slots: { [any]: number } = {}
 -- welcome — reloading them the instant they retire would put a fresh
 -- kart on the track in the middle of the race they just left.
 local retired: { [Player]: boolean } = {}
+-- When each player was last handed a fresh character. LoadCharacter is
+-- expensive and asynchronous; retrying it every two seconds while one is
+-- still arriving would queue spawns behind each other forever.
+local reloadAt: { [Player]: number } = {}
+
+-- THE ONLY THING THAT GIVES A PLAYER A BODY.
+--
+-- There were four callers of LoadCharacter and none of them knew about
+-- the others: the join path, reviveRetired, the death net, and the
+-- watchdog. Two firing inside RespawnTime of each other produces TWO
+-- characters, and the second one arrives with its own kart at the grid
+-- slot — which is the kart that appears at the spawn and drives off.
+--
+-- The debounce is what makes them one request instead of four.
+local function reload(player: Player, why: string)
+	if not player.Parent then
+		return
+	end
+	local at = reloadAt[player] or 0
+	if os.clock() - at < RIG.ReloadCooldown then
+		return
+	end
+	reloadAt[player] = os.clock()
+	log("reloading %s (%s)", player.Name, why)
+	pcall(function()
+		player:LoadCharacter()
+	end)
+end
 
 -- Lowest free grid slot, so a leaver's position is reused rather than
 -- pushing the next joiner another row back. Slot decides both grid
@@ -433,8 +461,8 @@ local function onCharacterAdded(player: Player, character: Model)
 	if humanoid and humanoid:IsA("Humanoid") then
 		humanoid.Died:Connect(function()
 			task.wait(Players.RespawnTime)
-			if player.Parent == Players and not retired[player] then
-				player:LoadCharacter()
+			if not retired[player] then
+				reload(player, "died")
 			end
 		end)
 	end
@@ -457,7 +485,7 @@ local function onPlayerAdded(player: Player)
 	else
 		-- Spawned explicitly, because CharacterAutoLoads is off — see
 		-- KartService.start for why we took that decision back.
-		player:LoadCharacter()
+		reload(player, "joined")
 	end
 end
 
@@ -574,9 +602,7 @@ end
 function KartService.reviveRetired()
 	for player in retired do
 		retired[player] = nil
-		if player.Parent then
-			player:LoadCharacter()
-		end
+		reload(player, "revived")
 	end
 end
 
@@ -647,12 +673,12 @@ function KartService.start()
 		-- Nothing else spawns anybody in test mode, and with autoloads
 		-- off that would mean no avatar at all.
 		Players.PlayerAdded:Connect(function(player)
-			player:LoadCharacter()
+			reload(player, "test mode join")
 		end)
 		for _, player in Players:GetPlayers() do
 			if not player.Character then
 				task.spawn(function()
-					player:LoadCharacter()
+					reload(player, "test mode")
 				end)
 			end
 		end
@@ -724,16 +750,34 @@ function KartService.start()
 					end
 					local character = player.Character
 					local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-					if humanoid and humanoid.Health > 0 then
-						warn(
-							("[KartService] %s has no kart — rebuilding. Their first spawn failed or was lost."):format(
-								player.Name
-							)
+
+					--=================================================
+					--  NO BODY EITHER, which used to be skipped.
+					--
+					--  This branch only ran for a player who HAD a
+					--  living character, so somebody with neither a kart
+					--  nor a character fell through it entirely — and
+					--  since CharacterAutoLoads is off, nothing else was
+					--  ever going to spawn them. Permanently on the
+					--  track with no kart and no way back.
+					--
+					--  reviveRetired clears `retired` and THEN calls
+					--  LoadCharacter, so anything that goes wrong in
+					--  between leaves exactly this state.
+					--=================================================
+					if not humanoid or humanoid.Health <= 0 then
+						reload(player, "no character")
+						continue
+					end
+
+					warn(
+						("[KartService] %s has no kart — rebuilding. Their first spawn failed or was lost."):format(
+							player.Name
 						)
-						local ok, err = pcall(spawnKartFor, player)
-						if not ok then
-							warn("[KartService] rebuild FAILED for " .. player.Name .. ": " .. tostring(err))
-						end
+					)
+					local ok, err = pcall(spawnKartFor, player)
+					if not ok then
+						warn("[KartService] rebuild FAILED for " .. player.Name .. ": " .. tostring(err))
 					end
 				end
 			end

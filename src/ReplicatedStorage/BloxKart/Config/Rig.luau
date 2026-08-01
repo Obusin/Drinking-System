@@ -215,6 +215,10 @@ return {
 	-- taken back by the engine when a part sleeps. Re-asserting costs a
 	-- comparison per seated player.
 	OwnershipCheck = 2,
+	-- How long before the watchdog will hand a player another character.
+	-- LoadCharacter is asynchronous, and retrying it on every sweep
+	-- while one is still arriving queues spawns behind each other.
+	ReloadCooldown = 6,
 
 	-- Seconds before auditing kart parts for anything still collidable
 	-- outside the kart group. Delayed because art streams in.
