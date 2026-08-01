@@ -925,7 +925,15 @@ RunService.Heartbeat:Connect(function(dt)
 	-- than in step() because step() returns early the moment the AI takes
 	-- the kart over, which is the exact instant this has to start.
 	local mine = sim and sim.model
-	local done = mine ~= nil and mine:GetAttribute(Shared.FINISH_PLACE) ~= nil
+	-- WATCHING, not driving. True once you have finished — and also for
+	-- everybody at the flag, because by then the AI has taken every kart
+	-- and there is nothing left to steer.
+	--
+	-- Without the second half, a racer who never crossed the line kept a
+	-- camera bolted to their own parked kart while the board covered it:
+	-- a still photograph behind a results screen.
+	local done = (mine ~= nil and mine:GetAttribute(Shared.FINISH_PLACE) ~= nil)
+		or match:Phase() == Shared.Phase.Results
 	-- Stick look is applied here, per frame, because a held stick is a
 	-- rate and not a delta.
 	if spectate:IsActive() and padLook.Magnitude > 0.15 then

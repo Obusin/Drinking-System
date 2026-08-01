@@ -87,6 +87,16 @@ function Match.isDriving(phase: string?): boolean
 	return phase == Match.Phase.Racing
 end
 
+-- KARTS STILL MOVE, even though the race is decided.
+--
+-- Distinct from isDriving, which answers "does anything still count".
+-- Results used to answer no to both, so the flag dropped and the entire
+-- world stopped: bots parked, karts froze, and the board appeared over a
+-- photograph. A race should end with the track still running under it.
+function Match.isRolling(phase: string?): boolean
+	return phase == Match.Phase.Racing or phase == Match.Phase.Results
+end
+
 -- Seconds left on the current phase, never negative. 0 when there's no
 -- deadline (Waiting).
 function Match.timeLeft(endsAt: number?): number

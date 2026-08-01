@@ -88,6 +88,9 @@ MatchService.onGrid = BotService.onGrid
 MatchService.onFinished = function(kart, who)
 	BotService.takeOver(kart, who .. " (AI)")
 end
+-- The flag: every kart still driven by a person carries on without
+-- them, so the results play over a moving track.
+MatchService.onResults = BotService.takeOverAll
 MatchService.onRelease = function()
 	BotService.releaseTakeOvers()
 	-- Anyone whose avatar was despawned when their kart retired gets it

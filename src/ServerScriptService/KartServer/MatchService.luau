@@ -234,6 +234,13 @@ local function enter(next: string, duration: number?)
 			Progress.mark(player)
 		end
 	elseif next == P.Results then
+		-- Hand every remaining kart to the AI before the board goes up.
+		-- Nobody needs to be driving once the race is decided, and a
+		-- player steering blind behind a results panel is the opposite of
+		-- an ending.
+		if MatchService.onResults then
+			MatchService.onResults()
+		end
 		sendRewards()
 	end
 	log("→ %s%s", next, if duration then (" (%.1fs)"):format(duration) else "")
@@ -579,6 +586,8 @@ MatchService.onGrid = nil
 -- init.server, so the contract is visible from the file that calls them.
 MatchService.onFinished = nil
 MatchService.onRelease = nil
+-- Called as the flag drops, before the board is sent.
+MatchService.onResults = nil :: (() -> ())?
 
 function MatchService.phase(): string
 	return phase

@@ -1214,7 +1214,10 @@ local function step(dt: number)
 	if #bots == 0 then
 		return
 	end
-	local racing = Match.isDriving(MatchService.phase())
+	-- ROLLING, not racing. Nothing counts any more once the flag is out,
+	-- but the karts keep going — the results board plays over a track
+	-- that is still moving rather than over a freeze frame.
+	local racing = Match.isRolling(MatchService.phase())
 	local now = os.clock()
 
 	for i = #bots, 1, -1 do
@@ -1778,6 +1781,25 @@ function BotService.detach(kart: Model): boolean
 		end
 	end
 	return false
+end
+
+-- EVERY REMAINING KART GOES TO THE AI at the flag.
+--
+-- This is what makes the ending a shot rather than a screen. Once the
+-- race is decided nobody needs to be driving, and a player left holding
+-- a kart while the board covers their view is driving blind — so their
+-- kart carries on without them and they get to watch it.
+--
+-- Reuses takeOver outright: same anchoring, same ownership handover,
+-- same inherited speed. A second path for "the round ended" would drift
+-- from the one for "you finished" the first time either changed.
+function BotService.takeOverAll()
+	for _, kart in Standings.allKarts() do
+		if not kart:GetAttribute(Names.AI_DRIVEN) then
+			local who = kart:GetAttribute(Names.RACER_NAME) or "Racer"
+			BotService.takeOver(kart, who .. " (AI)")
+		end
+	end
 end
 
 function BotService.releaseTakeOvers()

@@ -61,7 +61,13 @@ return {
 	-- on the panel only when the payload actually contains some.
 
 	--== LOOK ==========================================================
-	Dim = 0.45, -- how far the world behind is darkened
+	-- How far the world behind is darkened.
+	--
+	-- LIGHT ON PURPOSE. The track is still running behind this — karts
+	-- lapping, items going off — and that is the ending. Dim it enough
+	-- to read the board and no further; at 0.45 the shot it was sitting
+	-- on top of may as well not have been there.
+	Dim = 0.22,
 	PanelColor = Color3.fromRGB(24, 24, 26),
 	PanelTransparency = 0.06,
 	AccentColor = Color3.fromRGB(255, 196, 62),
