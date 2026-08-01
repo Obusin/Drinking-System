@@ -151,6 +151,27 @@ local lobby = Place.isLobby()
 if Config.Build.Announce then
 	print(("[BloxKart] client %s — %s place"):format(Config.Build.Version, Place.role():upper()))
 end
+local controls = ControlsHud.new()
+local speedo = SpeedHud.new()
+local itemHud = ItemHud.new()
+
+-- THE DRIVING HUD FOLLOWS THE KART, NOT THE PLACE.
+--
+-- Items, speed and the control list all describe something you are
+-- doing right now. On foot you are doing none of it, and a speedometer
+-- reading zero beside three empty item slots is not "no information",
+-- it is wrong information.
+--
+-- Keyed on having a kart rather than on being in a lobby, because that
+-- is the honest condition: in a race you always have one so it is
+-- always up, and in a hub it appears exactly when you call your kart.
+-- One rule, both places, nothing to keep in sync.
+local function setDrivingHud(on: boolean)
+	itemHud:SetVisible(on)
+	controls:SetVisible(on)
+	speedo:SetActive(on)
+end
+
 local vehicleHud = nil
 if lobby then
 	hud:SetVisible(false)
@@ -158,12 +179,13 @@ if lobby then
 	-- Only in a hub. A race place hands you a kart because a round is
 	-- starting, so there is nothing to call for.
 	vehicleHud = VehicleHud.new()
+	-- You arrive on foot, so it starts off. speedo:SetActive(false) is a
+	-- no-op here — it is already inactive and the call early-returns —
+	-- so the other two are the ones that matter.
+	setDrivingHud(false)
 	print("[KartClient] LOBBY — race HUD off, kart button on.")
 end
 
-local controls = ControlsHud.new()
-local speedo = SpeedHud.new()
-local itemHud = ItemHud.new()
 local feedHud = FeedHud.new()
 local respawn = Respawn.new()
 -- Made once rather than per kart: it holds motor state, not kart state,
@@ -218,7 +240,7 @@ local function teardown()
 		camera:Restore(humanoid)
 		camera = nil
 	end
-	speedo:SetActive(false)
+	setDrivingHud(false)
 	-- Motors off. A pad still rumbling after the kart it belonged to has
 	-- gone is the one haptics bug players actually report.
 	haptics:Stop()
@@ -596,7 +618,7 @@ local function onSeated(active: boolean, seatPart: BasePart?)
 	if not touch then
 		controls:Flash() -- remind them of the keys on getting in
 	end
-	speedo:SetActive(true)
+	setDrivingHud(true)
 	if touch then
 		touch:SetActive(true)
 	end

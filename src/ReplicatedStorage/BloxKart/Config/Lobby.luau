@@ -24,10 +24,23 @@ return {
 	-- check below is the price of that freedom.
 	ToggleKeys = { Enum.KeyCode.G, Enum.KeyCode.ButtonY },
 
-	-- Shown on the button. Two states, because a button that does not
-	-- say what it will do next is a button you press to find out.
+	-- Two states, because a prompt that does not say what it will do
+	-- next is a prompt you press to find out.
 	SpawnText = "CALL KART",
 	DespawnText = "PUT AWAY",
+
+	-- A KEY PROMPT ON DESKTOP, A REAL BUTTON ON TOUCH.
+	--
+	-- A big clickable slab in the middle of a hub is a menu, and the
+	-- lobby is explicitly not a menu — it is a place. Showing the key
+	-- instead teaches the binding, which is what the player actually
+	-- needs after the first ten seconds.
+	--
+	-- Touch has no keyboard, so there it stays a button. Same module,
+	-- same state, decided by Device.touchLayout — the same answer the
+	-- rest of the client already uses for this question.
+	KeyPromptColor = Color3.fromRGB(255, 196, 62),
+	KeyPromptTextColor = Color3.fromRGB(236, 238, 245),
 
 	-- Bottom centre, above the mobile controls if any.
 	ButtonPosition = UDim2.fromScale(0.5, 0.9),

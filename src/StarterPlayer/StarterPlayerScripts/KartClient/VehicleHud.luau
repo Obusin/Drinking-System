@@ -1,9 +1,13 @@
 --[[
-	VehicleHud — the button that calls your kart, in the lobby.
+	VehicleHud — calling your kart, in the lobby.
 
-	A button AND a key, because they cost the same and they serve
-	different people: the key is what you use after the first minute, the
-	button is what tells you the key exists at all.
+	A KEY PROMPT on desktop, a real button on touch. A slab in the middle
+	of the screen is menu furniture, and the hub is a place rather than a
+	menu — so what belongs on screen is the binding, which is what the
+	player will actually use after the first ten seconds.
+
+	It is a TextButton either way, so a click still works for anyone who
+	tries that first. It just stops asking to be clicked.
 
 	It holds NO authority. It sends "spawn" or "despawn" and then waits to
 	be told what happened — the server decides, including whether there is
@@ -20,12 +24,26 @@ local UserInputService = game:GetService("UserInputService")
 
 local BloxKart = ReplicatedStorage:WaitForChild("BloxKart")
 local Config = require(BloxKart:WaitForChild("Config"))
+local Device = require(BloxKart:WaitForChild("Device"))
 local Names = require(BloxKart:WaitForChild("Names"))
 
 local LOBBY = Config.Lobby
 local H = Config.Hud
 
 local FONT = Font.fromEnum(Enum.Font.GothamBold)
+
+-- The first bound key, named the way a player would say it. Gamepad
+-- bindings are skipped: a controller shows its own glyphs elsewhere and
+-- "BUTTONY" on a desktop prompt helps nobody.
+local function keyLabel(): string
+	for _, key in LOBBY.ToggleKeys do
+		local name = key.Name
+		if not name:match("^Button") and not name:match("^DPad") then
+			return name
+		end
+	end
+	return "?"
+end
 
 local VehicleHud = {}
 VehicleHud.__index = VehicleHud
@@ -39,23 +57,46 @@ function VehicleHud.new()
 	gui.IgnoreGuiInset = true
 	gui.Parent = playerGui
 
+	-- TOUCH GETS A BUTTON. EVERYTHING ELSE GETS THE KEY.
+	--
+	-- A slab in the middle of the screen is menu furniture, and the hub
+	-- is a place rather than a menu. On a keyboard the useful thing is
+	-- the binding, because that is what the player will use for the rest
+	-- of the session.
+	local touch = Device.touchLayout()
+
 	local button = Instance.new("TextButton")
 	button.Name = "CallKart"
 	button.AnchorPoint = Vector2.new(0.5, 1)
 	button.Position = LOBBY.ButtonPosition
-	button.Size = LOBBY.ButtonSize
-	button.BackgroundColor3 = LOBBY.ButtonColor
 	button.BorderSizePixel = 0
-	button.AutoButtonColor = true
 	button.FontFace = FONT
-	button.TextSize = 18
-	button.TextColor3 = LOBBY.ButtonTextColor
-	button.Text = LOBBY.SpawnText
 	button.Parent = gui
 
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, 8)
-	corner.Parent = button
+	if touch then
+		button.Size = LOBBY.ButtonSize
+		button.BackgroundColor3 = LOBBY.ButtonColor
+		button.BackgroundTransparency = 0
+		button.AutoButtonColor = true
+		button.TextSize = 18
+		button.TextColor3 = LOBBY.ButtonTextColor
+
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(0, 8)
+		corner.Parent = button
+	else
+		-- Still a TextButton so a mouse click works too — some people
+		-- will click it once before believing the key. It just does not
+		-- look like something demanding to be clicked.
+		button.Size = UDim2.fromOffset(300, 26)
+		button.BackgroundTransparency = 1
+		button.AutoButtonColor = false
+		button.TextSize = 17
+		button.TextColor3 = LOBBY.KeyPromptTextColor
+		button.TextStrokeColor3 = Color3.new(0, 0, 0)
+		button.TextStrokeTransparency = 0.5
+		button.RichText = true
+	end
 
 	-- Refusals and confirmations land here, just above the button. One
 	-- line, fading — a hub message is not worth a panel.
@@ -78,6 +119,8 @@ function VehicleHud.new()
 	local self = setmetatable({
 		gui = gui,
 		button = button,
+		touch = touch,
+		keyName = keyLabel(),
 		note = note,
 		remote = remote,
 		-- What the SERVER last told us. Never set on click: an optimistic
@@ -103,6 +146,8 @@ function VehicleHud.new()
 		end
 	end)
 
+	button.Text = self:_label()
+
 	if remote then
 		remote.OnClientEvent:Connect(function(result)
 			self:_result(result)
@@ -127,13 +172,27 @@ function VehicleHud:_note(text: string)
 	self.noteUntil = os.clock() + 2.5
 end
 
+-- One place decides how the prompt reads, so the touch and desktop
+-- forms cannot drift into saying different things.
+function VehicleHud:_label()
+	local words = if self.hasKart then LOBBY.DespawnText else LOBBY.SpawnText
+	if self.touch then
+		return words
+	end
+	return ('<font color="#%s">[%s]</font>  %s'):format(
+		LOBBY.KeyPromptColor:ToHex(),
+		self.keyName,
+		words
+	)
+end
+
 function VehicleHud:_result(result: unknown)
 	if result == "spawned" then
 		self.hasKart = true
-		self.button.Text = LOBBY.DespawnText
+		self.button.Text = self:_label()
 	elseif result == "despawned" then
 		self.hasKart = false
-		self.button.Text = LOBBY.SpawnText
+		self.button.Text = self:_label()
 	elseif result == "blocked" then
 		self:_note(LOBBY.BlockedMessage)
 	elseif result == "failed" then

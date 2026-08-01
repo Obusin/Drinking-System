@@ -158,6 +158,13 @@ function ItemHud:Update(slots, place: number, field: number)
 	self.place.Text = if place > 0 then ("%d/%d"):format(place, field) else ""
 end
 
+-- Off when there is no kart. The slots describe what you are holding,
+-- and on foot you are holding nothing — three empty boxes in the corner
+-- of a hub is furniture that means nothing.
+function ItemHud:SetVisible(on: boolean)
+	self.gui.Enabled = on
+end
+
 function ItemHud:Destroy()
 	self.gui:Destroy()
 end

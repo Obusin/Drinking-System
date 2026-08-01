@@ -213,6 +213,13 @@ function ControlsHud:Flash()
 	self:_scheduleHide()
 end
 
+-- Off when there is no kart. Throttle, steer and hop-drift are not
+-- things you can do standing up, and a control list you cannot act on
+-- teaches the player that the list is wrong.
+function ControlsHud:SetVisible(on: boolean)
+	self.gui.Enabled = on
+end
+
 function ControlsHud:Destroy()
 	if self.hideThread then
 		task.cancel(self.hideThread)
