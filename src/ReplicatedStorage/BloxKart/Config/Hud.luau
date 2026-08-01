@@ -58,6 +58,20 @@ return {
 	-- which is indistinguishable from a warning that never fired.
 	IncomingHold = 0.7,
 
+	--== WHAT HIT YOU =================================================
+	-- Some items have no projectile and no travel time. Lightning
+	-- reaches everyone ahead the instant it is used, so there is nothing
+	-- to see coming and nothing a warning could have told you — you are
+	-- simply spinning, which reads as "a missile I did not see".
+	--
+	-- A warning is impossible; an EXPLANATION is not. The hit feed
+	-- already names it, but the feed is small text at the top of the
+	-- screen and the one moment nobody reads it is while their kart is
+	-- spinning.
+	HitByText = "HIT BY %s",
+	HitByColor = Color3.fromRGB(255, 150, 110),
+	HitByHold = 1.4,
+
 	--== BLINK RATE AS A CLOCK =========================================
 	-- The pulse carries the time remaining: slow while there is room,
 	-- accelerating as it runs out. It is the same information a bar

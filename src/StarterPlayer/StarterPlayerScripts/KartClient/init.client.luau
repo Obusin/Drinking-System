@@ -62,6 +62,10 @@ local SpeedHud = require(script.SpeedHud)
 local ItemHud = require(script.ItemHud)
 local FeedHud = require(script.FeedHud)
 local Items = require(script.Items)
+-- The shared item CATALOGUE, not the client controller above it. Named
+-- apart because both modules are called Items and confusing them is a
+-- silent nil rather than an error.
+local ItemRegistry = require(ReplicatedStorage.BloxKart.Items)
 local Respawn = require(script.Respawn)
 local Projectiles = require(script.Projectiles)
 local TouchHud = require(script.TouchHud)
@@ -102,6 +106,9 @@ local flushAt = TALLY_FLUSH
 -- fraction-of-a-second missile is still readable.
 local incomingUntil = 0
 local incomingEta = 0
+-- What last hit us, and for how long to say so.
+local hitByUntil = 0
+local hitByName = nil
 local questHud = QuestHud.new(tally)
 local warp = Warp.new()
 local minimap = Minimap.new()
@@ -372,6 +379,13 @@ local function step(dt: number)
 		-- held tail keeps escalating rather than freezing mid-blink.
 		incomingEta = math.max(incomingEta - dt, 0)
 		alertUrgency = 1 - math.clamp(incomingEta / H.IncomingLead, 0, 1)
+	elseif hitByName and os.clock() < hitByUntil then
+		-- Below INCOMING, which is about to happen, and above wrong way,
+		-- which will still be true in a second. Solid throughout: it is
+		-- an explanation, not an alarm, and there is nothing to count
+		-- down to.
+		alertText, alertColour = H.HitByText:format(hitByName), H.HitByColor
+		alertUrgency = 0
 	elseif race:WrongWay(sim, dt) then
 		-- NAME THE GATE THEY STILL OWE.
 		--
@@ -431,6 +445,19 @@ local function step(dt: number)
 	if itemEvents.hit then
 		camera:BoostPunch(1)
 		haptics:Punch(HAP.HitPunch)
+		-- SAY WHAT IT WAS. Lightning has no projectile and no travel
+		-- time — it lands the instant it is used — so nothing was ever
+		-- going to warn you and the only honest thing left is to explain
+		-- it afterwards. The feed already names it, but the one moment
+		-- nobody reads small text at the top of the screen is while
+		-- their kart is spinning.
+		local what = itemEvents.hit.item
+		if what then
+			local def = ItemRegistry.byId(what)
+			hitByName = string.upper(if def then def.Name else tostring(what))
+			hitByUntil = os.clock() + H.HitByHold
+		end
+
 		-- The thump of being spun, plus an item layer over it when there
 		-- is one. `item` is only present on hits relayed by the server —
 		-- a hazard you drove into names itself through `note` instead.
