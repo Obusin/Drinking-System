@@ -489,12 +489,33 @@ not the same as applying it. Grep for every write to the value you just
 learned is a threshold.
 
 ### A Studio sync can delete the entire source tree. Commit early.
-It has now happened twice. Argon syncing from a Studio session that
-doesn't have the files removes them from disk — all 68 at once, silently,
-mid-session.
+It has now happened THREE times. Argon syncing from a Studio session
+that doesn't have the files removes them from disk — all 68 at once the
+first time, silently, mid-session.
 
-**Both times git was the only thing that saved it.** Nothing else in the
-setup keeps a copy.
+**The first two times git was the only thing that saved it.** Nothing
+else in the setup keeps a copy.
+
+**The third time git did NOT save it, and that is the sharper lesson.**
+2 Aug: `Config/Places.luau` and `Place.luau` were written, passed
+`check.sh`, and were gone by the time `git add -A` ran about a minute
+later. The commit meant to add them contains six modifications and zero
+additions — so `Config/init.luau` went in requiring `script.Places`
+while `script.Places` no longer existed anywhere. Every module
+downstream of Config failed to load, on both sides, which reads as a
+total collapse and is actually one missing file.
+
+**A NEW file has no recovery.** Git protects what it has already seen.
+The window between writing a file and committing it is the only time
+this project has no backup at all, and a sync running in that window
+takes the file with nothing to restore from. `move_to_bin = true` in
+`~/.argon/config.toml` is supposed to make deletions recoverable from
+the Trash; the Trash was empty, so do not count on it.
+
+**So the rule is stronger than "commit early":** commit a NEW file
+before doing anything else with it — before wiring it up, before
+type-checking, before touching Studio. A modified file can be recovered
+from HEAD. A new one cannot be recovered from anywhere.
 
 **Rules:**
 - Commit as soon as a change compiles. Uncommitted work is one sync away
