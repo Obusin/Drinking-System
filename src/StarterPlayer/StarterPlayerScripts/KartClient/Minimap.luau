@@ -90,11 +90,22 @@ function Minimap.new()
 	world.Size = UDim2.fromScale(1, 1)
 	world.Parent = frame
 
+	-- The outline lives in its own container so a rebuild can clear it
+	-- without touching the racer markers, which are keyed by kart and
+	-- have nothing to do with the track changing shape.
+	local track = Instance.new("Frame")
+	track.Name = "Track"
+	track.BackgroundTransparency = 1
+	track.Size = UDim2.fromScale(1, 1)
+	track.Parent = world
+
 	return setmetatable({
 		gui = gui,
 		frame = frame,
 		world = world,
-		built = false,
+		track = track,
+		builtCount = 0,
+		recheck = 0,
 		origin = Vector3.zero,
 		scale = 1,
 		markers = {}, -- kart -> Frame
@@ -105,11 +116,29 @@ end
 --=====================================================================
 --  BUILD  (once, when the track exists)
 --=====================================================================
+-- THE STRAIGHT LINE.
+--
+-- Checkpoints replicate to the client over several frames, and the
+-- first version drew as soon as it could see two of them — which is one
+-- segment, which is a straight line. It then set a `built` flag and
+-- never looked again, so whatever the track happened to look like
+-- half-loaded is what you got for the rest of the round.
+--
+-- Rebuilt whenever MORE nodes appear, and never on fewer: a shrinking
+-- count is streaming unloading distant parts, not the track changing,
+-- and rebuilding on that would thrash the map every time you drove away
+-- from something.
+local MIN_NODES = 3
+
 function Minimap:_build(): boolean
 	local nodes = Route.nodes()
-	if #nodes < 2 then
+	-- Two nodes is a line, not a track. Anything with fewer than three
+	-- is still arriving.
+	if #nodes < MIN_NODES or #nodes <= self.builtCount then
 		return false
 	end
+
+	self.track:ClearAllChildren()
 
 	----------------------------------------------------------------
 	-- Fit the whole track into the frame.
@@ -155,16 +184,22 @@ function Minimap:_build(): boolean
 			-- along the segment.
 			seg.Rotation = math.deg(math.atan2(delta.Y, delta.X)) + 90
 			seg.ZIndex = 1
-			seg.Parent = self.world
+			seg.Parent = self.track
 		end
 	end
 
 	local start = self:_project(nodes[1].position)
-	local flag = dot(self.world, M.StartSize, M.StartColor, 2)
+	local flag = dot(self.track, M.StartSize, M.StartColor, 2)
 	flag.Position = UDim2.new(0.5, start.X, 0.5, start.Y)
 	flag.Visible = true
 
-	self.built = true
+	if self.builtCount > 0 then
+		-- Said once per growth. If this repeats for a while after a
+		-- round starts, checkpoints are arriving slowly rather than the
+		-- map being wrong.
+		print(("[Minimap] track redrawn: %d nodes (was %d)"):format(#nodes, self.builtCount))
+	end
+	self.builtCount = #nodes
 	self.gui.Enabled = true
 	return true
 end
@@ -178,12 +213,21 @@ end
 --=====================================================================
 --  UPDATE
 --=====================================================================
-function Minimap:Update(sim)
+function Minimap:Update(dt: number, sim)
 	if not M.Enabled then
 		return
 	end
-	if not self.built and not self:_build() then
-		return -- no track yet; try again next frame
+	-- CHECKED ON A TIMER, not every frame. Route.nodes() goes through
+	-- CollectionService:GetTagged, which allocates a fresh table of
+	-- every checkpoint each call — cheap once, garbage sixty times a
+	-- second for an answer that only changes while the place is loading.
+	self.recheck -= dt
+	if self.recheck <= 0 then
+		self.recheck = 0.5
+		self:_build()
+	end
+	if self.builtCount == 0 then
+		return -- no track yet
 	end
 
 	----------------------------------------------------------------

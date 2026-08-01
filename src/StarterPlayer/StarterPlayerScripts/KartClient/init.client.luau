@@ -858,7 +858,7 @@ RunService.Heartbeat:Connect(function(dt)
 	-- Outside step() for the same reason the warp is: the map should keep
 	-- showing the race while you spectate it, and step() returns the
 	-- moment there is no kart.
-	minimap:Update(sim)
+	minimap:Update(dt, sim)
 	questHud:Update()
 	-- Here rather than in step() because the soundtrack has to play in
 	-- the lobby, and step() returns early whenever there is no kart.
