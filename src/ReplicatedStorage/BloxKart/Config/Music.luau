@@ -19,36 +19,59 @@
 	Each list is shuffled once per pass rather than picked at random per
 	track. Random picking replays the same song back to back often enough
 	to be noticed, and background music being noticed is the failure case.
---]]
 
--- THE MAIN THEME. One set of tracks for the whole session.
---
--- Declared once and handed to BOTH playlists ON PURPOSE, and the shared
--- table matters rather than being a tidiness thing: Music switches lists
--- by table identity, so two separate tables holding the same ids would
--- count as a change and restart the music on every phase transition.
--- Sharing one means the soundtrack plays straight through the lobby, the
--- countdown, the race and the results without ever cutting.
---
--- To give the race its own energy later, replace Race with its own list
--- and they start crossfading at the lights.
-local MAIN = {
-	"rbxassetid://102543294099617",
-	"rbxassetid://125858112035500",
-	"rbxassetid://116052568337332",
-	"rbxassetid://125091741122022",
-}
+	LOBBY VS RACE, NOT MATCH PHASE VS MATCH PHASE
+	----------------------------------------------
+	`Music:_listFor` picks `Race` during Grid/Racing and `Lobby`
+	otherwise. In a LOBBY PLACE, `MatchService` never runs at all, so the
+	phase is permanently `Waiting` and this resolves to `Lobby` for the
+	entire session with no extra wiring — the two-place split and this
+	playlist split line up for free.
+--]]
 
 return {
 	--== PLAYLISTS =====================================================
 	-- Played during the countdown and the race itself. The countdown is
 	-- included deliberately: the music should already be going when the
 	-- lights go out, or the start feels like the music missed its cue.
-	Race = MAIN,
+	--
+	-- Set 2026-08-02.
+	Race = {
+		"rbxassetid://115138058496886", -- Sunday Morning Groove
+	},
 
-	-- Waiting, intermission and results. The same set for now — see MAIN
-	-- above for why they share one table rather than two copies.
-	Lobby = MAIN,
+	-- The lobby, and everywhere that isn't Grid/Racing on a race place —
+	-- waiting, intermission, results. Chosen to be talked over: the
+	-- lobby is a social hub first, so this has to sit under a
+	-- conversation rather than compete with one.
+	--
+	-- Set 2026-08-02.
+	Lobby = {
+		"rbxassetid://92891988699419", -- Festival Town
+		"rbxassetid://95540214622796", -- Sunset Jazz
+	},
+
+	--== PARKED — has nowhere to plug in yet =============================
+	-- Meant for the practice ring specifically, once the lobby has a
+	-- notion of ZONES. Right now `Music:Update` only ever asks "what
+	-- phase", never "where in the world" — there is no per-area music
+	-- concept for it to join, only Lobby-the-whole-place and
+	-- Race-the-whole-place. Stored here, unused, so the id survives
+	-- until that exists rather than getting lost between now and then.
+	--
+	-- Practice = { "rbxassetid://114615679268173" }, -- Must Get Gud Enuf
+
+	--== RETIRED ==========================================================
+	-- The placeholder set both playlists shared before real tracks were
+	-- picked. Kept rather than deleted — restore either by pasting an id
+	-- back above.
+	--
+	-- local MAIN = {
+	-- 	"rbxassetid://102543294099617",
+	-- 	"rbxassetid://125858112035500",
+	-- 	"rbxassetid://116052568337332",
+	-- 	"rbxassetid://125091741122022",
+	-- }
 
 	--== LEVELS ========================================================
 	-- Under the engine and well under the tyres. Music is the floor of
