@@ -4,6 +4,11 @@
 what is only suspected, and the patterns that keep producing it. Most of
 the bugs in it were caused by the fix for another one.
 
+**`LOBBY.md` is the lobby-vs-race split** — every service that only
+runs on one side, the kart-placement attribute pattern and the race it
+replaced, and the two-layer guard that stops the lobby's practice items
+from paying out like a real race.
+
 **`SECURITY.md` is the trust surface** — every inbound remote, what it
 actually checks, and why the server can only referee a client-simulated
 kart rather than own it. Read before adding a RemoteEvent.

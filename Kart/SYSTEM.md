@@ -111,17 +111,23 @@ make the role depend on load order and would flip a hub into a race
 server the moment someone tagged a decoration.
 
 **`LobbyPlaceId = 0` means "not set up yet" and every place behaves as a
-race place** — which is exactly what the game did before the split. It
-is currently 0.
+race place** — which is exactly what the game did before the split. Set
+2026-08-02 to the experience's start place, once it was confirmed to be
+the one already carrying the test scripts and therefore unable to be
+anything else — a Roblox experience's start place cannot change after
+creation.
 
-Only two services differ: `MatchService` and `BotService` do not start in
-a lobby. Everything else does, including items.
+Only two ROUND services differ: `MatchService` and `BotService` do not
+start in a lobby. Everything else does, including items. Three more
+services exist ONLY in a lobby — `PlayerVehicleService` (call/put away a
+kart), `QueueService` (the way to a track) — and one exists only on a
+race place, `ReturnService` (the way back). **Full account of all three,
+the kart-placement race they had to solve, and the two-layer economy
+guard: `Kart/LOBBY.md`.**
 
-The start place of a Roblox experience **cannot be changed after
-creation**, so the original place has to become the lobby and tracks move
-out to new places. DataStores are scoped per *universe*, so the places
-must be in the same experience — a separate experience cannot see the
-player's profile.
+DataStores are scoped per *universe*, so every place has to be in the
+same experience — a separate experience cannot see the player's
+profile.
 
 ---
 
