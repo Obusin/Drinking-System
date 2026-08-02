@@ -98,5 +98,8 @@ Names.QUEST_REMOTE = "KartQuests"
 -- Lobby only: "spawn" / "despawn" in, a result string back. The client
 -- sends an INTENT and never a position — see PlayerVehicleService.
 Names.VEHICLE_REMOTE = "KartVehicle"
+-- Lobby only: "play" in, a result string back. The client never names a
+-- destination — see QueueService.
+Names.QUEUE_REMOTE = "KartQueue"
 
 return Names

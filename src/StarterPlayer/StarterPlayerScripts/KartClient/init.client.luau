@@ -59,6 +59,7 @@ local Minimap = require(script.Minimap)
 local RaceHud = require(script.RaceHud)
 local ControlsHud = require(script.ControlsHud)
 local VehicleHud = require(script.VehicleHud)
+local QueueHud = require(script.QueueHud)
 local SpeedHud = require(script.SpeedHud)
 local ItemHud = require(script.ItemHud)
 local FeedHud = require(script.FeedHud)
@@ -172,13 +173,14 @@ local function setDrivingHud(on: boolean)
 	speedo:SetActive(on)
 end
 
-local vehicleHud = nil
+local vehicleHud, queueHud = nil, nil
 if lobby then
 	hud:SetVisible(false)
 	matchHud:SetVisible(false)
 	-- Only in a hub. A race place hands you a kart because a round is
 	-- starting, so there is nothing to call for.
 	vehicleHud = VehicleHud.new()
+	queueHud = QueueHud.new()
 	-- You arrive on foot, so it starts off. speedo:SetActive(false) is a
 	-- no-op here — it is already inactive and the call early-returns —
 	-- so the other two are the ones that matter.
@@ -1049,6 +1051,7 @@ RunService.Heartbeat:Connect(function(dt)
 	-- is exactly when the button that calls one has to work.
 	if vehicleHud then
 		vehicleHud:Update(dt)
+		queueHud:Update(dt)
 	end
 	-- Here rather than in step() because the soundtrack has to play in
 	-- the lobby, and step() returns early whenever there is no kart.

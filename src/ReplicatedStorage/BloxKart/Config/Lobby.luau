@@ -42,11 +42,47 @@ return {
 	KeyPromptColor = Color3.fromRGB(255, 196, 62),
 	KeyPromptTextColor = Color3.fromRGB(236, 238, 245),
 
-	-- Bottom centre, above the mobile controls if any.
-	ButtonPosition = UDim2.fromScale(0.5, 0.9),
+	-- Bottom centre, above the mobile controls if any. The prompts stack
+	-- upward from here, PlayPosition above KartPosition, so the primary
+	-- action sits where the eye lands last.
+	KartPosition = UDim2.fromScale(0.5, 0.95),
+	PlayPosition = UDim2.fromScale(0.5, 0.90),
+
+	-- Touch only; desktop draws the key instead.
 	ButtonSize = UDim2.fromOffset(190, 46),
-	ButtonColor = Color3.fromRGB(255, 196, 62),
 	ButtonTextColor = Color3.fromRGB(20, 20, 22),
+
+	-- How far above a prompt its note line sits, and how long the note
+	-- holds before it fades.
+	NoteLift = 34,
+	NoteTime = 2.5,
+
+	--== GOING RACING ====================================================
+	-- The primary action in the hub. A different key from the kart so
+	-- neither can be pressed by accident while reaching for the other.
+	PlayKeys = { Enum.KeyCode.P, Enum.KeyCode.ButtonX },
+	PlayText = "RACE",
+	PlayColor = Color3.fromRGB(120, 214, 255),
+
+	-- Said while the teleport is in flight. A teleport takes a couple of
+	-- seconds and gives no feedback of its own, so without this the
+	-- player presses the key, nothing visibly happens, and they press it
+	-- again — which is the shape of every double-teleport bug.
+	PlayPending = "FINDING YOU A RACE…",
+
+	-- Nothing to send them to: no track in Config.Places.Tracks has a
+	-- real place id yet. Says so plainly rather than failing silently,
+	-- because "the button does nothing" is indistinguishable from a bug.
+	NoTrackMessage = "NO TRACK SET UP YET",
+
+	-- The teleport itself failed — Roblox refused, or the place is not
+	-- part of this experience. Rare, and worth saying out loud.
+	PlayFailed = "COULD NOT REACH THE TRACK — TRY AGAIN",
+
+	-- How long the client refuses to ask again after asking once. Longer
+	-- than any server-side guard, so an honest client is never silently
+	-- rejected by one.
+	PlayRetry = 6,
 
 	--== WHERE IT APPEARS ================================================
 	-- Studs in front of where the player is standing. Far enough that the
