@@ -38,6 +38,7 @@ local DataService = require(script.DataService)
 local QuestService = require(script.QuestService)
 local PlayerVehicleService = require(script.PlayerVehicleService)
 local QueueService = require(script.QueueService)
+local ReturnService = require(script.ReturnService)
 
 -- FIRST OF ALL: say what this is. Before any service starts, so a
 -- server that dies on startup still tells you which code died — and so
@@ -102,6 +103,11 @@ if racing then
 	-- Last: bots need every service they drive through to exist first, and
 	-- they fill the grid on the match's cue rather than at startup.
 	BotService.start()
+	-- The way BACK. Its own module because the round loop should not
+	-- need to know the lobby exists any more than it needs to know bots
+	-- do — MatchService just fires onResults and does not care who is
+	-- listening.
+	ReturnService.start()
 else
 	print("[KartServer] LOBBY — karts and items, no round loop and no bots.")
 	-- After KartService, because it drives it. Policy only: KartService
@@ -140,7 +146,16 @@ if racing then
 	end
 	-- The flag: every kart still driven by a person carries on without
 	-- them, so the results play over a moving track.
-	MatchService.onResults = BotService.takeOverAll
+	--
+	-- COMPOSED, not assigned twice — onResults is single-subscriber, so
+	-- the second assignment would silently replace the first rather than
+	-- add to it. This is the one hook two unrelated systems both need,
+	-- which is exactly the shape SYSTEM.md §4b flags as the reason an
+	-- event bus is coming; until then, composing by hand here.
+	MatchService.onResults = function()
+		BotService.takeOverAll()
+		ReturnService.onResults()
+	end
 	MatchService.onRelease = function()
 		BotService.releaseTakeOvers()
 	end
