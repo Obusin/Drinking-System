@@ -460,6 +460,36 @@ several real races confirm cleanly, then tighten.
 
 ---
 
+# 16. FIXED 2026-08-02 — the lobby could quietly farm quest progress
+
+Items went live in the lobby for practice (BUGS is silent on this
+because it was never a bug — it was the design). What came along for
+free: `RaceService.relayHit`, `RaceService.creditVoidKill` and the
+client's stats batch all feed `Progress` unconditionally, and none of
+them ever asked what kind of server they were running on. A hit, a void
+elimination, or a drift/boost tally in the practice ring paid exactly
+the same XP, Bolt and quest progress as the identical thing on a track.
+
+Gated the three entry points a lobby can actually reach —
+`Progress.hit`, `Progress.eliminated`, `Progress.report` — behind
+`Place.isRace()`. `Progress.finished` needed no equivalent guard:
+`MatchService` never starts outside a race place, so there was never a
+path to it from a lobby.
+
+Zero behaviour change on a race place. `Place.isRace()` is a place-wide
+constant, always true there, so this is purely an added gate on the
+lobby side — nothing about when items are pickable during a real round
+moved.
+
+**Open question, not urgent:** should ANYTHING be earnable in the
+lobby — a quest for calling your kart, or visiting the practice ring?
+Nothing today is, and nothing asked for it. If one ever should be, it
+wants a metric-level flag in `Config/Quests.luau` rather than another
+exception carved into `Progress.luau` — the guard above is deliberately
+one rule for all three entry points, not a per-metric one.
+
+---
+
 # WATCH — recently fixed, unproven
 
 Each of these has run for at most one session. If something in this area

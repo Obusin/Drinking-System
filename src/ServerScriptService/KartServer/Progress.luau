@@ -39,6 +39,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local BloxKart = ReplicatedStorage:WaitForChild("BloxKart")
 local Config = require(BloxKart:WaitForChild("Config"))
+local Place = require(BloxKart:WaitForChild("Place"))
 local Ledger = require(script.Parent.Ledger)
 local DataService = require(script.Parent.DataService)
 
@@ -186,8 +187,30 @@ Progress.onChanged = nil :: ((Player) -> ())?
 -- and has no business owning replication. Set by init.server.
 Progress.onAward = nil :: ((Player, any) -> ())?
 
+-- EARNED IN A RACE, NOT PRACTISED IN THE LOBBY.
+--
+-- Items are deliberately live in the lobby — the practice ring is where
+-- you learn what a missile feels like before it matters, see
+-- Config.Places.LobbyStarts. That means a hit, a void elimination and a
+-- driving-stat batch are all things that can genuinely HAPPEN there now,
+-- same code path as on a track.
+--
+-- Whether they should PAY is a different question, and this is where it
+-- is answered: once, for the three entry points a lobby can actually
+-- reach. `Progress.finished` needs no equivalent guard — MatchService
+-- never starts outside a race place, so there is no path to it from a
+-- lobby at all; this exists only for the three that DO have one.
+--
+-- Place.isRace() rather than checking the round phase: on a race place,
+-- Match.isDriving already gates when items are live at all (off between
+-- rounds), so nothing here needs to re-ask that question — asking twice
+-- is how the two answers start disagreeing.
+local function inARace(): boolean
+	return Place.isRace()
+end
+
 function Progress.hit(player: Player?, takedown: boolean)
-	if not player then
+	if not player or not inARace() then
 		return
 	end
 	-- ONE COUNTER, NOT TWO. These used to increment a named field AND a
@@ -205,7 +228,7 @@ end
 -- Knocked somebody into the void. A tally and an award — the victim is
 -- respawning at their last checkpoint while this is being counted.
 function Progress.eliminated(player: Player?)
-	if not player then
+	if not player or not inARace() then
 		return
 	end
 	Progress.count(player, "eliminations")
@@ -364,7 +387,9 @@ end
 local applied: { [number]: any } = {}
 
 function Progress.report(player: Player?, batch)
-	if not player or typeof(batch) ~= "table" then
+	-- See inARace() above: driving stats are earned in a race, not
+	-- practised in the lobby, even though Tally keeps counting there.
+	if not player or typeof(batch) ~= "table" or not inARace() then
 		return
 	end
 
