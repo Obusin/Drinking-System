@@ -799,21 +799,31 @@ function Simulation:Step(dt: number, input): { [string]: any }
 	-- our own radius and we are inside nothing — an arch's opening, or
 	-- the vast empty middle of a track's bounding box — and there is
 	-- nothing to push out of.
-	local hullRadius = self.hitbox.Size.Magnitude * 0.5
-
+	-- INSIDE, OR NOT AT ALL.
+	--
+	-- Being NEAR a surface is not being stuck in one. An earlier version
+	-- pushed whenever the nearest surface was within the kart's own hull
+	-- radius, which sounds conservative and is not: a decomposed road is
+	-- a chain of hulls, so on any bend there is a hull seam a couple of
+	-- studs to the side of the kart, and its nearest face is a lateral
+	-- one. That fired the 55 studs/s push sideways while driving along
+	-- perfectly good road.
+	--
+	-- The only state this block exists to escape is the kart's own
+	-- centre ending up INSIDE geometry, where a Blockcast starts
+	-- overlapping and returns nothing, and the kart would otherwise pass
+	-- through walls forever. Roblox returns the input point unchanged
+	-- from GetClosestPointOnSurface in exactly that case, which makes it
+	-- a precise test rather than a distance guess.
 	local overlaps = workspace:GetPartBoundsInBox(sweepFrame(), castSize, self.overlapParams)
 	for _, part in overlaps do
 		local surface = part:GetClosestPointOnSurface(self.pos)
-		local toSurface = (surface - self.pos).Magnitude
+		local inside = (surface - self.pos).Magnitude < 1e-3
 
-		-- Roblox returns the input point unchanged when it is genuinely
-		-- INSIDE the part — the stuck-in-a-wall case this block exists
-		-- for, and the one case where the centre really is the best
-		-- available guess at "which way is out".
-		local inside = toSurface < 1e-3
-
-		if inside or toSurface <= hullRadius then
-			local away = if inside then self.pos - part.Position else self.pos - surface
+		if inside then
+			-- No surface point to push from, so the centre is the best
+			-- available guess at "which way is out".
+			local away = self.pos - part.Position
 			away -= self.up * away:Dot(self.up) -- stay in the surface plane
 			if away.Magnitude > 1e-3 then
 				self.pos += away.Unit * H.Depenetrate * dt
@@ -999,8 +1009,23 @@ function Simulation:Step(dt: number, input): { [string]: any }
 			-- Only the small stuff is eased. Landing and genuine steps
 			-- stay immediate, and so does anything while airborne, or the
 			-- kart would sink through the road on touchdown.
+			-- UP IS EASED. DOWN IS NEVER EASED.
+			--
+			-- Easing both ways was wrong and made downhills worse than
+			-- doing nothing. On any descent the ground drops away a
+			-- little every frame, so the correction is permanently
+			-- NEGATIVE — easing it leaves the kart hovering, the gap
+			-- grows until it exceeds GroundSmooth, then it snaps. Hover,
+			-- snap, hover, snap. At 95 studs/s even a 5° slope drops
+			-- 0.14 studs a frame, comfortably inside the easing window,
+			-- so every downhill in the game oscillated.
+			--
+			-- Only spurious LIFT needs filtering: a facet edge or a hull
+			-- seam that reads high for a frame. Following the road
+			-- downward is not noise, it is the road, and gravity should
+			-- never be argued with.
 			local correction = highest + H.RideHeight
-			if self.wasGrounded and math.abs(correction) <= H.GroundSmooth then
+			if self.wasGrounded and correction > 0 and correction <= H.GroundSmooth then
 				correction *= math.min(H.GroundSmoothRate * dt, 1)
 			end
 

@@ -724,6 +724,57 @@ In rough order of effort against payoff:
 
 ---
 
+# 21. FIXED 2026-08-02 — two of my own fixes were the remaining bugs
+
+The track's decomposition was rebuilt with thickness and segmentation
+and came back clean — hulls hugging the ribbon segment by segment. With
+the content side genuinely good, everything still wrong on bends and
+descents was code, and both causes were introduced by earlier fixes in
+this same run.
+
+## The downhill oscillation was #19's smoothing
+
+#19 eased ground corrections under `GroundSmooth` to damp facet noise,
+and eased them in BOTH directions. On any descent the ground drops away
+a little every frame, so the correction is permanently negative — easing
+it left the kart hovering, the gap grew until it passed the threshold,
+then it snapped. Hover, snap, hover, snap, for the whole slope.
+
+At 95 studs/s even a **5° slope drops 0.14 studs per frame**, and the
+window was 0.75 — so every descent in the game oscillated. #19 made
+downhills worse than doing nothing.
+
+Easing is now UPWARD only. Spurious lift is the noise worth filtering; a
+road going down is not noise, it is the road.
+
+## The bend push was #20's hull radius
+
+#18/#20 gated depenetration on the nearest surface being within the
+kart's own hull radius. That sounds conservative and is not. A decomposed
+road is a CHAIN of hulls, so on any bend there is a seam a couple of
+studs to the side and its nearest face is lateral — firing the 55
+studs/s push sideways while driving along good road.
+
+Now it pushes only when the kart's centre is genuinely INSIDE a part,
+which is the one state the block exists to escape (a `Blockcast` that
+starts overlapping returns nothing, and the kart passes through walls
+from then on). `GetClosestPointOnSurface` returning the input point is a
+precise test for exactly that, rather than a distance guess.
+
+## The pattern
+
+Three fixes in a row, each of which silenced the case in front of it and
+created or left another: direction without asking whether to push at all
+(#18), then a radius that fired on seams (#20), then symmetric easing
+that broke descents (#19). This is FINDINGS' *"two reasoned fixes in a
+row that don't land means stop reasoning"* — the signal was there after
+#19 and was not acted on until the numbers were actually computed.
+
+**Compute the failure before shipping the fix.** One line of arithmetic
+against a 5° slope would have caught #19 before it ever went in.
+
+---
+
 # WATCH — recently fixed, unproven
 
 Each of these has run for at most one session. If something in this area
