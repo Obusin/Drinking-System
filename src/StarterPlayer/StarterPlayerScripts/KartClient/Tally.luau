@@ -36,6 +36,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local BloxKart = ReplicatedStorage:WaitForChild("BloxKart")
 local Config = require(BloxKart:WaitForChild("Config"))
 local Names = require(BloxKart:WaitForChild("Names"))
+local Place = require(BloxKart:WaitForChild("Place"))
 
 local HANDLING = Config.Handling
 
@@ -58,7 +59,17 @@ function Tally:Reset()
 	self.finalised = false
 end
 
+-- THE SERVER STOPPED BANKING THESE IN A LOBBY (Progress.report gates on
+-- Place.isRace()). Counting them here anyway was a display bug, not a
+-- currency one — but a real one: the quest bar rose while drifting in
+-- the practice ring, then snapped back the next time the server's real
+-- total arrived, because nothing was ever actually earned. Presentation
+-- must default to correct, so the count itself stops here rather than
+-- reaching the panel and being wrong for a while.
 function Tally:Add(metric: string, by: number?)
+	if not Place.isRace() then
+		return
+	end
 	self.n[metric] = (self.n[metric] or 0) + (by or 1)
 end
 

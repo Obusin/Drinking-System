@@ -490,6 +490,27 @@ one rule for all three entry points, not a per-metric one.
 
 ---
 
+# 16b. FIXED 2026-08-02 — #16 closed the bank, not the display
+
+Reported directly: drift progress still visibly climbed in the lobby
+after #16 shipped. Correct — #16 gated the SERVER's book-keeping
+(`Progress.report`), and never touched the CLIENT's own count.
+
+`Tally:Add` was unconditional. Drifting in the lobby still incremented
+`self.n.driftSeconds` locally; `Flush()` still sent the delta, marked it
+`sent` regardless of whether the server did anything with it, and held
+the bar up via `unacked` until the next quest sync. The number was real
+on screen and fictional everywhere else — it would have sat there
+until the next server push quietly took it back, which reads as a
+scam-y bug rather than a rejected report.
+
+`Tally:Add` now gates on the same `Place.isRace()` the server checks, so
+the count never starts and the bar never moves in the first place. One
+line, and it is the client half of "presentation must default to
+correct" — a number should not be shown before it is true.
+
+---
+
 # WATCH — recently fixed, unproven
 
 Each of these has run for at most one session. If something in this area
