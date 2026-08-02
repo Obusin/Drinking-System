@@ -768,9 +768,42 @@ function Simulation:Step(dt: number, input): { [string]: any }
 	-- begins inside geometry returns nothing, so a single frame of
 	-- penetration would otherwise let the kart move through walls freely
 	-- from then on. Drifting into a wall is the usual way in.
+	--
+	-- THE DIRECTION COMES FROM THE SURFACE, NOT FROM part.Position.
+	--
+	-- GetPartBoundsInBox is BROAD-phase: it returns anything whose
+	-- BOUNDING BOX overlaps, not anything actually touching. That is
+	-- fine as a filter, and was survivable while every road was a small
+	-- part — the part under the kart had its centre directly below, so
+	-- `away` came out near-parallel to `up`, flattened to nothing, and
+	-- no push happened.
+	--
+	-- One-piece meshed roads broke that silently and completely. A whole
+	-- track exported from Blender is ONE MeshPart whose bounding box
+	-- spans the entire layout, so it overlaps every frame no matter
+	-- where the kart is, and its `Position` is the centre of that box —
+	-- a point in mid-air somewhere inside the circuit. `away` became a
+	-- long horizontal vector pointing from the middle of the track out
+	-- to the kart, and the kart got shoved along it at Depenetrate
+	-- (55 studs/s) for as long as it was on the road. That is the
+	-- "it literally slides off" report, and it had nothing to do with
+	-- normals, CollisionFidelity or the mesh itself.
+	--
+	-- The closest point ON THE SURFACE is the honest answer to "which
+	-- way is out of this thing". Standing on a road it sits directly
+	-- underfoot, so `away` is vertical and flattens to zero exactly as
+	-- the small-part case used to — by geometry now rather than by
+	-- luck, and at any part size.
 	local overlaps = workspace:GetPartBoundsInBox(sweepFrame(), castSize, self.overlapParams)
 	for _, part in overlaps do
-		local away = self.pos - part.Position
+		local surface = part:GetClosestPointOnSurface(self.pos)
+		-- Roblox returns the input point unchanged when it is INSIDE the
+		-- part, which is precisely the stuck-in-a-wall case this whole
+		-- block exists for — and the one case where the centre really is
+		-- the best available guess at "out".
+		local inside = (surface - self.pos).Magnitude < 1e-3
+		local away = if inside then self.pos - part.Position else self.pos - surface
+
 		away -= self.up * away:Dot(self.up) -- stay in the surface plane
 		if away.Magnitude > 1e-3 then
 			self.pos += away.Unit * H.Depenetrate * dt

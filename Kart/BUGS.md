@@ -543,6 +543,62 @@ attribute belonged.
 
 ---
 
+# 18. FIXED 2026-08-02 — one-piece meshed roads slid the kart off sideways
+
+Reported as "the road was parts before, now I build them in Blender and
+the kart slides off." Not normals, not `CollisionFidelity`, not the
+mesh — a latent bug in the depenetration step that only ever surfaces
+when a road is a single large part.
+
+`Simulation` section 6 pushed the kart out of anything it was already
+overlapping, because a `Blockcast` starting inside geometry returns
+nothing and one frame of penetration would otherwise let the kart pass
+through walls forever. The push direction was `self.pos - part.Position`.
+
+**`GetPartBoundsInBox` is broad-phase.** It returns anything whose
+BOUNDING BOX overlaps. That was survivable while every road was a small
+part: the part beneath the kart had its centre directly below, so `away`
+came out near-parallel to `up`, flattened to nothing by the
+surface-plane projection, and failed the `> 1e-3` test. **No push ever
+happened — by luck, not by design.**
+
+A whole track exported from Blender is ONE MeshPart whose bounding box
+spans the entire circuit, so it overlaps every single frame regardless
+of where the kart is, and its `Position` is the centre of that box — a
+point in mid-air inside the layout. `away` became a long horizontal
+vector from the middle of the track out to the kart, normalised, times
+`Depenetrate` = **55 studs/s**, applied every frame. Against a
+`MaxSpeed` of 95 that is an enormous constant sideways shove, always
+pointing outward. Exactly "it literally slides off", and perfectly
+consistent rather than intermittent — which is why it never looked like
+a normals problem.
+
+Fixed by taking the direction from `part:GetClosestPointOnSurface`
+instead of the centre. On a road that point is directly underfoot, so
+`away` is vertical and flattens to zero — the same outcome the
+small-part case got, now by geometry at any part size rather than by
+accident at one. Roblox returns the input point unchanged when it is
+genuinely INSIDE a part, which is the stuck-in-a-wall case this block
+exists for, so that branch still falls back to the centre.
+
+## Why the first two guesses were wrong, and what to learn
+
+Inverted mesh normals and a missing `TrackSurface` tag were both
+plausible, both cheap to check, and both wrong. The tell that should
+have redirected sooner: **"parts worked, one mesh doesn't" is a
+statement about PART COUNT AND SIZE, not about mesh data.** A normals
+problem would break a mesh road built from ten pieces just as readily
+as one built from one. The thing that actually changed was that a
+single part's bounding box now covered the whole map.
+
+Also worth stating plainly: `CollisionFidelity` genuinely does affect
+raycasts — it determines the collision geometry rays hit, and an
+earlier answer here that said it "doesn't matter at all" was wrong in
+general. It happened not to matter for THIS bug, because the culprit
+was a bounds query that ignores collision geometry entirely.
+
+---
+
 # WATCH — recently fixed, unproven
 
 Each of these has run for at most one session. If something in this area
