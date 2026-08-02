@@ -667,6 +667,63 @@ fire.
 
 ---
 
+# 20. PARTLY FIXED, PARTLY A CONTENT PROBLEM — convex decomposition at
+
+  pinch points and forks
+
+Follow-on from #18 and #19. Reported with a screenshot of Studio's
+decomposition view: at forks, pinch points and tight bends, the
+collision hulls are large angular slabs that **do not follow the road at
+all**, bulging above and beside the visible surface.
+
+`PreciseConvexDecomposition` approximates a mesh with CONVEX pieces.
+A road is a long, thin, concave ribbon — close to the worst possible
+input. Where the road narrows, forks or bends tightly, the decomposer
+spans the concavity with a hull that covers the gap, so the kart's
+probes hit geometry that is nowhere near the visible tarmac.
+
+**No controller change can fully fix this.** The raycasts are hitting
+exactly what Roblox told them is there. If a hull sits a stud above the
+road, the kart rides a stud above the road, correctly.
+
+## What was fixed in code
+
+A single bulging hull under ONE SIDE probe used to promote itself as a
+step and yank the whole kart up onto it for a frame, then drop it. Step
+promotion is now restricted to probes in the direction of travel:
+climbing something you are driving INTO is a step; something higher
+beside you is a kerb you are passing, or a lump.
+
+Measured against `travel` rather than `forward`, so it still works in
+reverse and mid-drift. On flat parts this changes nothing — the ground
+under all five probes was the same slab.
+
+## What has to be fixed in the content
+
+In rough order of effort against payoff:
+
+1. **Give the road real thickness.** A near-zero-thickness ribbon
+   decomposes terribly. A slab with a couple of studs of depth gives the
+   decomposer something convex to work with and fixes most of this on
+   its own.
+2. **Split the track into several meshes.** Still meshes, not parts —
+   decomposition quality collapses with mesh size and complexity, and
+   6–10 road segments decompose far better than one circuit. Split at
+   natural breaks; forks especially want to be their own piece.
+3. **Separate the collision surface from the art**, which is the real
+   answer and the one this codebase's own philosophy already points at.
+   The visual road gets `CanQuery = false` and becomes purely art; a
+   simplified, thicker, invisible mesh underneath carries
+   `CanQuery = true` and is what the kart actually drives on.
+
+   **This needs no code change.** A part with `CanQuery = false` is
+   already invisible to every raycast the controller makes, and the
+   proxy is picked up automatically. It is the same rule the kart itself
+   follows — `Simulation` reads the `Hitbox`, never the art — applied to
+   the track.
+
+---
+
 # WATCH — recently fixed, unproven
 
 Each of these has run for at most one session. If something in this area

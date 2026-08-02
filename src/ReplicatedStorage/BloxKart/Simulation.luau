@@ -936,7 +936,27 @@ function Simulation:Step(dt: number, input): { [string]: any }
 				expected += -o.offset:Dot(centreNormal) / denom
 			end
 			local step = o.along - expected
-			if step > H.StepTolerance and o.along > highest and step <= H.StepHeight then
+			-- ONLY CLIMB WHAT WE ARE DRIVING INTO.
+			--
+			-- A step ahead is a step: the front probe sees the riser
+			-- before the kart reaches it, which is how stairs and ramp
+			-- lips get climbed. A probe to the SIDE reading higher is
+			-- not something we are climbing — it is a kerb we are
+			-- passing, or a lump in the collision geometry.
+			--
+			-- That distinction never mattered on parts, where the ground
+			-- under all five probes was the same flat slab. It matters a
+			-- great deal on a meshed road: convex decomposition bulges
+			-- above the real surface at pinch points and forks, and a
+			-- single bulging hull under one side probe used to yank the
+			-- whole kart up onto it for a frame, then drop it again.
+			--
+			-- Measured against `travel`, not `forward`, so this still
+			-- works in reverse and mid-drift, when the nose and the
+			-- direction of movement disagree.
+			local ahead = o.offset:Dot(self.travel) > 0
+
+			if ahead and step > H.StepTolerance and o.along > highest and step <= H.StepHeight then
 				highest, highestNormal = o.along, o.normal
 			end
 		end
