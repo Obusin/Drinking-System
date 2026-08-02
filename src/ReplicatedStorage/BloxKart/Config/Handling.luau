@@ -185,6 +185,24 @@ return {
 	ProbeSpread = 2.2, -- how far out the corner ground rays sit.
 	-- Multiple rays stop a single centre ray misreading a sharp ledge.
 
+	-- WHY A "SOLID-LOOKING" SURFACE STILL SLIDES A KART OFF IT.
+	--
+	-- The centre probe not only has to hit something, the hit's NORMAL
+	-- has to pass MaxSlopeDot above. A part with no CanQuery (or a stray
+	-- CollectionService tag WorldFilter excludes — see Race.SurfaceTag)
+	-- gives no hit at all; an imported mesh with inverted/backward
+	-- triangle winding gives a hit whose normal points the wrong way and
+	-- fails the dot check even though the surface looks flat. Both read
+	-- identically from the driver's seat: the kart falls through or
+	-- slides off something that looks perfectly solid.
+	--
+	-- ON, this prints — rate-limited — exactly which of the two it is,
+	-- and the instance it actually hit, the moment the centre probe
+	-- fails. OFF by default: it fires every rejected frame while
+	-- genuinely airborne over open track, which is normal and not worth
+	-- narrating.
+	GroundDebug = false,
+
 	--== SURFACE GRAVITY  (loops, walls, ceilings) =====================
 	-- "Down" is the track's surface normal, not the world's. Drive up a
 	-- loop and gravity rotates with you, which is why you can stop dead

@@ -841,7 +841,34 @@ function Simulation:Step(dt: number, input): { [string]: any }
 
 	for i, offset in offsets do
 		local probe = workspace:Raycast(self.pos + offset + probeLift, castDir, self.rayParams)
-		if probe and probe.Normal:Dot(self.up) > H.MaxSlopeDot then
+		local accepted = probe and probe.Normal:Dot(self.up) > H.MaxSlopeDot
+
+		-- See Config.Handling.GroundDebug. Centre probe only — it is
+		-- authoritative, and one line per failure is plenty.
+		if i == 1 and H.GroundDebug and not accepted then
+			-- Reuses Step's own `now` rather than a second os.clock() call
+			-- a few lines from the first one.
+			if now - (self.lastGroundLog or 0) > 0.5 then
+				self.lastGroundLog = now
+				if not probe then
+					warn(
+						"[Ground] centre probe: NO HIT under the kart. The surface either has "
+							.. "CanQuery off, carries a CollectionService tag WorldFilter excludes "
+							.. "(a trigger tag with no TrackSurface), or simply isn't there."
+					)
+				else
+					warn(
+						("[Ground] centre probe hit %s but REJECTED — normal . up = %.2f, needs > %.2f. "):format(
+							probe.Instance:GetFullName(),
+							probe.Normal:Dot(self.up),
+							H.MaxSlopeDot
+						) .. "Likely an imported mesh with inverted/backward triangle normals."
+					)
+				end
+			end
+		end
+
+		if accepted then
 			local along = (probe.Position - self.pos):Dot(self.up)
 			if i == 1 then
 				centreAlong, centreNormal = along, probe.Normal
