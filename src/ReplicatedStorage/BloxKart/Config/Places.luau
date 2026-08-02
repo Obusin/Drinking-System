@@ -74,7 +74,12 @@ return {
 		{
 			id = "track1",
 			name = "Track One",
-			placeId = 0,
+			-- Set 2026-08-02. DOUBLE-CHECK this against the URL of the
+			-- place before relying on it — QueueService's whole reason
+			-- for existing is that a wrong id here teleports players
+			-- into somewhere that is not this game, and there is no way
+			-- for the server to catch that on its own.
+			placeId = 92989234226051,
 			-- Per-track overrides. nil means "use Config.Race".
 			laps = nil,
 		},
