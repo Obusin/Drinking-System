@@ -25,11 +25,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TeleportService = game:GetService("TeleportService")
 
 local BloxKart = ReplicatedStorage:WaitForChild("BloxKart")
-local Config = require(BloxKart:WaitForChild("Config"))
 local Names = require(BloxKart:WaitForChild("Names"))
 local Place = require(BloxKart:WaitForChild("Place"))
-
-local LOBBY = Config.Lobby
 
 local QueueService = {}
 
