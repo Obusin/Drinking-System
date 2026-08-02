@@ -616,6 +616,57 @@ entirely.
 
 ---
 
+# 19. FIXED 2026-08-02 — curved meshes jittered because the ground snap
+
+  was instantaneous
+
+Follow-on from #18. With the depenetration bug fixed the kart stopped
+sliding off, but still "bugged out on certain curves or surfaces that
+are not flat."
+
+**A curved MeshPart is not smooth to a raycast.** Roblox builds
+collision geometry for a mesh out of convex hulls, so a road that looks
+perfectly smooth is a chain of flat FACETS underneath. Driving along it,
+consecutive frames hit different facets and read heights a few tenths of
+a stud apart.
+
+The ground snap put the kart at exactly `RideHeight` above whatever the
+centre probe hit, **every frame, instantly**:
+
+```lua
+self.pos += self.up * (highest + H.RideHeight)
+```
+
+On flat parts that number never moves, so an instant snap is invisible
+and correct — which is why this was never a problem before meshed
+roads. On a faceted curve it is a hard jolt at every facet boundary.
+
+Small corrections are now eased (`GroundSmooth`, `GroundSmoothRate`);
+large ones still snap, so landing and genuine step-climbing stay
+immediate rather than going floaty. Airborne frames are excluded via
+`wasGrounded` — easing a touchdown would sink the kart into the road.
+
+**This cannot be fixed in the model.** The faceting is in Roblox's
+collision build, not the mesh, so no amount of care in Blender removes
+it. The controller has to tolerate a noisy ground signal.
+
+## Checked and ruled out: curvature reading as a STEP
+
+The step-detection logic promotes an outer probe that sits above the
+centre probe's own tangent plane. Curvature does deviate from that
+plane, so this was the other candidate — but the numbers say it only
+fires on very tight curvature:
+
+    deviation ≈ ProbeSpread² / 2R  =  4.84 / 2R
+
+Against `StepTolerance = 0.35`, that needs **R < 6.9 studs** to trigger.
+Normal road curvature is far gentler, so the step logic is innocent for
+this report and was left alone. Worth keeping in mind for genuinely
+tight concave geometry — a sharp valley or gutter — where it WOULD
+fire.
+
+---
+
 # WATCH — recently fixed, unproven
 
 Each of these has run for at most one session. If something in this area

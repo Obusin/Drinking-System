@@ -244,6 +244,30 @@ return {
 	-- climbed by the ground snap. THIS is what stops sharp ledges and
 	-- ramp lips halting the kart dead.
 
+	--== RIDING A SURFACE THAT ISN'T FLAT ==============================
+	-- The ground snap puts the kart exactly RideHeight above whatever
+	-- the centre probe hit, every frame. On flat parts that number never
+	-- moves, so an instant snap is invisible and correct.
+	--
+	-- A CURVED MESH IS NOT SMOOTH TO A RAYCAST. Roblox builds collision
+	-- geometry for a MeshPart out of convex hulls, so a road that looks
+	-- perfectly smooth is a chain of flat FACETS underneath. Driving
+	-- along it, consecutive frames hit different facets and get slightly
+	-- different heights and normals — and an instant snap turns that
+	-- into a hard jolt every facet boundary. That is the "bendy surfaces
+	-- are buggy" symptom, and no amount of mesh care removes it: the
+	-- faceting is in the collision build, not the model.
+	--
+	-- So SMALL height corrections are eased instead of snapped. Large
+	-- ones are not — landing, and climbing a genuine step, still want to
+	-- be immediate, and easing those would feel floaty.
+	GroundSmooth = 0.75, -- corrections up to this many studs are eased.
+	-- Roughly facet-noise sized. Raise if a curved road still jitters;
+	-- lower if the kart feels like it floats over small bumps.
+	GroundSmoothRate = 18, -- how fast an eased correction is applied.
+	-- Very high is the same as no smoothing at all, which is what this
+	-- did before and is still correct for a track built from parts.
+
 	--== INTEGRATION ===================================================
 	MaxTimestep = 1 / 20, -- never integrate a bigger frame than this
 }

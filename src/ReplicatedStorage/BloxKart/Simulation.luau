@@ -967,7 +967,24 @@ function Simulation:Step(dt: number, input): { [string]: any }
 		local gap = -highest - H.RideHeight
 		local allowed = if gap < 0 then H.GroundSnapUp else H.GroundSnap
 		if self.vertVel <= 0 and gap <= allowed then
-			self.pos += self.up * (highest + H.RideHeight)
+			-- EASE SMALL CORRECTIONS, SNAP BIG ONES.
+			--
+			-- Flat parts report the same height every frame, so snapping
+			-- straight to it is invisible. A curved MeshPart does not: its
+			-- collision geometry is a chain of convex facets, so
+			-- consecutive frames land on different facets and read heights
+			-- a few tenths apart. Snapping to that is a jolt per facet
+			-- boundary — the "bendy surfaces are buggy" symptom.
+			--
+			-- Only the small stuff is eased. Landing and genuine steps
+			-- stay immediate, and so does anything while airborne, or the
+			-- kart would sink through the road on touchdown.
+			local correction = highest + H.RideHeight
+			if self.wasGrounded and math.abs(correction) <= H.GroundSmooth then
+				correction *= math.min(H.GroundSmoothRate * dt, 1)
+			end
+
+			self.pos += self.up * correction
 			self.vertVel = 0
 			self.grounded = true
 			self.normal = surfaceNormal
