@@ -543,59 +543,76 @@ attribute belonged.
 
 ---
 
-# 18. FIXED 2026-08-02 — one-piece meshed roads slid the kart off sideways
+# 18. FIXED 2026-08-02 — depenetration trusted a BOUNDS test
 
-Reported as "the road was parts before, now I build them in Blender and
-the kart slides off." Not normals, not `CollisionFidelity`, not the
-mesh — a latent bug in the depenetration step that only ever surfaces
-when a road is a single large part.
+Two reports, one cause: a kart on a one-piece Blender road slid sideways
+off it, and a kart passing under an arch "bugged out". Neither had
+anything to do with normals, `CollisionFidelity` or the meshes.
 
-`Simulation` section 6 pushed the kart out of anything it was already
-overlapping, because a `Blockcast` starting inside geometry returns
-nothing and one frame of penetration would otherwise let the kart pass
-through walls forever. The push direction was `self.pos - part.Position`.
+`Simulation` section 6 pushes the kart out of anything it is already
+inside, because a `Blockcast` starting inside geometry returns nothing
+and one frame of penetration would let the kart pass through walls
+forever. It found candidates with `GetPartBoundsInBox` and pushed away
+from `part.Position`.
 
 **`GetPartBoundsInBox` is broad-phase.** It returns anything whose
-BOUNDING BOX overlaps. That was survivable while every road was a small
-part: the part beneath the kart had its centre directly below, so `away`
-came out near-parallel to `up`, flattened to nothing by the
-surface-plane projection, and failed the `> 1e-3` test. **No push ever
-happened — by luck, not by design.**
+BOUNDING BOX overlaps — not anything touching. Treating that as final
+was survivable only while every road was a small part: the part beneath
+the kart had its centre directly below, so `away` came out
+near-parallel to `up`, flattened to nothing by the surface-plane
+projection, and failed the `> 1e-3` test. **No push ever happened — by
+luck, not by design.**
 
-A whole track exported from Blender is ONE MeshPart whose bounding box
-spans the entire circuit, so it overlaps every single frame regardless
-of where the kart is, and its `Position` is the centre of that box — a
-point in mid-air inside the layout. `away` became a long horizontal
-vector from the middle of the track out to the kart, normalised, times
-`Depenetrate` = **55 studs/s**, applied every frame. Against a
-`MaxSpeed` of 95 that is an enormous constant sideways shove, always
-pointing outward. Exactly "it literally slides off", and perfectly
-consistent rather than intermittent — which is why it never looked like
-a normals problem.
+Two kinds of authored geometry break that luck, and each produces a
+different-looking symptom:
 
-Fixed by taking the direction from `part:GetClosestPointOnSurface`
-instead of the centre. On a road that point is directly underfoot, so
-`away` is vertical and flattens to zero — the same outcome the
-small-part case got, now by geometry at any part size rather than by
-accident at one. Roblox returns the input point unchanged when it is
-genuinely INSIDE a part, which is the stuck-in-a-wall case this block
-exists for, so that branch still falls back to the centre.
+- **A one-piece meshed road.** One MeshPart whose bounding box spans
+  the whole circuit, overlapping every frame wherever the kart is, with
+  a `Position` in mid-air inside the layout. `away` became a long
+  horizontal vector from track-centre outward, normalised, times
+  `Depenetrate` = **55 studs/s** — against a `MaxSpeed` of 95. Constant,
+  outward, every frame: "it literally slides off."
+- **An arch, tunnel or gateway.** Anything you drive *through* has a
+  bounding box covering its opening, so the kart is "overlapping" the
+  entire time it passes under while touching nothing at all. A shove
+  out of thin air, which is the "bugs out going through an arch".
 
-## Why the first two guesses were wrong, and what to learn
+Fixed by demoting the bounds query to what it actually is — a filter —
+and asking the geometry the real question:
+`part:GetClosestPointOnSurface(self.pos)`. If the nearest actual
+surface is further away than the kart's own hull radius, there is
+nothing to be inside of (an arch's opening, the empty middle of a
+track's bounding box) and nothing happens. Roblox returns the input
+point unchanged when genuinely inside a part, which is the
+stuck-in-a-wall case this block exists for, so that branch still falls
+back to the centre and wall recovery is unchanged.
 
-Inverted mesh normals and a missing `TrackSurface` tag were both
-plausible, both cheap to check, and both wrong. The tell that should
-have redirected sooner: **"parts worked, one mesh doesn't" is a
-statement about PART COUNT AND SIZE, not about mesh data.** A normals
-problem would break a mesh road built from ten pieces just as readily
-as one built from one. The thing that actually changed was that a
-single part's bounding box now covered the whole map.
+## What to learn from how long this took
 
-Also worth stating plainly: `CollisionFidelity` genuinely does affect
-raycasts — it determines the collision geometry rays hit, and an
-earlier answer here that said it "doesn't matter at all" was wrong in
-general. It happened not to matter for THIS bug, because the culprit
-was a bounds query that ignores collision geometry entirely.
+Three wrong guesses came first — inverted mesh normals, a missing
+`TrackSurface` tag, and then a partial fix that corrected the push
+DIRECTION without questioning whether there should be a push at all.
+The partial fix silenced the road case (surface underfoot → vertical →
+flattens to zero) while leaving the arch case fully broken, which would
+have read as "fixed one thing, broke another."
+
+The tell, available from the first report and not acted on: **"parts
+worked, one mesh doesn't" is a statement about part COUNT AND SIZE, not
+about mesh data.** Inverted normals would break a ten-piece mesh road
+exactly as readily as a one-piece one. The only thing that actually
+changed was that a single part's bounding box now covered the map.
+
+And the second tell, which arrived with the arch: **a symptom that
+appears both when standing ON something and when passing THROUGH a hole
+in something is not about surfaces at all — it is about a volume test.**
+Two failures that different sharing one cause means looking for what
+they have in common, not fixing them separately.
+
+Also worth stating plainly, since an earlier answer here got it wrong:
+`CollisionFidelity` genuinely does affect raycasts — it determines the
+collision geometry rays hit. It simply had no bearing on this bug,
+because the culprit was a bounds query that ignores collision geometry
+entirely.
 
 ---
 

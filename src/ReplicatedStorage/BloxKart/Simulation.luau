@@ -764,49 +764,60 @@ function Simulation:Step(dt: number, input): { [string]: any }
 		)
 	end
 
-	-- Push out of anything we're already overlapping. A Blockcast that
-	-- begins inside geometry returns nothing, so a single frame of
-	-- penetration would otherwise let the kart move through walls freely
-	-- from then on. Drifting into a wall is the usual way in.
+	-- Push out of anything we're already INSIDE. A Blockcast that begins
+	-- inside geometry returns nothing, so a single frame of penetration
+	-- would otherwise let the kart move through walls freely from then
+	-- on. Drifting into a wall is the usual way in.
 	--
-	-- THE DIRECTION COMES FROM THE SURFACE, NOT FROM part.Position.
+	-- BOUNDS SAY "MAYBE". GEOMETRY HAS TO SAY "YES".
 	--
 	-- GetPartBoundsInBox is BROAD-phase: it returns anything whose
-	-- BOUNDING BOX overlaps, not anything actually touching. That is
-	-- fine as a filter, and was survivable while every road was a small
-	-- part — the part under the kart had its centre directly below, so
-	-- `away` came out near-parallel to `up`, flattened to nothing, and
-	-- no push happened.
+	-- BOUNDING BOX overlaps, which is not the same as touching. Treating
+	-- that answer as final was survivable only while every road was a
+	-- small part — the part under the kart had its centre directly
+	-- below, so `away` came out near-parallel to `up`, flattened to
+	-- nothing, and no push happened. That was luck, not design, and two
+	-- kinds of authored geometry break it:
 	--
-	-- One-piece meshed roads broke that silently and completely. A whole
-	-- track exported from Blender is ONE MeshPart whose bounding box
-	-- spans the entire layout, so it overlaps every frame no matter
-	-- where the kart is, and its `Position` is the centre of that box —
-	-- a point in mid-air somewhere inside the circuit. `away` became a
-	-- long horizontal vector pointing from the middle of the track out
-	-- to the kart, and the kart got shoved along it at Depenetrate
-	-- (55 studs/s) for as long as it was on the road. That is the
-	-- "it literally slides off" report, and it had nothing to do with
-	-- normals, CollisionFidelity or the mesh itself.
+	--   A ONE-PIECE MESHED ROAD. A track exported whole from Blender is
+	--   one MeshPart whose bounding box spans the entire circuit, so it
+	--   overlaps every frame wherever the kart is. Pushing away from its
+	--   `Position` — the centre of that box, a point in mid-air inside
+	--   the layout — shoved the kart outward at Depenetrate (55 studs/s)
+	--   for as long as it was on the road. "It literally slides off."
 	--
-	-- The closest point ON THE SURFACE is the honest answer to "which
-	-- way is out of this thing". Standing on a road it sits directly
-	-- underfoot, so `away` is vertical and flattens to zero exactly as
-	-- the small-part case used to — by geometry now rather than by
-	-- luck, and at any part size.
+	--   AN ARCH, A TUNNEL, A GATEWAY. Anything you drive THROUGH has a
+	--   bounding box covering its opening, so the kart is "overlapping"
+	--   the whole time it is passing under, while touching nothing at
+	--   all. Any push here is a shove out of thin air.
+	--
+	-- Neither has anything to do with normals, CollisionFidelity or the
+	-- mesh itself. Both are this block believing a bounds test.
+	--
+	-- So the bounds query is now only a FILTER, and the real question is
+	-- asked of the geometry: how far is the nearest actual surface? Past
+	-- our own radius and we are inside nothing — an arch's opening, or
+	-- the vast empty middle of a track's bounding box — and there is
+	-- nothing to push out of.
+	local hullRadius = self.hitbox.Size.Magnitude * 0.5
+
 	local overlaps = workspace:GetPartBoundsInBox(sweepFrame(), castSize, self.overlapParams)
 	for _, part in overlaps do
 		local surface = part:GetClosestPointOnSurface(self.pos)
-		-- Roblox returns the input point unchanged when it is INSIDE the
-		-- part, which is precisely the stuck-in-a-wall case this whole
-		-- block exists for — and the one case where the centre really is
-		-- the best available guess at "out".
-		local inside = (surface - self.pos).Magnitude < 1e-3
-		local away = if inside then self.pos - part.Position else self.pos - surface
+		local toSurface = (surface - self.pos).Magnitude
 
-		away -= self.up * away:Dot(self.up) -- stay in the surface plane
-		if away.Magnitude > 1e-3 then
-			self.pos += away.Unit * H.Depenetrate * dt
+		-- Roblox returns the input point unchanged when it is genuinely
+		-- INSIDE the part — the stuck-in-a-wall case this block exists
+		-- for, and the one case where the centre really is the best
+		-- available guess at "which way is out".
+		local inside = toSurface < 1e-3
+
+		if inside or toSurface <= hullRadius then
+			local away = if inside then self.pos - part.Position else self.pos - surface
+			away -= self.up * away:Dot(self.up) -- stay in the surface plane
+			if away.Magnitude > 1e-3 then
+				self.pos += away.Unit * H.Depenetrate * dt
+			end
 		end
 	end
 
