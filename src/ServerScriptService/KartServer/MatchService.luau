@@ -593,11 +593,23 @@ function MatchService.start()
 	reward.Parent = BloxKart
 	MatchService.reward = reward
 
-	finishRemote.OnServerEvent:Connect(function(player, totalTime)
-		if typeof(totalTime) ~= "number" or totalTime ~= totalTime or totalTime < 0 then
-			return -- NaN, negative, or not a number at all
+	-- THE FINISH TIME IS NEVER THE CLIENT'S NUMBER.
+	--
+	-- The remote used to accept `totalTime` as sent and validate only
+	-- that it was a real, non-negative number — which a modified client
+	-- can produce trivially, and with persistence live (Config.Data),
+	-- what it produces is banked. See Kart/SECURITY.md #4.1.
+	--
+	-- The fix is not validation, it is not asking: the client's payload
+	-- is ignored, and the server computes elapsed time itself from the
+	-- moment THIS ROUND entered Racing. That is a number nobody but the
+	-- server has ever touched.
+	finishRemote.OnServerEvent:Connect(function(player)
+		local since = MatchService.racingSince()
+		if not since then
+			return -- a finish claimed outside Racing is not a finish
 		end
-		recordFinish(player, totalTime)
+		recordFinish(player, workspace:GetServerTimeNow() - since)
 	end)
 
 	readyRemote.OnServerEvent:Connect(function(player)

@@ -122,18 +122,47 @@ RemoteEvent with plausible arguments.
 
 # 4. The fixes, in order of value per line
 
-## 4.1 The server owns the finish clock
+## 4.1 The server owns the finish clock — DONE 2026-08-02
 
-`MatchService.racingSince()` already exists and returns when Racing
-began. The finish handler currently accepts `totalTime` from the client
-and checks only that it is a non-negative number.
+`MatchService.racingSince()` returns when Racing began. The finish
+handler no longer receives a time from the client at all — the argument
+was dropped from both ends, not just ignored — and computes elapsed
+time itself: `workspace:GetServerTimeNow() - racingSince()`.
 
-Take the time from the server instead of the client. A client-supplied
-time should not be validated — it should not be *received*.
+This was found urgent rather than merely overdue: `Config.Data.Enabled`
+went on 2026-08-01, so from that date until this fix, every finish
+banked a real, persisted reward from a client-chosen number. The
+`Progress.luau` header comment claimed persistence didn't exist yet and
+was itself stale by the same margin — fixed alongside this.
 
-**~10 lines.** By the doctrine's own closing rule — *if changing a value
-would benefit the player, the client should never be the one deciding
-it* — this is the single worst violation in the game.
+## 4.1b Found while fixing 4.1 — a finish is never checked against the
+
+  race at all
+
+The clock fix closes *how fast*. It does not touch *whether you raced*.
+`finishKart` requires only that the phase is Racing and this kart has
+not already finished — nothing ties a finish claim to lap or checkpoint
+progress. A client can fire the finish remote the instant Racing starts
+and claim first place, full XP and full Bolt, having driven zero studs.
+
+The data to check this already exists: `Standings.ATTRIBUTE` is a
+replicated progress score (`laps * 1e6 + checkpoints * 1e3 + fraction`),
+so "has this kart actually finished" is `score >= TotalLaps * 1e6`
+within some tolerance.
+
+**Not fixed here, deliberately.** The score is itself client-reported
+(Standings' own header says so plainly: *"the server isn't validating
+times yet… it's the seam where that validation goes"*), the relay can
+lag a frame or two behind an actual crossing, and a tolerance picked
+without playtesting risks silently rejecting a legitimate finish — which
+is worse than the exploit, because it fails quietly and looks like the
+finish line stopped working. That shape — a fix that cannot be verified
+without playing it — is exactly what FINDINGS calls out under *"two
+reasoned fixes in a row that don't land means stop reasoning."* This one
+needs a lap actually driven and watched before it ships.
+
+**Order:** land this gated behind a generous tolerance, confirm a normal
+finish still registers over several real races, then tighten it.
 
 ## 4.2 Distance checks — one idea, three remotes
 

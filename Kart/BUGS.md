@@ -421,6 +421,45 @@ setup wants anyway.
 
 ---
 
+# 14. FIXED 2026-08-02 — the finish remote trusted the client's clock
+
+Was: `finishRemote.OnServerEvent:Connect(function(player, totalTime) ...`
+— validated only that `totalTime` was a real non-negative number.
+`Config.Data.Enabled` went on 2026-08-01, so for a full day every finish
+banked a real, persisted reward from a number the client picked.
+
+Now the server computes elapsed time itself from
+`MatchService.racingSince()`. The client no longer sends a time at all —
+`finishRemote:FireServer()` with no argument — so there is nothing to
+forge.
+
+`Progress.luau`'s header comment claimed persistence did not exist yet,
+which was true the day it was written and false for the day this bug
+was live. Fixed alongside — see FINDINGS, "a comment asserting something
+is not evidence it is true."
+
+Full detail: `Kart/SECURITY.md` §4.1.
+
+# 15. OPEN, DELIBERATELY NOT FIXED — a finish is never checked against
+
+  actual race progress
+
+Found while fixing #14. The clock is now honest; whether the racer
+actually raced is not checked at all. `finishKart` requires only
+`phase == Racing` and "hasn't already finished" — nothing ties a finish
+claim to laps or checkpoints. A client can fire the finish remote at the
+green light and claim first place.
+
+The fix is bounded by data that already exists — `Standings.ATTRIBUTE`
+is a replicated progress score, and "actually finished" is roughly
+`score >= TotalLaps * 1e6`. Not shipped without playtesting: the score
+is itself client-reported and can lag a crossing by a frame or two, and
+a wrong tolerance rejects a legitimate finish silently, which is worse
+than the hole it closes. Land it behind a generous tolerance, watch
+several real races confirm cleanly, then tighten.
+
+---
+
 # WATCH — recently fixed, unproven
 
 Each of these has run for at most one session. If something in this area
@@ -501,5 +540,9 @@ the wrong table errored every frame. **`scripts/check.sh` now runs
    like the bots have gone mad.
 7. **#10 with the matchmaking work**, not before — the fix is the same
    fix, and doing it twice is Pattern 1 all over again.
-8. **The two trust seams**, then **the shop** — see the vault README.
-   Everything built earns currency and nothing spends it.
+8. **#15 next**, once there has been a chance to watch several real
+   finishes land clean under the #14 fix — the completion check needs
+   proof it will not reject a legitimate one.
+9. **The remaining trust seam** (upward progress-score jump, SECURITY.md
+   §4.4), then **the shop** — see the vault README. Everything built
+   earns currency and nothing spends it.

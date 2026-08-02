@@ -13,18 +13,25 @@
 	audit line, the caps and the idempotency have exactly one place to
 	live.
 
-	SESSION ONLY, AND IT SAYS SO
-	----------------------------
-	There is no persistence yet. XP lives in this table until the server
-	shuts down and then it is gone. That is deliberate rather than
-	unfinished: the two client-authoritative seams (finish time, upward
-	progress) are still open, so anything saved today would be saved
-	from numbers a modified client can choose. Storing it first and
-	securing it later means the first thing the store contains is the
-	exploit.
+	PERSISTENCE, AND WHAT IT WAS WAITING ON
+	----------------------------------------
+	This comment used to say there was no persistence yet, and that was
+	true right up until Config.Data.Enabled went on 2026-08-01 — after
+	which the comment kept saying it anyway. `entry()` below has always
+	read DataService.get(player) first and only fallen back to the
+	session table when there is no profile, so once persistence turned
+	on this file was writing through it whether the comment agreed or
+	not. Left uncorrected, it is exactly what FINDINGS calls "a comment
+	asserting something is not evidence it is true."
+
+	The seam it warned about — the finish remote trusting a client-sent
+	time — is closed as of the same day this comment was fixed: the
+	server now times a finish itself from when Racing began. The upward
+	progress-score jump is still open; see Kart/SECURITY.md #4.4.
 
 	`Rewards.Preview` drives the "not saved yet" line on the results
-	panel. Keep them honest together.
+	panel and should be flipped off once this is confirmed good under
+	real play. Keep them honest together.
 --]]
 
 local Players = game:GetService("Players")

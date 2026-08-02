@@ -259,11 +259,13 @@ function Match:Update(_dt: number, sim, race): { [string]: any }
 		end
 
 		-- Crossed the line for the last time. Reported once; the server
-		-- assigns the actual place.
+		-- assigns the place AND the time — it times the round itself
+		-- from when Racing began, so nothing about "how fast" is ever
+		-- taken from here. See Kart/SECURITY.md #4.1.
 		if race.finished and not self.reported then
 			self.reported = true
 			if self.finishRemote then
-				self.finishRemote:FireServer(race:TotalElapsed())
+				self.finishRemote:FireServer()
 			end
 			events.finished = true
 		end
