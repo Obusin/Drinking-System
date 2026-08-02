@@ -44,6 +44,15 @@ Names.RACER_NAME = "RacerName"
 
 Names.OWNER = "OwnerUserId"
 
+-- Where a freshly-called lobby kart belongs, as a CFrame attribute.
+-- NOT written by moving the part — see PlayerVehicleService for why a
+-- server-side PivotTo on a kart with a seated player loses to the
+-- client's own Simulation the instant it constructs, the same race
+-- assignGrid's own comment warns about for the starting grid. The
+-- client reads this once, on attach, and calls Simulation:RespawnAt —
+-- the same single door every other teleport in this game uses.
+Names.VEHICLE_SPAWN_CF = "VehicleSpawnCF"
+
 -- On a power-up box. Server-owned: set when collected, cleared when it
 -- respawns. Clients read it to avoid asking for a box already taken.
 Names.TAKEN = "Taken"

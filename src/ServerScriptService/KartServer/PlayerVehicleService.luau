@@ -169,13 +169,26 @@ local function onRequest(player: Player, action: unknown)
 		return
 	end
 
-	-- Put it where we decided, rather than wherever the build path left
-	-- it. The build is shared with the race path, which places karts on
-	-- a starting grid; the lobby's answer is "in front of you".
+	-- AN ATTRIBUTE, NOT A PIVOT.
 	--
-	-- Safe to move directly: it has not been seated yet from the
-	-- client's point of view, so nothing is fighting us for it.
-	kart:PivotTo(cf)
+	-- The first version called kart:PivotTo(cf) here, on the theory that
+	-- nothing was fighting for the part yet. Wrong: spawnFor also SEATS
+	-- the player, and seating changes the seat's Occupant, which fires
+	-- KartService's ownership hook synchronously — unanchoring the
+	-- hitbox and handing it to the player's NETWORK OWNERSHIP before this
+	-- line ever ran. A server PivotTo on a part owned that way is exactly
+	-- the race KartService.assignGrid's own comment warns about: it can
+	-- lose to the client's Simulation the instant that client constructs
+	-- one, which reads the hitbox's CFrame at THAT moment rather than
+	-- whatever the server wrote last. That was the "spawns at the
+	-- SpawnLocation, not next to the player" report.
+	--
+	-- An attribute doesn't have this problem — network ownership governs
+	-- physics properties, not attributes, so it always replicates from
+	-- here regardless. The client reads it once, on attach, and calls
+	-- Simulation:RespawnAt itself — the same single door every other
+	-- teleport in this game already uses.
+	kart:SetAttribute(Names.VEHICLE_SPAWN_CF, cf)
 
 	remote:FireClient(player, "spawned")
 end

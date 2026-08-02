@@ -511,6 +511,38 @@ correct" — a number should not be shown before it is true.
 
 ---
 
+# 17. FIXED 2026-08-02 — a called kart spawned at the build position, not the player
+
+Reported directly: calling a kart in the lobby put it at the
+SpawnLocation rather than in front of the player.
+
+`PlayerVehicleService` built the kart via the normal path — which
+places it wherever a fresh kart is created — then called
+`kart:PivotTo(cf)` to move it, on the reasoning that nothing had claimed
+the part yet. Wrong: `KartService.spawnFor` also SEATS the player as its
+last step, and seating changes the seat's Occupant, which fires
+`bindOwnership` SYNCHRONOUSLY — unanchoring the hitbox and handing it to
+the player's network ownership before the `PivotTo` line ever ran.
+
+A server CFrame write on a kart owned that way is exactly the race
+`KartService.assignGrid`'s own comment already warns about: it can lose
+to the client's `Simulation` the instant that client constructs one,
+which reads the hitbox's CFrame at whatever moment it happens to
+observe it — sometimes the pre-request build position, sometimes the
+pivot, depending on replication timing. That inconsistency is why it
+looked like it "sometimes worked."
+
+Fixed the same way the grid and every checkpoint respawn already do it:
+an attribute (`Names.VEHICLE_SPAWN_CF`), never a direct move. The client
+reads it once on attach and calls `Simulation:RespawnAt` itself — one
+door every teleport in this game goes through, now including this one.
+Attributes aren't subject to the ownership race at all: physics
+properties are what network ownership governs, not attributes, so this
+was never actually a hard problem — it was a `PivotTo` where an
+attribute belonged.
+
+---
+
 # WATCH — recently fixed, unproven
 
 Each of these has run for at most one session. If something in this area

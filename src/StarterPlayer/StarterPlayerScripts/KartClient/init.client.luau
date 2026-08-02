@@ -90,6 +90,13 @@ local NO_EVENTS = table.freeze({})
 
 local humanoid: Humanoid? = nil
 local sim, effects, audio, camera, boosters, items = nil, nil, nil, nil, nil, nil
+-- Which kart's lobby spawn placement has already been applied. Model
+-- IDENTITY, not a flag reset per round the way the grid's is — a lobby
+-- kart has no rounds. Falling out and being reseated into the SAME
+-- model (bindLockIn) reruns onSeated and must NOT reapply this, or a
+-- stumble near your kart teleports you back to where you first called
+-- it. A freshly called kart is always a new Model, so this is enough.
+local vehicleSpawnAppliedFor: Model? = nil
 
 -- The race outlives any single kart, so it isn't torn down with one.
 local race = Race.new()
@@ -607,6 +614,27 @@ local function onSeated(active: boolean, seatPart: BasePart?)
 	end
 
 	sim = Simulation.new(model, hitbox, seatPart, player.Character)
+
+	-- A LOBBY KART SPAWNS WHERE YOU WERE STANDING, NOT WHERE IT WAS BUILT.
+	--
+	-- PlayerVehicleService stamps this rather than moving the part itself
+	-- — a server PivotTo on a kart with a seated player loses the race to
+	-- the client's OWN Simulation construction above, which just read
+	-- hitbox.CFrame as of whenever the client happened to observe it. See
+	-- PlayerVehicleService for the full account; this is the other half.
+	--
+	-- Applied once per MODEL, matching how the grid's own CFrame
+	-- attribute is consumed once per round — the attribute is left in
+	-- place rather than cleared, and it is this check, not the server,
+	-- that decides whether it still needs acting on.
+	if model ~= vehicleSpawnAppliedFor then
+		local spawnCf = model:GetAttribute(Names.VEHICLE_SPAWN_CF)
+		if typeof(spawnCf) == "CFrame" then
+			sim:RespawnAt(spawnCf)
+		end
+		vehicleSpawnAppliedFor = model
+	end
+
 	effects = Effects.new(hitbox, model)
 	audio = Audio.new(hitbox)
 	camera = CameraRig.new(sim)
