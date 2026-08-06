@@ -149,6 +149,13 @@ GarageService.onEquipped = KartService.redressFor
 
 QuestService.start()
 
+-- DEVELOPER CONSOLE. Last, deliberately: its inspectors read KartService,
+-- BotService and MatchService, and starting before them would capture a
+-- half-built server. It creates its own remotes and is inert for anyone
+-- not on the roster — see ServerScriptService/KartServer/DeveloperConsole.
+local DevConsoleService = require(script.DeveloperConsole.DevConsoleService)
+DevConsoleService.start()
+
 -- The wiring BETWEEN the race services. Gated with them rather than
 -- left assigned unconditionally: the assignment itself is harmless in a
 -- lobby, and a hook that is set but can never fire is a lie the next

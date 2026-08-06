@@ -167,6 +167,31 @@ UserInputService.InputBegan:Connect(function(input, typing)
 		questHud:Toggle()
 	end
 end)
+-- DEVELOPER CONSOLE.
+--
+-- Asks the SERVER whether this client may have it, and builds nothing at
+-- all if the answer is no — so an unauthorized player never loads Iris,
+-- never holds the window, and has nothing local to tamper with.
+--
+-- That is a convenience, not the security boundary. Every command is
+-- re-checked server-side whether or not this UI exists, which is the
+-- only statement that matters. See docs/developer-console/SECURITY.md.
+task.spawn(function()
+	local ok, err = pcall(function()
+		local DevConsoleClient = require(script.DeveloperConsole.DevConsoleClient)
+		local allowed, grantedRole = DevConsoleClient.probe()
+		if not allowed then
+			return
+		end
+		local DevConsoleController = require(script.DeveloperConsole.DevConsoleController)
+		DevConsoleController.start(grantedRole or "viewer", Config.DevConsole.Hotkey)
+		print("[DevConsole] ready — press " .. Config.DevConsole.Hotkey.Name .. " to toggle.")
+	end)
+	if not ok then
+		warn("[DevConsole] failed to start: " .. tostring(err))
+	end
+end)
+
 local hud = RaceHud.new()
 
 -- THE LOBBY IS A PLACE YOU DRIVE, NOT A RACE.

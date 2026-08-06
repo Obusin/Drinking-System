@@ -11,6 +11,7 @@
 --]]
 
 return {
+DevConsole = require(script.DevConsole),
 	Loading = require(script.Loading),
 	Handling = require(script.Handling), -- how it moves
 	Rig = require(script.Rig), -- how it's built and spawned
