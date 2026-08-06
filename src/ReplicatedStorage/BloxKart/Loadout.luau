@@ -145,14 +145,28 @@ local function signature(): string
 	)
 end
 
-function Loadout.dress(model: Instance)
-	KartDress.apply(model, Loadout.look(), Config.Rig)
-	-- Stamped on the MODEL after a successful apply. A kart that is
-	-- replaced arrives without it; a kart whose look is stale carries the
-	-- wrong one. Either way the verifier below re-dresses it.
-	pcall(function()
-		(model :: any):SetAttribute(STAMP, signature())
-	end)
+function Loadout.dress(model: Instance): boolean
+	local ok = KartDress.apply(model, Loadout.look(), Config.Rig)
+
+	-- STAMPED ONLY ON A REAL SUCCESS.
+	--
+	-- The stamp is what stops the tracker re-dressing forever, so it has
+	-- to mean "this kart is verifiably wearing it" — not "we had a go".
+	-- Stamping regardless recorded a claim, and a claim made during
+	-- loading (when the mesh fetch can fail) was wrong AND permanent: the
+	-- tracker saw the stamp, believed it, and never looked again.
+	--
+	-- Now a failed dress leaves no stamp, so the next tick tries again,
+	-- and keeps trying until the assets are actually there. That is the
+	-- behaviour the garage had all along by re-applying unconditionally —
+	-- this gets the same reliability without dressing forever once it has
+	-- genuinely worked.
+	if ok then
+		pcall(function()
+			(model :: any):SetAttribute(STAMP, signature())
+		end)
+	end
+	return ok
 end
 
 -- IS THIS KART ACTUALLY WEARING WHAT WE THINK?
@@ -196,8 +210,12 @@ function Loadout.track(getModel: () -> Instance?, onApplied: (() -> ())?)
 			if model and not Loadout.isDressed(model) then
 				-- pcall: a kart destroyed mid-dress is normal, and must
 				-- not kill the tracker for the rest of the session.
-				local ok = pcall(Loadout.dress, model)
-				if ok and onApplied then
+				-- Two layers: pcall guards a destroyed model, `applied`
+				-- is whether the dress actually landed. Only a real
+				-- success notifies — a retry-in-progress must not be
+				-- reported as ready.
+				local pok, applied = pcall(Loadout.dress, model)
+				if pok and applied and onApplied then
 					pcall(onApplied)
 				end
 			end

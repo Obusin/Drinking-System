@@ -138,7 +138,17 @@ end
 --
 -- PAINT GOES ON THE BODY PART, the same part the body mesh is swapped
 -- onto, so shape and colour always describe the same object.
-function KartDress.apply(model: Instance, look: { body: string?, wheel: string?, paint: Color3? }, rig)
+-- Returns TRUE only if everything asked for actually landed.
+--
+-- It used to return nothing and swallow applyMesh's result, which let a
+-- caller record "dressed" for a dress that failed. During loading the
+-- mesh routes CAN fail — CreateMeshPartAsync fetches over the network —
+-- so on a cold join the apply quietly did nothing, got marked done, and
+-- was never retried. Opening the garage "fixed" it only because that
+-- path re-applies unconditionally and by then the assets had arrived.
+--
+-- A caller that caches on this MUST cache on the return value.
+function KartDress.apply(model: Instance, look: { body: string?, wheel: string?, paint: Color3? }, rig): boolean
 	local bodyNames = if rig and rig.BodyNames then rig.BodyNames else { "Body" }
 	local wheelNames = {}
 	if rig then
@@ -152,15 +162,32 @@ function KartDress.apply(model: Instance, look: { body: string?, wheel: string?,
 		wheelNames = { "FWheel", "RWheel" }
 	end
 
+	local ok = true
+
 	if look.body and look.body ~= "" then
-		for _, part in partsNamed(model, bodyNames, true) do
-			KartDress.applyMesh(part, look.body)
+		local parts = partsNamed(model, bodyNames, true)
+		-- No parts is a FAILURE, not a no-op: we were asked for a body
+		-- and this model has nowhere to put one. Reporting success there
+		-- is how a naming mismatch stayed invisible.
+		if #parts == 0 then
+			ok = false
+		end
+		for _, part in parts do
+			if not KartDress.applyMesh(part, look.body) then
+				ok = false
+			end
 		end
 	end
 
 	if look.wheel and look.wheel ~= "" then
-		for _, part in partsNamed(model, wheelNames, true) do
-			KartDress.applyMesh(part, look.wheel)
+		local parts = partsNamed(model, wheelNames, true)
+		if #parts == 0 then
+			ok = false
+		end
+		for _, part in parts do
+			if not KartDress.applyMesh(part, look.wheel) then
+				ok = false
+			end
 		end
 	end
 
@@ -172,10 +199,16 @@ function KartDress.apply(model: Instance, look: { body: string?, wheel: string?,
 	-- Union still paints even though it can never take a mesh swap —
 	-- and those are the karts where the paint appeared to do nothing.
 	if look.paint then
-		for _, part in KartDress.paintableParts(model, rig) do
+		local parts = KartDress.paintableParts(model, rig)
+		if #parts == 0 then
+			ok = false
+		end
+		for _, part in parts do
 			part.Color = look.paint
 		end
 	end
+
+	return ok
 end
 
 return KartDress
