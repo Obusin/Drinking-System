@@ -290,30 +290,34 @@ if lobby then
 	-- the server last confirmed. Set Config.Garage.Debug to trace the
 	-- whole save path, both ends.
 	garageHud = GarageHud.new({
-		-- EVERY PLACE THE STAGE KART CAN BE, not just the one the menu
-		-- happens to know about.
+		-- ASK THE MENU FIRST. It is the AUTHORITY on which kart is on
+		-- screen, and it is the only thing that knows.
 		--
-		-- This was a single call to `mainMenu:StageKart()`, and that only
-		-- answers once the menu has built its local stage — which is why
-		-- the preview stayed stock until the GARAGE was opened, and why
-		-- opening it "fixed" things. The look had arrived eight seconds
-		-- earlier; there was simply nothing to put it on.
+		-- `getMenuStage` CLONES ReplicatedStorage.MenuStage into
+		-- `_BloxKartMenuStage` and shows that. `workspace.MenuStage` is a
+		-- different instance that nothing displays — so an earlier version
+		-- of this getter, which searched the workspace first to avoid
+		-- "building the stage as a side effect of looking for it", dressed
+		-- that one instead. Every single time, because it exists from the
+		-- start. The log then reported `preview ready` on a kart nobody
+		-- could see, while the real one sat in stock until the garage was
+		-- opened — which is when StageKart() finally got called.
 		--
-		-- So ask the world directly as well. `_BloxKartMenuStage` is the
-		-- menu's local clone, `MenuStage` is the authored one it clones
-		-- from, and either may be what is on screen depending on how far
-		-- the menu has got. Whichever exists first gets dressed.
+		-- Building the stage on demand is not a side effect to avoid. It
+		-- is the point: the kart it builds IS the kart being shown, and
+		-- this makes the join path and the garage-open path resolve to the
+		-- same object rather than two that merely look alike.
 		--
-		-- Deliberately does NOT call StageKart() first: that method BUILDS
-		-- the stage on demand, so leading with it would clone the menu
-		-- stage during loading as a side effect of looking for it.
+		-- The workspace search stays as a fallback for the case the menu
+		-- has no template to clone and falls back to workspace.MenuStage
+		-- itself, so both ends agree even then.
 		getKart = function()
-			local stage = workspace:FindFirstChild("_BloxKartMenuStage") or workspace:FindFirstChild("MenuStage")
-			local kart = stage and stage:FindFirstChild("Kart", true)
+			local kart = mainMenu and mainMenu:StageKart()
 			if kart then
 				return kart
 			end
-			return mainMenu and mainMenu:StageKart()
+			local stage = workspace:FindFirstChild("_BloxKartMenuStage") or workspace:FindFirstChild("MenuStage")
+			return stage and stage:FindFirstChild("Kart", true)
 		end,
 		onZoom = function(studs)
 			if mainMenu then

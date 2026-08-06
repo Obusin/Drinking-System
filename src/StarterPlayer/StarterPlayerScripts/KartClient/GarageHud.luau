@@ -604,8 +604,13 @@ function GarageHud:_primePreview()
 			if now and Loadout.isConfirmed() and Loadout.isDressed(now) then
 				self.revealed = true
 				local eq = Loadout.get()
+				-- NAMES THE KART. "preview ready" was reported once on a
+				-- kart nobody could see — a stage the menu does not
+				-- display — and without the path there was nothing in the
+				-- log to tell that apart from a real success.
 				log(
-					"preview ready: Body=%s Wheels=%s Paint=%s",
+					"preview ready on %s: Body=%s Wheels=%s Paint=%s",
+					now:GetFullName(),
 					tostring(eq.Body),
 					tostring(eq.Wheels),
 					tostring(eq.Paint)
