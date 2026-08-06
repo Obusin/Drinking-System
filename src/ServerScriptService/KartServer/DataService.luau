@@ -84,7 +84,13 @@ local TEMPLATE = {
 	-- picks per slot. A set is never the unit of ownership, which is
 	-- what makes mixing possible without a second system.
 	parts = {},
-	equipped = { Body = "stock", FWheel = "stock", RWheel = "stock" },
+	-- Paint belongs here even though callers all default it to "stock"
+	-- themselves. This table is the SCHEMA — "every field a profile can
+	-- have, with its default" — and a slot that GarageService writes but
+	-- the template does not name is a field nobody can find by reading
+	-- this. Reconcile is additive, so adding it now costs nothing and
+	-- changes no existing profile.
+	equipped = { Body = "stock", FWheel = "stock", RWheel = "stock", Paint = "stock" },
 
 	karts = {},
 	fragments = {},
@@ -237,6 +243,18 @@ function DataService.isEnabled(): boolean
 	return store ~= nil
 end
 
+-- TRUE WHEN NOTHING WRITTEN HERE SURVIVES THE SESSION.
+--
+-- Exposed because "it saved into a store that evaporates" is the single
+-- most common wrong answer to "why did my customisation not stick", and
+-- the boot-time warning is long gone from Output by the time anyone
+-- hits it. Callers that persist anything a player CHOSE should be able
+-- to say so at the moment they save it.
+local mock = false
+function DataService.isMock(): boolean
+	return mock
+end
+
 --=====================================================================
 --  START
 --=====================================================================
@@ -262,6 +280,7 @@ function DataService.start()
 	-- indistinguishable from a bug that does, and the mock store behaves
 	-- the same in every way that matters here.
 	local useMock = D.Mock or (RunService:IsStudio() and not D.LiveInStudio)
+	mock = useMock
 	if useMock then
 		store = result.Mock
 		warn("[DataService] MOCK store — nothing written here survives the session.")

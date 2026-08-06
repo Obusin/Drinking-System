@@ -44,6 +44,30 @@ Names.RACER_NAME = "RacerName"
 
 Names.OWNER = "OwnerUserId"
 
+-- On a Player. Server-owned lifecycle state, so join/respawn/kart
+-- failures are visible instead of being inferred from several objects.
+-- Set by the client once the MENU STAGE KART is wearing the saved look.
+--
+-- The loading screen waits on it, so the whole dress-in happens BEHIND the
+-- splash and the player never sees a stock kart at all. An attribute rather
+-- than a remote because both ends are the same client — nothing crosses the
+-- wire, and ReplicatedFirst cannot require anything under KartClient anyway.
+--
+-- Fails OPEN: the loading screen times out and shows the menu regardless, so
+-- a profile that never loads costs a stock kart, never a stuck splash.
+Names.PREVIEW_READY = "BloxKartPreviewReady"
+
+Names.PLAYER_STATE = "BloxKartState"
+Names.PLAYER_STATE_REASON = "BloxKartStateReason"
+Names.STATE_LOADING = "Loading"
+Names.STATE_CHARACTER_LOADING = "CharacterLoading"
+Names.STATE_LOBBY = "Lobby"
+Names.STATE_KART_SPAWNING = "KartSpawning"
+Names.STATE_LOBBY_DRIVING = "LobbyDriving"
+Names.STATE_RACE_LOADING = "RaceLoading"
+Names.STATE_RACE_DRIVING = "RaceDriving"
+Names.STATE_RECOVERING = "Recovering"
+
 -- Where a freshly-called lobby kart belongs, as a CFrame attribute.
 -- NOT written by moving the part — see PlayerVehicleService for why a
 -- server-side PivotTo on a kart with a seated player loses to the
@@ -110,5 +134,14 @@ Names.VEHICLE_REMOTE = "KartVehicle"
 -- Lobby only: "play" in, a result string back. The client never names a
 -- destination — see QueueService.
 Names.QUEUE_REMOTE = "KartQueue"
+-- Server -> client: presentational scene/teleport transitions. The
+-- server decides when a teleport is actually in flight; the client only
+-- owns the wipe that hides it.
+Names.TRANSITION_REMOTE = "KartTransition"
+
+-- Garage: client asks to equip a part, server validates and saves. Also
+-- pushes the player's current `equipped` back on join so the garage opens
+-- showing what they are actually wearing.
+Names.GARAGE_REMOTE = "KartGarage"
 
 return Names

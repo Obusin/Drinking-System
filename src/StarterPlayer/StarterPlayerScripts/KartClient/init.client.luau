@@ -60,8 +60,11 @@ local RaceHud = require(script.RaceHud)
 local ControlsHud = require(script.ControlsHud)
 local VehicleHud = require(script.VehicleHud)
 local QueueHud = require(script.QueueHud)
+local MainMenuHud = require(script.MainMenuHud)
+local GarageHud = require(script.GarageHud)
 local SpeedHud = require(script.SpeedHud)
 local ItemHud = require(script.ItemHud)
+local ThreatHud = require(script.ThreatHud)
 local FeedHud = require(script.FeedHud)
 local Items = require(script.Items)
 -- The shared item CATALOGUE, not the client controller above it. Named
@@ -78,6 +81,7 @@ local Music = require(script.Music)
 local Spectate = require(script.Spectate)
 
 local H = Config.Hud
+local HANDLING = Config.Handling
 local IT = Config.Items
 local SPEC = Config.Spectate
 local HAP = Config.Haptics
@@ -107,6 +111,7 @@ local match = Match.new()
 local matchHud = MatchHud.new()
 local rewardHud = RewardHud.new()
 local transition = Transition.new()
+local transitionRemote = ReplicatedStorage.BloxKart:WaitForChild(Names.TRANSITION_REMOTE, 10)
 local xpHud = XpHud.new()
 local tally = Tally.new()
 -- Longer now that the panel shows in-flight progress itself: the
@@ -131,13 +136,33 @@ local incomingIcon = nil
 local warnedUntil = 0
 local warnedName = nil
 local warnedIcon = nil
+local mainMenu = nil
+local garageHud = nil
+if transitionRemote then
+	transitionRemote.OnClientEvent:Connect(function(action, destination, label)
+		if action == "teleportOut" then
+			if mainMenu and mainMenu:IsOpen() then
+				if destination == "race" and typeof(label) == "string" then
+					mainMenu:SetStatus("Sending you to " .. label .. "...")
+				elseif destination == "lobby" then
+					mainMenu:SetStatus("Returning to lobby...")
+				end
+			end
+			transition:CoverHold()
+		elseif action == "release" then
+			transition:Release()
+		end
+	end)
+else
+	warn("[KartClient] no transition remote — cross-place teleports will not get a hold-cover wipe.")
+end
 local questHud = QuestHud.new(tally)
 local minimap = Minimap.new()
 -- Bound directly rather than through Input: this is UI, it must work
 -- while spectating and out of a kart, and Input's bindings are released
 -- the moment you stop driving.
 UserInputService.InputBegan:Connect(function(input, typing)
-	if not typing and input.KeyCode == Config.Level.QuestOpenKey then
+	if not typing and input.KeyCode == Config.Level.QuestOpenKey and not (mainMenu and mainMenu:IsOpen()) then
 		questHud:Toggle()
 	end
 end)
@@ -162,6 +187,7 @@ end
 local controls = ControlsHud.new()
 local speedo = SpeedHud.new()
 local itemHud = ItemHud.new()
+local threatHud = ThreatHud.new()
 
 -- THE DRIVING HUD FOLLOWS THE KART, NOT THE PLACE.
 --
@@ -174,20 +200,194 @@ local itemHud = ItemHud.new()
 -- is the honest condition: in a race you always have one so it is
 -- always up, and in a hub it appears exactly when you call your kart.
 -- One rule, both places, nothing to keep in sync.
+-- ITEMS ARE THE ONE EXCEPTION, and it is a second condition on purpose.
+--
+-- Having a kart is the honest test for the speedo and the controls: both
+-- are about DRIVING, and you drive in the hub. Items are not. There are
+-- no item boxes outside a race, so in the hub the slots are not "empty
+-- and waiting", they are empty forever — which is the same wrong
+-- information the rule above exists to avoid, just quieter. Three dead
+-- boxes also teach a new player that the hub is where items live.
 local function setDrivingHud(on: boolean)
-	itemHud:SetVisible(on)
+	itemHud:SetVisible(on and not lobby)
+	-- Same race-only rule, same reason: nobody is racing you in the hub,
+	-- so a rear indicator there reports traffic, not threat.
+	threatHud:SetVisible(on and not lobby)
 	controls:SetVisible(on)
 	speedo:SetActive(on)
 end
 
 local vehicleHud, queueHud = nil, nil
+local function setLobbyPrompts(on: boolean)
+	if vehicleHud then
+		vehicleHud:SetVisible(on)
+	end
+	if queueHud then
+		queueHud:SetVisible(on)
+	end
+end
+
 if lobby then
 	hud:SetVisible(false)
 	matchHud:SetVisible(false)
+	questHud:SetVisible(false)
 	-- Only in a hub. A race place hands you a kart because a round is
 	-- starting, so there is nothing to call for.
 	vehicleHud = VehicleHud.new()
 	queueHud = QueueHud.new()
+	setLobbyPrompts(false)
+	queueHud:SetResultHandler(function(result, trackName)
+		if not mainMenu then
+			return
+		end
+		if result == "pending" then
+			mainMenu:SetStatus(if typeof(trackName) == "string" then "Sending you to " .. trackName .. "..." else "Finding you a race...")
+		elseif result == "notrack" then
+			mainMenu:SetStatus("No configured track yet. Add a real placeId in Config.Places.Tracks.")
+		elseif result == "failed" then
+			mainMenu:SetStatus("Teleport failed. Try Play Game again in a moment.")
+		end
+	end)
+	mainMenu = MainMenuHud.new({
+		onPlay = function()
+			if queueHud then
+				queueHud:Play()
+			end
+		end,
+		onLobby = function(closeMenu)
+			transition:Play(function()
+				if typeof(closeMenu) == "function" then
+					closeMenu()
+				end
+				setLobbyPrompts(true)
+				questHud:SetVisible(true)
+			end)
+		end,
+		getHumanoid = function()
+			return humanoid
+		end,
+		onCallKart = function()
+			if vehicleHud then
+				vehicleHud:Toggle()
+			end
+		end,
+		onQuests = function()
+			questHud:Toggle()
+		end,
+		onGarage = function()
+			if garageHud then
+				garageHud:Open()
+				-- The menu chrome steps aside but the menu stays OPEN: the
+				-- garage needs its camera lock and its stage kart.
+				mainMenu:SetChromeVisible(false)
+				mainMenu:SetInspecting(true)
+			end
+		end,
+	})
+
+	-- THE GARAGE. Picking previews on the local stage kart; DONE writes it
+	-- to the profile and re-dresses the real kart, CANCEL puts back what
+	-- the server last confirmed. Set Config.Garage.Debug to trace the
+	-- whole save path, both ends.
+	garageHud = GarageHud.new({
+		-- EVERY PLACE THE STAGE KART CAN BE, not just the one the menu
+		-- happens to know about.
+		--
+		-- This was a single call to `mainMenu:StageKart()`, and that only
+		-- answers once the menu has built its local stage — which is why
+		-- the preview stayed stock until the GARAGE was opened, and why
+		-- opening it "fixed" things. The look had arrived eight seconds
+		-- earlier; there was simply nothing to put it on.
+		--
+		-- So ask the world directly as well. `_BloxKartMenuStage` is the
+		-- menu's local clone, `MenuStage` is the authored one it clones
+		-- from, and either may be what is on screen depending on how far
+		-- the menu has got. Whichever exists first gets dressed.
+		--
+		-- Deliberately does NOT call StageKart() first: that method BUILDS
+		-- the stage on demand, so leading with it would clone the menu
+		-- stage during loading as a side effect of looking for it.
+		getKart = function()
+			local stage = workspace:FindFirstChild("_BloxKartMenuStage") or workspace:FindFirstChild("MenuStage")
+			local kart = stage and stage:FindFirstChild("Kart", true)
+			if kart then
+				return kart
+			end
+			return mainMenu and mainMenu:StageKart()
+		end,
+		onZoom = function(studs)
+			if mainMenu then
+				mainMenu:SetZoom(studs)
+			end
+		end,
+		onClose = function()
+			if mainMenu then
+				mainMenu:SetChromeVisible(true)
+				mainMenu:SetInspecting(false)
+				mainMenu:ResetView() -- back to the authored framing
+			end
+		end,
+	})
+
+	-- INSPECTION CAMERA — only while the garage owns the screen. The menu's
+	-- own framing is authored and must not be scrollable or draggable.
+	--
+	-- Right-drag orbits (left is left free for the UI underneath), scroll
+	-- zooms. Touch drags too, since there is no right button there.
+	local orbiting, lastDrag = false, nil
+	UserInputService.InputBegan:Connect(function(input, typing)
+		if typing or not (garageHud and garageHud:IsOpen()) then
+			return
+		end
+		if
+			input.UserInputType == Enum.UserInputType.MouseButton2
+			or input.UserInputType == Enum.UserInputType.Touch
+		then
+			orbiting = true
+			lastDrag = Vector2.new(input.Position.X, input.Position.Y)
+		end
+	end)
+	UserInputService.InputEnded:Connect(function(input)
+		if
+			input.UserInputType == Enum.UserInputType.MouseButton2
+			or input.UserInputType == Enum.UserInputType.Touch
+		then
+			orbiting = false
+			lastDrag = nil
+		end
+	end)
+	UserInputService.InputChanged:Connect(function(input, typing)
+		if typing or not (garageHud and garageHud:IsOpen()) then
+			return
+		end
+		if input.UserInputType == Enum.UserInputType.MouseWheel then
+			mainMenu:Zoom(-input.Position.Z * 1.6)
+		elseif
+			orbiting
+			and (
+				input.UserInputType == Enum.UserInputType.MouseMovement
+				or input.UserInputType == Enum.UserInputType.Touch
+			)
+		then
+			local at = Vector2.new(input.Position.X, input.Position.Y)
+			if lastDrag then
+				mainMenu:Orbit(at.X - lastDrag.X, at.Y - lastDrag.Y)
+			end
+			lastDrag = at
+		end
+	end)
+	-- The lobby's actions live in the menu's top bar now: the bottom key
+	-- prompts are hidden (the G/P KEYS still work), MISSIONS is a nav tab so
+	-- the floating quest pill would be a duplicate, and the kart button
+	-- mirrors the server's CALL KART / PUT AWAY state.
+	vehicleHud:SetPromptShown(false)
+	queueHud:SetPromptShown(false)
+	questHud:SetButtonVisible(false)
+	vehicleHud:SetLabelHandler(function(label)
+		if mainMenu then
+			mainMenu:SetKartLabel(label)
+		end
+	end)
 	-- You arrive on foot, so it starts off. speedo:SetActive(false) is a
 	-- no-op here — it is already inactive and the call early-returns —
 	-- so the other two are the ones that matter.
@@ -262,6 +462,54 @@ end
 --=====================================================================
 --  FRAME
 --=====================================================================
+-- SUB-STEP. DO NOT CLAMP AND THROW THE REST AWAY.
+--
+-- `Simulation.Step` begins with `dt = math.min(dt, MaxTimestep)`, and
+-- MaxTimestep is 1/20. That clamp is right and necessary — a huge frame
+-- integrated in one go tunnels the sweep straight through walls. But
+-- calling Step ONCE with the raw dt means every frame longer than 50ms
+-- silently DISCARDS the excess, and discarded time is lost motion:
+--
+--     30 fps -> fine, 33ms is under the cap
+--     15 fps -> 66ms elapsed, 50ms integrated -> the kart runs at 75% speed
+--     10 fps -> 50% speed
+--
+-- The kart does not stutter, it goes SLOW, smoothly, and the speedometer
+-- agrees with it because the simulation genuinely is moving that slowly.
+-- Which makes it near-impossible to recognise as a frame-rate problem
+-- from the driver's seat — it reads as the handling having been nerfed.
+--
+-- So a long frame is integrated as SEVERAL capped steps instead of one
+-- truncated one. `MaxSubSteps` bounds the catch-up: past that we do
+-- deliberately drop time, because trying to fully repay a one-second
+-- hitch costs a second of simulation on the very next frame and turns
+-- one hitch into a spiral.
+--
+-- Events merge later-wins. Sub-steps only ever ADD keys they raised, so
+-- a `landed` in the first sub-step survives a second that was quiet.
+-- The input taps are consumed by the first sub-step, which is correct:
+-- one press is one hop however many steps the frame was split into.
+local function stepSim(sim, dt: number)
+	local cap = HANDLING.MaxTimestep
+	if dt <= cap then
+		return sim:Step(dt, Input)
+	end
+
+	local steps = math.min(math.ceil(dt / cap), HANDLING.MaxSubSteps)
+	-- Capped explicitly: once MaxSubSteps is the binding limit, dt/steps
+	-- is BIGGER than cap and Step would clamp it right back, which is the
+	-- deliberate time-drop above. Saying it here rather than relying on
+	-- that clamp keeps the slice honest at the call site.
+	local slice = math.min(dt / steps, cap)
+	local merged = {}
+	for _ = 1, steps do
+		for k, v in sim:Step(slice, Input) do
+			merged[k] = v
+		end
+	end
+	return merged
+end
+
 local function step(dt: number)
 	if not sim or sim.seat.Occupant == nil then
 		return
@@ -303,7 +551,7 @@ local function step(dt: number)
 	end
 
 	Input.update(dt)
-	local events = sim:Step(dt, Input)
+	local events = stepSim(sim, dt)
 
 	-- Publish OUR steer onto OUR kart so Rider can turn the wheel and the
 	-- front tyres. The VehicleSeat never sees a touch player's steering —
@@ -589,6 +837,13 @@ local function step(dt: number)
 	end
 	itemHud:Update(items:HeldSlots(), race:Place(sim), race:FieldSize())
 
+	-- The rear strip runs off the SAME held reading the INCOMING banner
+	-- uses, not a second call to threatTo. Two readers asking the same
+	-- question separately is how the banner and the strip end up
+	-- disagreeing about whether you are being shot at — and the hold is
+	-- the whole reason a brief threat is visible at all.
+	threatHud:Update(sim, if os.clock() < incomingUntil then incomingEta else nil, dt)
+
 	effects:Update(dt, sim)
 	audio:Update(dt, sim)
 	haptics:Update(dt, sim)
@@ -599,6 +854,39 @@ end
 --=====================================================================
 --  SEATING
 --=====================================================================
+local function waitForHitbox(model: Model): BasePart?
+	local hitbox = model.PrimaryPart or model:FindFirstChild("Hitbox")
+	if hitbox and hitbox:IsA("BasePart") then
+		return hitbox
+	end
+
+	local found = model:WaitForChild("Hitbox", 2)
+	if found and found:IsA("BasePart") then
+		return found
+	end
+	return nil
+end
+
+local function waitForVehicleSpawnCf(model: Model): CFrame?
+	local spawnCf = model:GetAttribute(Names.VEHICLE_SPAWN_CF)
+	if typeof(spawnCf) == "CFrame" then
+		return spawnCf
+	end
+	if not lobby then
+		return nil
+	end
+
+	local started = os.clock()
+	while model.Parent and os.clock() - started < 1 do
+		task.wait()
+		spawnCf = model:GetAttribute(Names.VEHICLE_SPAWN_CF)
+		if typeof(spawnCf) == "CFrame" then
+			return spawnCf
+		end
+	end
+	return nil
+end
+
 local function onSeated(active: boolean, seatPart: BasePart?)
 	teardown()
 
@@ -607,12 +895,13 @@ local function onSeated(active: boolean, seatPart: BasePart?)
 	end
 
 	local model = seatPart:FindFirstAncestorOfClass("Model")
-	local hitbox = model and (model.PrimaryPart or model:FindFirstChild("Hitbox"))
+	local hitbox = model and waitForHitbox(model)
 	if not (model and hitbox and hitbox:IsA("BasePart")) then
 		warn("[KartClient] No Hitbox found on the seated model.")
 		return
 	end
 
+	local spawnCf = if model ~= vehicleSpawnAppliedFor then waitForVehicleSpawnCf(model) else nil
 	sim = Simulation.new(model, hitbox, seatPart, player.Character)
 
 	-- A LOBBY KART SPAWNS WHERE YOU WERE STANDING, NOT WHERE IT WAS BUILT.
@@ -628,7 +917,6 @@ local function onSeated(active: boolean, seatPart: BasePart?)
 	-- place rather than cleared, and it is this check, not the server,
 	-- that decides whether it still needs acting on.
 	if model ~= vehicleSpawnAppliedFor then
-		local spawnCf = model:GetAttribute(Names.VEHICLE_SPAWN_CF)
 		if typeof(spawnCf) == "CFrame" then
 			sim:RespawnAt(spawnCf)
 		end
@@ -660,6 +948,9 @@ local function onCharacter(character: Model)
 	if not (h and h:IsA("Humanoid")) then
 		return
 	end
+	if character ~= player.Character then
+		return
+	end
 	humanoid = h
 	h.Seated:Connect(onSeated)
 	-- Dying while seated never fires Seated(false), so clean up here or
@@ -669,6 +960,24 @@ local function onCharacter(character: Model)
 		humanoid = nil
 	end)
 end
+
+local characterHandlingStarted = false
+local function startCharacterHandling()
+	if characterHandlingStarted then
+		return
+	end
+	characterHandlingStarted = true
+
+	player.CharacterAdded:Connect(onCharacter)
+	if player.Character then
+		task.spawn(onCharacter, player.Character)
+	end
+end
+
+-- Bind Humanoid.Seated as soon as onCharacter exists. Lobby kart calls can
+-- seat the player before the rest of client startup reaches the music/update
+-- loop, which used to make the first kart spawn look attached but inert.
+startCharacterHandling()
 
 --=====================================================================
 --  START
@@ -688,9 +997,8 @@ end)
 
 WorldFilter.start()
 
--- Started BEFORE the character handling below, which yields on
--- WaitForChild. The server seats players ~0.2s after they spawn, so
--- anything behind a yield can miss the Seated event entirely.
+-- Character handling already started above, so this can boot without putting
+-- Seated behind another startup yield.
 Rider.start()
 
 -- Item boxes spin whether or not you're driving.
@@ -1064,6 +1372,10 @@ RunService.Heartbeat:Connect(function(dt)
 	matchHud:Update(match)
 	feedHud:Update()
 	xpHud:Update()
+	if mainMenu and mainMenu:IsOpen() then
+		music:Update(dt, match:Phase())
+		return
+	end
 	-- OUTSIDE step(), which returns early the moment there is no
 	-- simulation — finishing, spectating, or between rounds. Left in
 	-- there the streaks and the blur would freeze at whatever intensity
@@ -1117,12 +1429,7 @@ end)
 -- ContextAction in Input: those are bound only while driving, and this
 -- is a lobby action that has to work between rounds.
 UserInputService.InputBegan:Connect(function(input, processed)
-	if not processed and input.KeyCode == Config.Match.ReadyKey then
+	if not processed and input.KeyCode == Config.Match.ReadyKey and not (mainMenu and mainMenu:IsOpen()) then
 		match:SetReady()
 	end
 end)
-
-player.CharacterAdded:Connect(onCharacter)
-if player.Character then
-	onCharacter(player.Character)
-end

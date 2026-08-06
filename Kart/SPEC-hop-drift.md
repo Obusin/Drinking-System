@@ -38,7 +38,24 @@ multiplayer. And `BoostSoundId` is a built-in placeholder whoosh.
 - No suspension wallow
 - **Minimal speed-scrub** — drifting should almost always be faster than not
 
-## TUNE keys that must be exposed
+## TUNE keys
+
+> **STALE — corrected 2026-08-06.** The list below was written against
+> `KartControl.client.luau`, which no longer exists; the drift lives in
+> `ReplicatedStorage/BloxKart/Simulation.luau` now. Five of these names
+> were never implemented at all and cost a session's worth of hunting.
+> Trust `Config/Handling.luau`, not this list.
+>
+> | named here | reality |
+> |---|---|
+> | `HopForce` | is `HopSpeed` |
+> | `HopAirTime` | never existed — air time falls out of `HopSpeed` vs `Gravity`, gated by `HopSnap` |
+> | `DriftInwardPull` | **never existed, and should not.** In a settled drift travel rotates with the nose whatever the grip, so there is no widening for it to pull against — see FINDINGS §2 |
+> | `DriftScrubComp` | never existed. Speed scrub is `DriftScrubCurve` + `DriftSpeedKeep` |
+> | `AntiSpinAssist` | never existed as a dial. `MaxSlip` is what bounds the slide pocket |
+> | `BoostTier*Strength` | moved to `Config.Nitro.Stages` when release stopped firing a boost and started banking nitro |
+>
+> Still accurate: `DriftGrip`, `BoostTier1Time` / `2` / `3`.
 
 `HopForce`, `HopAirTime`, `DriftGrip`, `DriftInwardPull`,
 `BoostTier1Time` / `BoostTier2Time` / `BoostTier3Time`,

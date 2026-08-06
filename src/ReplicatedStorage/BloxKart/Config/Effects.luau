@@ -49,10 +49,43 @@ return {
 
 	PitchOnAccel = 3, -- degrees of squat/dive
 	PitchRate = 6,
+
+	--== IN THE AIR ====================================================
+	-- A hop with a rigid body is a lift, not a jump. These two put some
+	-- motion into the 0.2s the kart is off the ground, which is most of
+	-- what made the hop read as a state change rather than a movement.
+	AirPitch = 7, -- degrees of nose-up while rising, nose-down while
+	-- falling. Scaled by vertical speed against Handling.HopSpeed, so it
+	-- passes through zero at the apex and is back to nothing on landing.
+	HopLean = 5, -- extra degrees of roll toward whatever you are steering
+	-- while hopping. This is the ANTICIPATION: the body loads up in the
+	-- direction of the drift before the drift exists, so turn-in on
+	-- landing continues a movement instead of starting one.
+
 	BobAmount = 0.09, -- fake suspension travel
 	BobSpeed = 22,
-	LandSquash = 0.35, -- dip on landing
-	SquashRate = 7,
+
+	--== LANDING =======================================================
+	-- Scaled by how hard you actually arrive, because a drift hop and a
+	-- fall off a bridge used to produce the identical 0.35 dip. Now the
+	-- hop gets a light nod and a real drop gets a proper compression.
+	LandSquash = 0.22, -- dip on the gentlest landing
+	LandSquashMax = 0.9, -- ...and on the hardest
+	LandSquashSpeed = 55, -- descent speed, studs/s, that reaches the max
+
+	-- A SPRING, NOT A LERP — and note this is arithmetic in the
+	-- controller driving a visual offset, NOT a physics constraint. The
+	-- kart is still kinematic and Roblox still gets no vote.
+	--
+	-- A lerp toward zero can only ever sag back to rest, which reads as a
+	-- dead cushion: the kart squats and gives up. Suspension overshoots.
+	-- Underdamped on purpose (~zeta 0.44) so it rebounds once, a fifth of
+	-- the way past neutral, and settles in about a third of a second.
+	--
+	-- Raise SquashDamp toward 2*sqrt(SquashSpring) (~27.5) to kill the
+	-- rebound entirely; drop it below ~8 and the kart pogos.
+	SquashSpring = 190,
+	SquashDamp = 12,
 	SlopeAlignRate = 9, -- how fast the BODY visually matches the surface.
 	-- Lags the simulation slightly so kerbs don't jolt it.
 

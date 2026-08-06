@@ -120,11 +120,26 @@ return {
 	ControlsToggleKey = Enum.KeyCode.H,
 
 	--== ITEM SLOTS ====================================================
-	-- Right-hand edge with everything else. Cramming the readouts into
-	-- one corner leaves the whole left and centre of the screen for the
-	-- track, which is what you're actually looking at.
-	ItemPosition = UDim2.new(1, -22, 0, 168), -- under the TIME / LAP block
-	ItemAnchor = Vector2.new(1, 0),
+	-- MOVED OUT OF THE CORNER 2026-08-06. The old note here argued for
+	-- the right-hand edge, to leave the centre of the screen clear for
+	-- the track. That is a good argument for things you GLANCE at and
+	-- the wrong one for things you ACT on.
+	--
+	-- The item slot and the boost meter are decisions, not readouts, and
+	-- they were 700 pixels apart and both a long way from the kart. You
+	-- read your speed occasionally; you check what you are holding in the
+	-- middle of a corner, which is exactly when you cannot afford to look
+	-- at a corner of the screen.
+	--
+	-- So they cluster together just under the kart, where the eye
+	-- already is. The dial stays bottom-right — it IS a glance readout,
+	-- and it is the one thing here big enough to cover road.
+	--
+	-- Dead centre now that the nitro bar has moved onto the kart. It was
+	-- offset to the left to sit beside the bar; with the bar gone there
+	-- is nothing to make room for, and off-centre would just look wrong.
+	ItemPosition = UDim2.new(0.5, 0, 1, -38),
+	ItemAnchor = Vector2.new(0.5, 1),
 	ItemSlotSize = 58,
 	ItemSlotGap = 7,
 
@@ -194,8 +209,60 @@ return {
 	-- themselves — no arithmetic, and changing NitroSegments needs no
 	-- other edit. Wrapped in a CanvasGroup so the whole thing fades on
 	-- one property instead of tweening every child.
-	NitroPosition = UDim2.new(1, -20, 1, -186),
-	NitroAnchor = Vector2.new(1, 1),
+	--== THE BAR LIVES ON THE KART =====================================
+	-- Not on the screen at all. A boost meter is the one readout you
+	-- watch WHILE steering, so putting it on the kart means it is inside
+	-- the same glance — you are already looking there.
+	--
+	-- THE USUAL OBJECTIONS TO A BILLBOARD DO NOT APPLY TO YOUR OWN KART,
+	-- which is why the Phase 7 note argued against them and this is still
+	-- fine. Those objections are about OTHER people's karts:
+	--
+	--   "it shrinks with distance"  -- Size is in OFFSET (pixels), not
+	--     scale, so it is a constant size on screen however far the
+	--     chase camera has pulled back. Scale sizing is what shrinks.
+	--   "it hides behind geometry"  -- AlwaysOnTop.
+	--   "it competes with the track" -- it is a thin bar clear of the
+	--     kart, and it is the only thing in world space.
+	--
+	-- Set NitroOnKart = false and everything falls back to the old
+	-- screen bar at NitroPosition below, untouched. Both paths share one
+	-- construction and one update; the bar does not exist twice.
+	NitroOnKart = true,
+
+	-- CAMERA-RELATIVE, deliberately: StudsOffset is measured in the
+	-- billboard's screen-facing frame, so the bar holds the same spot
+	-- beside the kart whichever way the kart is pointing. Anchoring it
+	-- to the kart's own axes instead would swing it across the screen
+	-- through every drift, which is exactly when you are reading it.
+	--
+	-- At the 14.5-stud chase distance and a 68 vertical FOV, 2.7 studs
+	-- lands the bar about 150px right of the kart on 1080p and 100px on
+	-- a phone. The GAP scales with resolution while the BAR does not,
+	-- which is the right way round: the offset stays proportional to the
+	-- kart's own on-screen size, the bar stays legible.
+	--
+	-- HEIGHT IS ABOUT CONTRAST, NOT CLEARANCE. At 1.7 the bar sat level
+	-- with the rear wing, and a thin translucent meter over the kart's
+	-- own bodywork is unreadable whatever colour it is — the red kart in
+	-- the reference swallowed it completely. Raised to sit ABOVE the
+	-- silhouette, against sky or track, where the cell strokes have
+	-- something to read against.
+	--
+	-- 4.1 puts it a little over the driver's head, roughly half a kart
+	-- height above where it was. Go higher and it stops feeling attached
+	-- to the kart; lower and it is back on the bodywork.
+	--
+	-- THIS IS THE FIRST THING TO TUNE. It is one number and it decides
+	-- whether the bar reads as attached to the kart or as floating next
+	-- to it.
+	NitroKartOffset = Vector3.new(2.7, 4.1, 0), -- studs: right, up
+	-- PIXELS. See the size note above — this is why it does not shrink.
+	NitroKartSize = Vector2.new(24, 96),
+
+	-- Fallback screen position, used only when NitroOnKart is false.
+	NitroPosition = UDim2.new(0.5, 0, 1, -38),
+	NitroAnchor = Vector2.new(0.5, 1),
 	NitroSize = Vector2.new(196, 22),
 	NitroSegments = 3, -- one cell per tank, countable at a glance
 	NitroSegmentGap = 5,
@@ -253,15 +320,99 @@ return {
 	-- readout anyway — the number tells you your speed, the dial only
 	-- tells you it prettily. Everything else (ticks, numerals, needle,
 	-- bezel) is hidden, not deleted, so nothing else has to know.
-	MobileSpeedPosition = UDim2.new(0.5, 0, 1, -16),
+	-- Raised from -16 to clear the rear threat strip, which owns the
+	-- bottom 32px on every layout.
+	MobileSpeedPosition = UDim2.new(0.5, 0, 1, -38),
 	MobileSpeedAnchor = Vector2.new(0.5, 1),
 	MobileSpeedWidth = 210,
 	MobileSpeedHeight = 66,
 
 	-- Directly above the number, still centred.
-	MobileNitroPosition = UDim2.new(0.5, 0, 1, -86),
+	MobileNitroPosition = UDim2.new(0.5, 0, 1, -108),
 	MobileNitroAnchor = Vector2.new(0.5, 1),
 	-- Narrower than the desktop bar: it has to fit between two thumbs
 	-- rather than hug a corner.
 	MobileNitroSize = Vector2.new(168, 18),
+
+	-- Left of the centred speed/nitro stack, on the same baseline.
+	MobileItemPosition = UDim2.new(0.5, -115, 1, -38),
+	MobileItemAnchor = Vector2.new(1, 1),
+
+	--== THE REAR THREAT STRIP =========================================
+	-- Who is behind you, as a strip of segments along the very bottom
+	-- edge — under the cluster, out of the road, and readable without
+	-- looking away from the kart.
+	--
+	-- BOTTOM OF THE SCREEN IS BEHIND YOU. That is the whole reason it
+	-- lives here rather than in a corner: no legend to learn, the
+	-- position of the lit segment IS the bearing. Dead centre is
+	-- directly behind, left of centre is over your left shoulder.
+	--
+	-- TWO LAYERS, DELIBERATELY DIFFERENT IN KIND, because they answer
+	-- different questions and one of them is almost always true:
+	--
+	--   PROXIMITY  faint, wide, always on when anyone is close. "Someone
+	--              is there." Never sharp enough to pull your eye.
+	--   THREAT     bright, narrow, rare. Something is actually inbound.
+	--              This one is allowed to interrupt.
+	--
+	-- Sized for a phone first. The whole strip is a few pixels tall and
+	-- carries no text, so it costs nothing on a small screen — which is
+	-- the constraint that ruled out a rear-view mirror or a portrait.
+	RearStripWidth = 0.56, -- fraction of screen width, centred
+	RearStripBottom = 6, -- px above the bottom edge
+	RearSegments = 7, -- odd, so one of them IS dead centre
+	RearSegmentHeight = 4,
+	RearSegmentGap = 3,
+	RearSegmentRadius = 2,
+
+	-- Nobody behind this far back is worth a pixel.
+	RearRange = 95, -- studs
+	-- ...and inside this, the segment is at full strength.
+	RearNearRange = 26,
+
+	-- How far the glow bleeds into neighbouring segments. Without some
+	-- spread the indicator ticks between cells like a stepper motor
+	-- instead of sweeping, which reads as broken rather than precise.
+	RearSpread = 0.22, -- in units of the strip's half-width
+
+	RearIdleColor = Color3.fromRGB(150, 160, 180),
+	RearIdleTransparency = 0.88, -- the resting strip. Nearly invisible
+	-- on purpose: it is furniture until something happens.
+	RearCloseColor = Color3.fromRGB(255, 205, 110),
+	RearThreatColor = Color3.fromRGB(255, 120, 110), -- matches IncomingColor
+
+	-- THE FACE, AND WHY IT IS RATIONED.
+	--
+	-- Knowing WHO is on your bumper changes what you do about it, but a
+	-- headshot floating over the road is exactly the "giant enemy head"
+	-- problem — it covers the track at the moment you most need to see
+	-- it. So it appears only when they are genuinely on you, it is small,
+	-- and it sits under the cluster rather than over the road.
+	RearIconRange = 18, -- studs. Tight on purpose.
+	-- 22 is not arbitrary: the face sits at
+	-- RearStripBottom + RearSegmentHeight + 4 = 14px up, so it reaches
+	-- 36px, and the cluster's baseline is 38. Two pixels of clearance.
+	-- Raise this and it starts overlapping the nitro bar — move the
+	-- cluster baselines (Item/Nitro/MobileSpeed) up by the same amount.
+	RearIconSize = 22,
+	RearIconFadeTime = 0.25,
+	-- Bots have no UserId and so no headshot. They get the plain lit
+	-- segment, which is the honest answer rather than a stand-in face.
+
+	RearPulseSlow = 1.8, -- pulses/sec for the threat layer, far out
+	RearPulseFast = 8.0, -- ...and about to land
+
+	-- HOW OFTEN THE STRIP LOOKS, not how often it draws.
+	--
+	-- Finding the nearest kart behind means walking every tagged kart and
+	-- allocating a fresh table from GetTagged. At frame rate that is real
+	-- work for an answer that changes over tenths of a second — and the
+	-- simulation runs on `Handling.MaxTimestep` = 1/20, so anything that
+	-- drags the client under 20fps makes THE KART ITSELF move slower than
+	-- real time. No HUD is worth that.
+	RearScanHz = 12,
+	-- What is drawn is eased toward the last reading, which is what turns
+	-- a 12Hz scan back into a smooth sweep.
+	RearEaseRate = 9,
 }

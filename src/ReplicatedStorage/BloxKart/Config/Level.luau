@@ -159,7 +159,7 @@ return {
 	QuestOpenKey = Enum.KeyCode.J,
 	QuestButtonPosition = UDim2.fromScale(0.012, 0.30),
 	QuestButtonSize = Vector2.new(132, 34),
-	QuestButtonText = "QUESTS",
+	QuestButtonText = "MISSIONS",
 	-- Shown on the tab when something is finished and unclaimed. The
 	-- whole point of collapsing the panel is that you stop looking at
 	-- it, so it has to be able to get your attention back.

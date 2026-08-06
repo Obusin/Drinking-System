@@ -33,6 +33,16 @@ local R = Config.Rewards
 local Transition = {}
 Transition.__index = Transition
 
+local function safeCall(fn: (() -> ())?)
+	if not fn then
+		return
+	end
+	local ok, err = pcall(fn)
+	if not ok then
+		warn("[Transition] covered callback failed: " .. tostring(err))
+	end
+end
+
 function Transition.new()
 	local gui = Instance.new("ScreenGui")
 	gui.Name = "BloxKartTransition"
@@ -78,7 +88,7 @@ function Transition.new()
 		Util.verifyImage(mark, R.WipeImage, "Transition")
 	end
 
-	return setmetatable({ gui = gui, band = band, mark = mark, busy = false }, Transition)
+	return setmetatable({ gui = gui, band = band, mark = mark, busy = false, held = false }, Transition)
 end
 
 -- Sweeps once. `onCovered` fires on the frame the band is across the
@@ -88,12 +98,11 @@ function Transition:Play(onCovered: (() -> ())?): boolean
 	if self.busy then
 		-- Still do the work. Dropping it would leave the caller's change
 		-- unmade, which is worse than making it a frame early.
-		if onCovered then
-			onCovered()
-		end
+		safeCall(onCovered)
 		return false
 	end
 	self.busy = true
+	self.held = false
 
 	local half = R.WipeTime
 	self.band.Position = UDim2.fromScale(-1.5, 0.5)
@@ -121,14 +130,9 @@ function Transition:Play(onCovered: (() -> ())?): boolean
 	end
 
 	inTween.Completed:Connect(function()
-		if onCovered then
-			-- Guarded: a callback that throws must not leave the screen
-			-- covered in yellow forever.
-			local ok, err = pcall(onCovered)
-			if not ok then
-				warn("[Transition] covered callback failed: " .. tostring(err))
-			end
-		end
+		-- Guarded: a callback that throws must not leave the screen
+		-- covered in yellow forever.
+		safeCall(onCovered)
 
 		-- Held at full cover before leaving, so the mark is read rather
 		-- than glimpsed. This is the only pause in the whole transition
@@ -158,6 +162,74 @@ function Transition:Play(onCovered: (() -> ())?): boolean
 	end)
 
 	return true
+end
+
+-- Covers the screen and STAYS covered. This is for cross-place
+-- teleports: once Roblox starts moving the player, uncovering is worse
+-- than holding the stinger because there is no local scene to reveal.
+function Transition:CoverHold(onCovered: (() -> ())?): boolean
+	if self.busy then
+		safeCall(onCovered)
+		return false
+	end
+	self.busy = true
+	self.held = true
+
+	local half = R.WipeTime
+	self.band.Position = UDim2.fromScale(-1.5, 0.5)
+	self.gui.Enabled = true
+
+	local inTween = TweenService:Create(
+		self.band,
+		TweenInfo.new(half, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
+		{ Position = UDim2.fromScale(0.5, 0.5) }
+	)
+	inTween:Play()
+
+	if self.mark.Visible then
+		self.mark.ImageTransparency = 1
+		TweenService
+			:Create(self.mark, TweenInfo.new(half * 0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+				ImageTransparency = 0,
+			})
+			:Play()
+	end
+
+	inTween.Completed:Connect(function()
+		safeCall(onCovered)
+	end)
+
+	return true
+end
+
+-- Escape hatch for failed teleports. Successful teleports never call
+-- this; the destination place replaces the whole client while covered.
+function Transition:Release()
+	if not self.gui.Enabled then
+		self.busy = false
+		self.held = false
+		return
+	end
+
+	self.held = false
+	if self.mark.Visible then
+		TweenService
+			:Create(self.mark, TweenInfo.new(R.WipeTime * 0.6, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+				ImageTransparency = 1,
+			})
+			:Play()
+	end
+
+	local outTween = TweenService:Create(
+		self.band,
+		TweenInfo.new(R.WipeTime, Enum.EasingStyle.Quint, Enum.EasingDirection.In),
+		{ Position = UDim2.fromScale(2.5, 0.5) }
+	)
+	outTween:Play()
+	outTween.Completed:Connect(function()
+		self.gui.Enabled = false
+		self.busy = false
+	end)
 end
 
 function Transition:Destroy()

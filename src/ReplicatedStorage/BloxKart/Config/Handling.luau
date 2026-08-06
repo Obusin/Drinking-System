@@ -78,10 +78,44 @@ return {
 
 	Grip = 9, -- how fast travel catches the nose when gripping.
 	-- LOWER = heavier, washes wider into corners
-	DriftGrip = 3.5, -- ...and while drifting. Lower still, so a drift
+	DriftGrip = 2.9, -- ...and while drifting. Lower still, so a drift
 	-- genuinely slides wide before the rotation reels it back in
-	MaxSlip = 32, -- degrees travel may lag the nose. Hard cap, so the
+
+	-- MaxSlip IS PART OF THE DRIFT SET, not a safety rail bolted on the
+	-- side. It moved WITH DriftGrip and had to.
+	--
+	-- In a settled drift the nose rotates at `DriftTurnBase + trim *
+	-- DriftTurnTrim` and travel settles a lag angle behind it of roughly
+	--
+	--     slip = driftTurn / DriftGrip      (radians)
+	--
+	-- which is why the cap is reached at some FRACTION of full lock, and
+	-- why that fraction moves when either number does. Past it the clamp
+	-- takes over: extra lock still rotates the kart, it just stops adding
+	-- any visible slide, so the drift feels like it hit a stop.
+	--
+	-- At the old 3.5 grip against a 32° cap that happened at about 68% of
+	-- lock. Dropping grip to 2.9 and leaving the cap alone would have
+	-- pulled it forward to 57% — a WIDER dead band, the exact opposite of
+	-- the loosening it was meant to buy. 38° puts it back at 66%, and
+	-- every input below it now carries about 20% more slip than before:
+	-- 16.4° -> 19.8° neutral, 27.8° -> 29.3° at half lock.
+	--
+	-- Raise DriftGrip without dropping this and the reverse happens: the
+	-- clamp stops being reachable and MaxSlip quietly stops existing.
+	MaxSlip = 38, -- degrees travel may lag the nose. Hard cap, so the
 	-- kart can never end up driving sideways or backwards
+
+	-- Grip is not switched between states, it is CHASED. Every other part
+	-- of the drift already eases (the body angle and the turn rate share
+	-- one smoothstepped blend); grip was the last thing left stepping, and
+	-- it stepped at the two worst moments — the frame a hop leaves the
+	-- ground and the frame a drift is released, where the kart snapped
+	-- from 2.9 to 9 and hooked up like it had hit tarmac.
+	--
+	-- High enough that it never becomes a second, slower drift timer.
+	-- Lower it and grip starts lagging visibly behind the body.
+	GripBlendRate = 12,
 
 	TurnRate = 2.5, -- rad/s at full lock, low speed
 	TurnRateTop = 1.6, -- rad/s at full lock, top speed
@@ -104,6 +138,43 @@ return {
 	HopMinSpeed = 8, -- below this the hop is cosmetic
 	HopMinAir = 0.05, -- minimum air time before a landing counts
 
+	-- THE HOP HAD NO FALL. This is the one that mattered.
+	--
+	-- HopSpeed 18 against Gravity 150 gives an apex of 1.08 studs — well
+	-- inside GroundSnap (3.0). The snap only refuses while the kart is
+	-- still rising, so the instant vertVel crossed zero AT THE APEX the
+	-- ground grabbed it and put it back down in a single frame. The hop
+	-- was a 0.12s rise followed by a teleport: a sawtooth, not an arc,
+	-- and precisely why it read as a discrete state change rather than a
+	-- movement.
+	--
+	-- So a deliberate hop gets its own, much tighter snap distance. The
+	-- big GroundSnap is there to follow the road over dips and seams; it
+	-- has no business reeling in a jump the player asked for. Only real
+	-- touchdown counts now, so the kart falls the whole 1.08 studs and
+	-- lands at about 15 studs/s — which is also what finally gives the
+	-- landing an impact worth cushioning.
+	--
+	-- Air time stays deterministic (~0.22s, from the arc alone), which
+	-- matters because this is the gate the drift is timed off.
+	HopSnap = 0.35,
+
+	-- The hop unloads the wheels — the drift spec always said so, and the
+	-- kinematic rewrite quietly dropped it. Full grip in mid-air meant
+	-- travel snapped to wherever the nose was pointed the moment you
+	-- landed, so the drift began from zero slip every time and the entry
+	-- was a step. Carrying momentum through the hop instead means the kart
+	-- is ALREADY sideways when it touches down, and the drift picks up a
+	-- slide that has already started.
+	--
+	-- Deliberately below DriftGrip, so grip only ever rises out of a hop
+	-- into a drift and never spikes back toward Grip in between.
+	--
+	-- Applies to the hop state only, NOT to being airborne generally —
+	-- a ramp jump still steers as before. That is a separate question and
+	-- changing it would move every bot line in the game.
+	HopGrip = 1.5,
+
 	--== BEING SPUN ===================================================
 	-- How far a spinout knocks you off line, on top of the speed it
 	-- costs. Applied once, at the moment of the hit.
@@ -124,17 +195,52 @@ return {
 	--== DRIFT =========================================================
 	-- Drifting turns TIGHTER than steering. That's the whole reward —
 	-- it's why you drift instead of just cornering.
+	--
+	-- THESE TWO ARE THE DRIFT LINE, AND THEY WERE LEFT ALONE ON PURPOSE.
+	--
+	-- It is tempting to raise them to "compensate" for the looser grip
+	-- below, on the theory that a lower grip makes drifts run wide. It
+	-- does not, and this is worth writing down because the assumption is
+	-- very natural and wrong: in a SETTLED drift `travel` rotates at
+	-- exactly the same rate as the nose whatever the grip, because that
+	-- is what settled means. Grip decides how far the kart lags and how
+	-- much it washes on the way IN. It never touches the radius the drift
+	-- eventually holds — that is these two numbers and nothing else.
+	--
+	-- So there is nothing here to compensate for, and moving them would
+	-- have silently changed what the fast line is.
 	DriftTurnBase = 1, -- rad/s baseline while drifting
-	DriftTurnTrim = 1.4, -- rad/s added/removed by steering
-	DriftVisualAngle = 30, -- degrees the body is rotated out. PURELY
+	DriftTurnTrim = 1.4, -- rad/s added/removed by steering. Must stay
+	-- above DriftTurnBase or full countersteer can no longer rotate the
+	-- kart back OUT of the slide, which is the only way to catch one.
+	DriftVisualAngle = 32, -- degrees the body is rotated out. PURELY
 	-- COSMETIC — it does not steer the kart.
+	-- ...and how much more the body opens up when you lean on it.
+	--
+	-- A single fixed angle meant the kart struck one pose on turn-in and
+	-- held it for the whole corner, identical whether you were feathering
+	-- the slide or pinned against the stop. Steering into the drift now
+	-- opens the body out, catching it tucks it back in — which is also
+	-- the tell that tells you which one you are doing.
+	--
+	-- KEEP THIS SMALL. What the driver actually sees is this angle PLUS
+	-- the slip angle, and they add: the body yaws into the corner while
+	-- travel trails out of it. At 32 + 6 against a 38° slip cap the
+	-- extreme is already about 76° of body-to-travel, which is a long way
+	-- past anything Mario Kart shows you. There is no headroom left here.
+	--
+	-- Driven off the SMOOTHED steer value, so the body swings rather than
+	-- snapping with the stick. Still purely cosmetic.
+	DriftVisualAngleTrim = 6,
 
 	-- A single 0..1 blend eases the kart into and out of the drift. It
 	-- drives BOTH the body angle and the extra turn rate together, so
 	-- there's no frame where either one steps. Smoothstepped, meaning
 	-- the rate of change is zero at both ends — that's what kills the
 	-- snap. Seconds, not rates.
-	DriftEnterTime = 0.26, -- time to fully commit to the drift
+	DriftEnterTime = 0.30, -- time to fully commit to the drift. Longer
+	-- than it was: with grip now riding this same blend, the extra beat is
+	-- the kart taking a set rather than arriving already sideways.
 	DriftExitTime = 0.45, -- time to unwind. Longer on purpose: a drift
 	-- should end like a car settling.
 	DriftMinSpeed = 22, -- speed needed to start a drift
@@ -142,24 +248,43 @@ return {
 	DriftEngageSteer = 0.15, -- steer held on landing to lock in
 	-- DRIFT SPEED CURVE
 	--
-	-- Per-frame speed retention across the LIFE of a drift, sampled over
+	-- Speed retention PER SECOND across the LIFE of a drift, sampled over
 	-- DriftScrubWindow seconds. Below 1 scrubs speed, above 1 builds it.
 	--
 	--   1.00 |\                    __/
 	--        | \__            ____/
-	--   0.98 |    \__________/
+	--   0.84 |    \__________/
 	--        +------------------------- drift time ->
 	--
 	-- Enter fast, wash speed off as the kart takes a set, then wind back
 	-- up as it hooks up and comes off the corner. Committing to a long
 	-- drift should feel like it costs something before it pays.
 	--
+	-- PER SECOND. NOT PER FRAME. Simulation raises these to `^dt`, and
+	-- that is the only reason the numbers below are readable as
+	-- percentages. Applied per frame — which is what it did until
+	-- 2026-08-06 — a value of 0.98 is 0.98^60 = 30% of your speed
+	-- SURVIVING each second, and the whole curve becomes a frame-rate
+	-- dependent cliff. Measured before the fix: a drift bled to 68% of
+	-- top speed at 60fps, and 49% at 144fps.
+	--
+	-- So read these as "how much speed a second of drift keeps". 0.84 at
+	-- the trough is a 16%/s bleed, which against the accel curve pulling
+	-- the other way settles the kart at about 93% of top speed — a dip
+	-- you feel, not a wall you hit.
+	--
+	-- KEEP THE LAST VALUE AT 1.0. sampleCurve holds the final value once
+	-- the window is past, so anything above 1 there is a permanent
+	-- overspeed for as long as a sweeper can be held.
+	--
 	-- A flat { 1 } means a drift neither scrubs nor builds.
-	DriftScrubCurve = { 1.0, 0.988, 0.980, 0.982, 0.992, 1.002, 1.006 },
+	DriftScrubCurve = { 1.0, 0.90, 0.84, 0.86, 0.93, 0.99, 1.00 },
 	DriftScrubWindow = 2.6, -- seconds the curve spans before it holds
 
-	DriftSpeedKeep = 0.995, -- flat multiplier applied on top of the curve.
-	-- 1.0 = zero scrub. Keep it near 1 so drifting is the fast line.
+	DriftSpeedKeep = 1.0, -- flat multiplier on top of the curve, also per
+	-- second. THIS is the one dial for "is drifting faster or slower than
+	-- driving straight" — the curve owns the shape, this owns the level.
+	-- Above 1 and a drift outruns the throttle; below 1 and it costs you.
 
 	--== BOOST =========================================================
 	BoostTier1Time = 0.85, -- seconds of drift for blue
@@ -270,4 +395,30 @@ return {
 
 	--== INTEGRATION ===================================================
 	MaxTimestep = 1 / 20, -- never integrate a bigger frame than this
+
+	-- HOW MANY OF THOSE A SINGLE FRAME MAY RUN.
+	--
+	-- MaxTimestep on its own is a trap, and it cost a "the kart feels
+	-- super slow" report to find. `Step` clamps dt to it, so a caller
+	-- that calls Step ONCE per frame silently DISCARDS everything past
+	-- 50ms — and discarded time is lost motion, not a stutter:
+	--
+	--     30 fps -> fine, under the cap
+	--     15 fps -> 66ms elapsed, 50ms integrated -> 75% speed
+	--     10 fps -> 50% speed
+	--
+	-- The kart does not judder, it goes SLOW, smoothly, and the
+	-- speedometer agrees because the simulation really is that slow.
+	-- From the seat it reads as the handling having been nerfed, which is
+	-- the last thing anyone would investigate.
+	--
+	-- So a long frame is integrated as several capped steps. This bounds
+	-- the catch-up: past 4 slices (0.2s of real time) we drop the
+	-- remainder on purpose, because fully repaying a one-second hitch
+	-- costs a second of simulation on the very next frame and turns one
+	-- hitch into a spiral.
+	--
+	-- ANY new caller of Step must sub-step too. There is nothing in the
+	-- module that can enforce it.
+	MaxSubSteps = 4,
 }

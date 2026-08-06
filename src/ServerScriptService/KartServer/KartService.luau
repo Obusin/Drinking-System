@@ -24,13 +24,20 @@ local Names = require(ReplicatedStorage.BloxKart.Names)
 local Util = require(ReplicatedStorage.BloxKart.Util)
 local Match = require(ReplicatedStorage.BloxKart.Match)
 local Place = require(ReplicatedStorage.BloxKart.Place)
+local KartDress = require(ReplicatedStorage.BloxKart.KartDress)
 local KartFactory = require(script.Parent.KartFactory)
 local Skins = require(script.Parent.Skins)
+local GarageService = require(script.Parent.GarageService)
+local DataService = require(script.Parent.DataService)
 local Placement = require(script.Parent.Placement)
 
 local RIG = Config.Rig
 local LOBBY = Config.Lobby
 local log = Util.logger("KartService", RIG.Debug)
+-- The dressing path gets its own switch, on Config.Garage.Debug, so
+-- tracing "why is my kart not wearing what I picked" does not also turn
+-- on every spawn/seat/collision line in this module.
+local dlog = Util.logger("KartService/dress", Config.Garage.Debug)
 
 local KartService = {}
 
@@ -46,6 +53,16 @@ export type Racer = Player | { Name: string, Bot: true }
 -- the whole spawn path for actual players the moment bots existed.
 local function isBot(racer: any): boolean
 	return typeof(racer) == "table" and racer.Bot == true
+end
+
+local function setPlayerState(player: Player?, state: string, reason: string?)
+	if not player then
+		return
+	end
+	player:SetAttribute(Names.PLAYER_STATE, state)
+	if reason then
+		player:SetAttribute(Names.PLAYER_STATE_REASON, reason)
+	end
 end
 
 local karts: { [any]: Model } = {}
@@ -84,6 +101,7 @@ local function reload(player: Player, why: string)
 		return
 	end
 	reloadAt[player] = os.clock()
+	setPlayerState(player, Names.STATE_CHARACTER_LOADING, why)
 	log("reloading %s (%s)", player.Name, why)
 	pcall(function()
 		player:LoadCharacter()
@@ -339,6 +357,298 @@ local function visualFor(player: any?): string?
 	return nil
 end
 
+-- RE-DRESS WHOEVER'S KART IS OUT RIGHT NOW.
+--
+-- The single entry point for "their loadout changed, make the kart they
+-- are actually sitting in match it". Wired to GarageService.onEquipped,
+-- so pressing DONE in the garage reaches the live kart immediately
+-- rather than waiting for it to be destroyed and rebuilt.
+--
+-- Says so when there is no kart, because "nothing happened" and "there
+-- was nothing to happen to" are the same silence otherwise, and that
+-- distinction is the whole diagnosis.
+function KartService.redressFor(player: Player)
+	local kart = karts[player]
+	if not kart or not kart.Parent then
+		dlog("%s: re-dress requested, but they have NO KART spawned — nothing to change.", player.Name)
+		return
+	end
+	dlog("%s: re-dressing %s", player.Name, kart:GetFullName())
+	task.spawn(KartService.dressKart, player, kart)
+end
+
+-- Put a racer's chosen look on a kart. YIELDS — the mesh swap goes over
+-- the network via CreateMeshPartAsync — so every caller spawns it. A kart
+-- must never wait on art to exist.
+--
+-- CALLED FROM THREE PLACES on purpose, and that is the point of it being
+-- a function: at spawn, when the profile finishes loading, and when the
+-- garage commits. Every one of those is a moment the look can change.
+-- INVENTORY A KART. Every BasePart, named with its class.
+--
+-- The one question this whole saga kept failing to answer: what ARE the
+-- parts on this kart called, and are they MeshParts? A name that is
+-- MISSING is a Config.Rig problem; a name that is PRESENT but is a Part
+-- or a Union can never take a mesh swap at all — and the two are
+-- identical from the driver's seat.
+local function inventory(kart: Model): string
+	local rows = {}
+	for _, d in kart:GetDescendants() do
+		if d:IsA("BasePart") then
+			table.insert(rows, ("%s<%s>"):format(d.Name, d.ClassName))
+		end
+	end
+	table.sort(rows)
+	return table.concat(rows, "  ")
+end
+
+-- Apply an explicit look to a kart, with the full trace.
+--
+-- Shared by the profile path and the cycle test, so the test exercises
+-- EXACTLY the code a real equip runs. A harness that takes a different
+-- route proves nothing about the route that is broken.
+local function applyLook(who: string, kart: Model, look: { [string]: string }, paint: Color3?)
+	local names = {}
+	for name in look do
+		table.insert(names, name)
+	end
+	table.sort(names)
+
+	local _, found, changed = Skins.applyTo(kart, look)
+
+	-- NAME THE HITS AND THE MISSES, not just count them. A PARTIAL match
+	-- raises no warning — body found, wheels not — and counts alone
+	-- cannot say which.
+	local hit, miss = {}, {}
+	for _, name in names do
+		table.insert(if kart:FindFirstChild(name, true) then hit else miss, name)
+	end
+	dlog(
+		"%s: %s -> found %d, swapped %d | HAS [%s] | MISSING [%s]",
+		who,
+		kart:GetFullName(),
+		found,
+		changed,
+		table.concat(hit, ","),
+		table.concat(miss, ",")
+	)
+
+	if #names > 0 and found == 0 then
+		local wrongClass = {}
+		for _, d in kart:GetDescendants() do
+			if d:IsA("BasePart") and not d:IsA("MeshPart") and look[d.Name] then
+				table.insert(wrongClass, ("%s is a %s"):format(d.Name, d.ClassName))
+			end
+		end
+		warn(
+			("[KartService] %s: NONE of [%s] could be swapped on %s.\n"):format(
+				who,
+				table.concat(names, ","),
+				kart:GetFullName()
+			)
+				.. ("    EVERY PART ON THIS KART: %s\n"):format(inventory(kart))
+				.. (if #wrongClass > 0
+					then ("    RIGHT NAME, WRONG CLASS — a mesh cannot go on these: %s\n"):format(
+						table.concat(wrongClass, ", ")
+					)
+					else "")
+				.. "    Add the bodywork part's REAL name to Config.Rig.BodyNames (wheels to Front/RearWheelNames). Do NOT rename the art."
+		)
+	end
+
+	-- AFTER the meshes: a swapped mesh arrives with its own colour, so
+	-- painting first would be overwritten by the very next swap.
+	if paint then
+		local parts = KartDress.paintableParts(kart, RIG)
+		for _, part in parts do
+			part.Color = paint
+		end
+		dlog("%s: painted %d part(s)", who, #parts)
+		if #parts == 0 then
+			warn(
+				("[KartService] %s: nothing to paint on %s — no part carries the %q tag and none is named any of [%s, %s].\n    EVERY PART: %s"):format(
+					who,
+					kart:GetFullName(),
+					tostring(RIG.PaintTag),
+					table.concat(RIG.BodyNames, ", "),
+					table.concat(RIG.PaintParts, ", "),
+					inventory(kart)
+				)
+			)
+		end
+	end
+end
+
+-- SPAWN INVISIBLE, DRESS, THEN FADE IN.
+--
+-- A kart is built and dressed asynchronously — the mesh swap fetches
+-- over the network — so there is always a window where it exists wearing
+-- the default. Seating is instant, so the player watches their own kart
+-- change shape underneath them. That reads as a glitch, not as loading,
+-- and it is the last thing that made a correct save look broken.
+--
+-- SERVER SIDE, so it cannot use LocalTransparencyModifier the way the
+-- menu preview does — that property is client-only. Each part's original
+-- Transparency is recorded and restored exactly, which is what stops a
+-- canopy or a glass panel being flattened opaque the first time a kart
+-- spawns. Recording BEFORE hiding is the whole reason this is safe.
+--
+-- Seating is deliberately NOT delayed by this. Control is available
+-- immediately; a kart you cannot drive for half a second is a worse
+-- trade than one that fades in.
+local function dressAndReveal(player: any, kart: Model, onDressed: (() -> ())?)
+	local fade = Config.Garage.SpawnFadeTime or 0
+	if fade <= 0 then
+		KartService.dressKart(player, kart)
+		if onDressed then
+			onDressed()
+		end
+		return
+	end
+
+	-- Recorded first, so the restore puts back exactly what the art had.
+	local original: { [BasePart]: number } = {}
+	for _, d in kart:GetDescendants() do
+		if d:IsA("BasePart") then
+			original[d] = d.Transparency
+			d.Transparency = 1
+		end
+	end
+
+	-- Bounded: a mesh that never loads must not leave an invisible kart
+	-- under the player.
+	local done = false
+	task.spawn(function()
+		KartService.dressKart(player, kart)
+		done = true
+	end)
+	local deadline = os.clock() + (Config.Garage.SpawnMaxWait or 6)
+	while not done and os.clock() < deadline do
+		task.wait(0.05)
+	end
+
+	if not kart.Parent then
+		return -- despawned while we were waiting
+	end
+
+	-- SEATED HERE: dressed, but still invisible. So the player is put
+	-- into a kart that is already wearing the right thing, and the fade
+	-- reveals the finished article with them in it — rather than seating
+	-- them in a default kart that then changes shape underneath them.
+	--
+	-- After the timeout as well as after a success, because a mesh that
+	-- never loads must not leave the player standing beside their kart.
+	if onDressed then
+		local ok, err = pcall(onDressed)
+		if not ok then
+			warn("[KartService] seating after dressing failed: " .. tostring(err))
+		end
+	end
+
+	local t0 = os.clock()
+	while true do
+		local a = math.clamp((os.clock() - t0) / fade, 0, 1)
+		for part, was in original do
+			if part.Parent then
+				-- Toward the part's OWN value, never toward 0, so a
+				-- deliberately translucent part lands where it started.
+				part.Transparency = was + (1 - was) * (1 - a)
+			end
+		end
+		if a >= 1 then
+			break
+		end
+		task.wait()
+	end
+end
+
+function KartService.dressKart(player: any, kart: Model)
+	if not player or not kart or not kart.Parent then
+		return
+	end
+	-- WHAT THEY CHOSE BEATS WHAT THEY WERE GIVEN. A real player wears
+	-- their saved garage loadout; bots (and anyone whose profile has not
+	-- loaded yet) keep the stable random dresser, so a kart is never
+	-- undressed while waiting on a profile.
+	local look = if isBot(player) then nil else GarageService.lookFor(player)
+	if not look then
+		local key = if isBot(player) then "bot:" .. tostring(player.Name) else "user:" .. tostring(player.UserId)
+		dlog("%s: no profile look — random dresser (%s)", tostring(player.Name), key)
+		Skins.dress(kart, key)
+		return
+	end
+	applyLook(tostring(player.Name), kart, look, GarageService.paintFor(player))
+end
+
+-- CYCLE TEST — prove the mesh swap works with the profile taken out.
+--
+-- Set `Config.Garage.CycleTest` to a number of seconds and every human's
+-- kart is re-dressed from the CATALOGUE on that interval, ignoring what
+-- anyone has equipped. It answers the one question the garage cannot:
+-- can this kart wear a different mesh AT ALL?
+--
+--   meshes visibly change -> the pipeline works, and the bug is upstream
+--                            in what the profile resolves to
+--   nothing changes       -> the warn names every part on the kart and
+--                            whether any of them is even a MeshPart
+--
+-- It runs the SAME applyLook a real equip runs, deliberately.
+function KartService.startCycleTest()
+	local every = Config.Garage.CycleTest or 0
+	if every <= 0 then
+		return
+	end
+	local GAR = Config.Garage
+	warn(
+		("[KartService] CYCLE TEST ON — re-dressing every kart from the catalogue every %.1fs, ignoring profiles. Set Config.Garage.CycleTest = 0 to stop."):format(
+			every
+		)
+	)
+	task.spawn(function()
+		local n = 0
+		while true do
+			task.wait(every)
+			n += 1
+			local body = GAR.Bodies[(n % #GAR.Bodies) + 1]
+			local wheel = GAR.Wheels[(n % #GAR.Wheels) + 1]
+			local paint = GAR.Paints[(n % #GAR.Paints) + 1]
+
+			local look = {}
+			if body.mesh ~= "" then
+				for _, name in RIG.BodyNames do
+					look[name] = body.mesh
+				end
+			end
+			if wheel.mesh ~= "" then
+				for _, name in RIG.FrontWheelNames do
+					look[name] = wheel.mesh
+				end
+				for _, name in RIG.RearWheelNames do
+					look[name] = wheel.mesh
+				end
+			end
+
+			for racer, kart in karts do
+				if not isBot(racer) and kart.Parent then
+					dlog("CYCLE %d: body=%s wheel=%s paint=%s", n, body.id, wheel.id, paint.id)
+					-- The first pass dumps the kart regardless of outcome,
+					-- so the part names reach the log even when a swap
+					-- succeeds and nothing warns.
+					if n == 1 then
+						warn(
+							("[KartService] CYCLE TEST inventory of %s:\n    %s"):format(
+								kart:GetFullName(),
+								inventory(kart)
+							)
+						)
+					end
+					task.spawn(applyLook, tostring(racer.Name), kart, look, paint.colour)
+				end
+			end
+		end
+	end)
+end
+
 local function createKart(name: string, slot: number, player: any?): Model
 	local pad = Placement.findSpawn()
 	if pad then
@@ -373,15 +683,15 @@ local function createKart(name: string, slot: number, player: any?): Model
 	-- the watchdog does — a kart that changed shape whenever it was
 	-- rebuilt would read as a glitch, not as variety.
 	--
-	-- SPAWNED, because the swap yields: the working route is
-	-- CreateMeshPartAsync and it fetches over the network. A kart must
-	-- never wait on art to exist.
-	if player then
-		local key = if isBot(player) then "bot:" .. tostring(player.Name) else "user:" .. tostring(player.UserId)
-		task.spawn(function()
-			Skins.dress(kart, key)
-		end)
-	end
+	-- NOT DRESSED HERE. This function BUILDS a kart; it does not decide
+	-- what one wears, and putting the dressing here meant only karts that
+	-- came through this function got dressed at all.
+	--
+	-- `spawnKartFor` has a second path — it hands the pre-built start-line
+	-- kart to slot 0 without ever calling this — so the first player to
+	-- join, which in a solo test is ALWAYS you, received a kart nothing
+	-- had ever dressed. Its two callers now dress explicitly, so no branch
+	-- can miss it.
 	kart:PivotTo(Placement.cframeFor(pad, slot))
 	kart.Parent = workspace
 	bindOwnership(kart, isBot(player))
@@ -397,6 +707,7 @@ local function seatPlayer(player: Player, kart: Model)
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 	local seat = kart:FindFirstChild("Seat") :: VehicleSeat?
 	if not (humanoid and seat and humanoid.Health > 0) then
+		setPlayerState(player, Names.STATE_RECOVERING, "seat failed: missing live humanoid or seat")
 		log("seat FAILED for %s", player.Name)
 		return
 	end
@@ -406,6 +717,7 @@ local function seatPlayer(player: Player, kart: Model)
 	-- and Sit throws on it: "param is not a Humanoid or humanoid is
 	-- dead", once per watchdog sweep, forever.
 	if humanoid:GetState() == Enum.HumanoidStateType.Dead then
+		setPlayerState(player, Names.STATE_RECOVERING, "seat skipped: humanoid dead")
 		log("seat SKIPPED for %s — humanoid is dead", player.Name)
 		return
 	end
@@ -422,9 +734,11 @@ local function seatPlayer(player: Player, kart: Model)
 		seat:Sit(humanoid)
 	end)
 	if not ok then
+		setPlayerState(player, Names.STATE_RECOVERING, "seat failed: " .. tostring(err))
 		log("seat FAILED for %s: %s", player.Name, tostring(err))
 		return
 	end
+	setPlayerState(player, if Place.isLobby() then Names.STATE_LOBBY_DRIVING else Names.STATE_RACE_DRIVING, "seated")
 	log("seated %s", player.Name)
 end
 
@@ -443,6 +757,7 @@ local function bindLockIn(player: Player, kart: Model)
 end
 
 local function spawnKartFor(player: Player)
+	setPlayerState(player, Names.STATE_KART_SPAWNING, if Place.isLobby() then "lobby kart requested" else "race kart spawning")
 	local existing = karts[player]
 	if existing then
 		karts[player] = nil
@@ -473,11 +788,36 @@ local function spawnKartFor(player: Player)
 	-- without keeping a second table in sync.
 	kart:SetAttribute(Names.OWNER, player.UserId)
 	karts[player] = kart
+
+	-- DRESSED HERE, AFTER THE BRANCH, so it does not matter which way the
+	-- kart arrived — freshly built, or the start-line kart claimed above.
+	--
+	-- THIS WAS THE BUG. The claim path never called createKart, which is
+	-- where the dressing used to live, so slot 0 got an undressed kart
+	-- every single time. Slot 0 is the first player to join, so in any
+	-- solo test that is always you: the garage saved correctly, the
+	-- profile was correct, and the one kart you actually rode was the one
+	-- kart nothing had ever dressed.
+	--
+	-- Spawned because the mesh swap fetches over the network. A kart must
+	-- never wait on art to exist.
+	--
+	-- `dressAndReveal` rather than a bare dress: it hides the kart until
+	-- the look has landed, so nobody watches their own kart change shape.
+	--
+	-- SEATING IS ITS CALLBACK, so the player is put into a kart that is
+	-- already dressed. `bindLockIn` still binds immediately — it is the
+	-- watchdog that re-seats anyone who ends up out of their kart, and it
+	-- tolerates the seat being briefly empty, which is exactly the window
+	-- this opens.
 	bindLockIn(player, kart)
-	seatPlayer(player, kart)
+	task.spawn(dressAndReveal, player, kart, function()
+		seatPlayer(player, kart)
+	end)
 end
 
 local function onCharacterAdded(player: Player, character: Model)
+	setPlayerState(player, if Place.isLobby() then Names.STATE_LOBBY else Names.STATE_RACE_LOADING, "character arrived")
 	-- A KART IS ON ITS WAY. The watchdog must not decide one is missing
 	-- while this is still walking to it — SeatDelay alone is a window
 	-- wide enough for it to fire, and two spawnKartFor calls means the
@@ -498,6 +838,7 @@ local function onCharacterAdded(player: Player, character: Model)
 	-- reviveRetired hands it back at the lobby.
 	if humanoid and humanoid:IsA("Humanoid") then
 		humanoid.Died:Connect(function()
+			setPlayerState(player, Names.STATE_RECOVERING, "died")
 			task.wait(Players.RespawnTime)
 			reload(player, "died")
 		end)
@@ -550,6 +891,7 @@ local function onPlayerAdded(player: Player)
 	-- kart — that has three places to fail silently. When somebody
 	-- arrives without a kart, these lines say which link went, and that
 	-- is worth four prints a session.
+	setPlayerState(player, Names.STATE_LOADING, "joined")
 	print(("[KartService] %s joined — waiting for a character"):format(player.Name))
 	player.CharacterAdded:Connect(function(character)
 		print(("[KartService] %s character arrived"):format(player.Name))
@@ -574,6 +916,10 @@ function KartService.addBot(name: string): (any, Model)
 	local slot = takeSlot(racer)
 	local kart = createKart(name .. "_Kart", slot, racer)
 	karts[racer] = kart
+	-- Explicit now that createKart no longer dresses. A bot has no
+	-- profile, so this lands on the stable random dresser — which is the
+	-- point: bots should look varied and consistent, not identical.
+	task.spawn(KartService.dressKart, racer, kart)
 
 	-- ANCHORED. One thing may own a part's position, and here that is us.
 	--
@@ -644,6 +990,7 @@ end
 function KartService.spawnFor(player: Player): Model?
 	local ok, err = pcall(spawnKartFor, player)
 	if not ok then
+		setPlayerState(player, Names.STATE_RECOVERING, "spawnFor failed: " .. tostring(err))
 		warn("[KartService] spawnFor FAILED for " .. player.Name .. ": " .. tostring(err))
 		return nil
 	end
@@ -694,6 +1041,7 @@ function KartService.despawnFor(player: Player): boolean
 		humanoid.JumpHeight = StarterPlayer.CharacterJumpHeight
 	end
 
+	setPlayerState(player, Names.STATE_LOBBY, "kart despawned")
 	return true
 end
 
@@ -752,6 +1100,34 @@ end
 function KartService.start()
 	log("starting")
 	setupCollisionGroup()
+
+	-- Diagnostic harness. No-op unless Config.Garage.CycleTest > 0.
+	KartService.startCycleTest()
+
+	-- RE-DRESS WHEN THE PROFILE TURNS UP.
+	--
+	-- A kart can spawn before its owner's profile has loaded, and until
+	-- now nothing ever went back to fix it: `dressKart` fell through to
+	-- the random dresser and the player raced the whole round in a kart
+	-- they did not choose. Which is indistinguishable, from the seat,
+	-- from customisation not having saved at all.
+	--
+	-- The race is not rare and it is worst exactly where it matters
+	-- most. Arriving in a RACE place, the kart is built as the round
+	-- starts, while `StartSessionAsync` is still doing a DataStore round
+	-- trip — and possibly waiting on the lobby server to release the
+	-- session lock first. The lobby is the forgiving case; the race is
+	-- not, and the race is the one people see.
+	--
+	-- Fires once per player, so this costs one extra mesh swap for
+	-- someone who was already dressed correctly, and nothing at all for
+	-- a player whose profile beat their kart (no kart yet to re-dress).
+	DataService.onLoaded(function(player)
+		local kart = karts[player]
+		if kart and kart.Parent then
+			task.spawn(KartService.dressKart, player, kart)
+		end
+	end)
 
 	-- WE DECIDE WHEN A PLAYER SPAWNS, NOT THE ENGINE.
 	--
@@ -876,6 +1252,17 @@ function KartService.start()
 			--  The sweep below this one, for karts that are REGISTERED
 			--  and gone, still runs in a lobby: that failure is real
 			--  wherever it happens.
+			if Place.isLobby() then
+				for _, player in Players:GetPlayers() do
+					local character = player.Character
+					local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+					if not humanoid or humanoid.Health <= 0 then
+						setPlayerState(player, Names.STATE_RECOVERING, "lobby watchdog: no live character")
+						reload(player, "lobby no character")
+					end
+				end
+			end
+
 			if not RIG.TestMode and not Place.isLobby() then
 				for _, player in Players:GetPlayers() do
 					if karts[player] then
@@ -905,10 +1292,12 @@ function KartService.start()
 					--  between leaves exactly this state.
 					--=================================================
 					if not humanoid or humanoid.Health <= 0 then
+						setPlayerState(player, Names.STATE_RECOVERING, "race watchdog: no live character")
 						reload(player, "no character")
 						continue
 					end
 
+					setPlayerState(player, Names.STATE_RECOVERING, "race watchdog: no kart")
 					warn(
 						("[KartService] %s has no kart — rebuilding. Their first spawn failed or was lost."):format(
 							player.Name
@@ -968,6 +1357,7 @@ function KartService.start()
 				-- server is driving would fight it for control.
 				if not seated and not kart:GetAttribute(Names.AI_DRIVEN) then
 					if humanoid and humanoid.Health > 0 and seat then
+						setPlayerState(racer, Names.STATE_RECOVERING, "watchdog: not seated")
 						seatPlayer(racer, kart)
 						-- First time, then every tenth. A player who cannot
 						-- be seated at all would otherwise print this every

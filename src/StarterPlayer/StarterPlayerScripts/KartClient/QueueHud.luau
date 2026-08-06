@@ -31,6 +31,7 @@ function QueueHud.new()
 	local self = setmetatable({
 		remote = remote,
 		quietUntil = 0,
+		onResult = nil,
 	}, QueueHud)
 
 	self.prompt = KeyPrompt.new({
@@ -64,6 +65,9 @@ function QueueHud:Play()
 end
 
 function QueueHud:_result(result: unknown, trackName: unknown)
+	if self.onResult then
+		self.onResult(result, trackName)
+	end
 	if result == "pending" then
 		self.prompt:Note(LOBBY.PlayPending)
 		if typeof(trackName) == "string" then
@@ -82,8 +86,22 @@ function QueueHud:_result(result: unknown, trackName: unknown)
 	end
 end
 
+function QueueHud:SetResultHandler(fn: ((unknown, unknown) -> ())?)
+	self.onResult = fn
+end
+
 function QueueHud:Update(dt: number)
 	self.prompt:Update(dt)
+end
+
+function QueueHud:SetVisible(on: boolean)
+	self.prompt:SetVisible(on)
+end
+
+-- Hide the bottom prompt but keep the key working — RACE now lives as the PLAY
+-- tab in the lobby top bar. See KeyPrompt:SetShown.
+function QueueHud:SetPromptShown(on: boolean)
+	self.prompt:SetShown(on)
 end
 
 function QueueHud:Destroy()

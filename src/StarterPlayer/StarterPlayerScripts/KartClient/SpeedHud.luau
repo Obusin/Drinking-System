@@ -84,6 +84,7 @@ function SpeedHud.new()
 	gui.Name = "BloxKartSpeed"
 	gui.ResetOnSpawn = false
 	gui.IgnoreGuiInset = true
+	gui.Enabled = false -- Starts hidden; SetActive(true) shows it when a kart attaches.
 	gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 	gui.Parent = playerGui
 
@@ -296,31 +297,68 @@ function SpeedHud.new()
 	--  divide the width between themselves. Changing NitroSegments needs
 	--  no other edit and no arithmetic.
 	--=============================================================
+	-- ON THE KART OR ON THE SCREEN — one bar either way.
+	--
+	-- Everything below this point is shared: the same cells, the same
+	-- flex layout, the same update. Only the MOUNT and the AXIS differ,
+	-- because a duplicate nitro readout is two answers to one question
+	-- and they would drift apart the first time either was touched.
+	local onKart = H.NitroOnKart
 	local barW, barH = nitroSize.X, nitroSize.Y
+	if onKart then
+		barW, barH = H.NitroKartSize.X, H.NitroKartSize.Y
+	end
+
+	local billboard = nil
+	local barParent: Instance = gui
+	if onKart then
+		billboard = Instance.new("BillboardGui")
+		billboard.Name = "BloxKartNitro"
+		-- OFFSET, not scale. This is the line that makes it a constant
+		-- size on screen instead of shrinking as the camera pulls back.
+		billboard.Size = UDim2.fromOffset(barW, barH)
+		billboard.StudsOffset = H.NitroKartOffset
+		billboard.AlwaysOnTop = true -- never behind the kart's own bodywork
+		billboard.LightInfluence = 0 -- stays readable in shadow and tunnels
+		billboard.ResetOnSpawn = false
+		billboard.Enabled = false -- until there is a kart to hang it on
+		billboard.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
+		barParent = billboard
+	end
 
 	local bar = Instance.new("CanvasGroup")
 	bar.Name = "Nitro"
-	bar.AnchorPoint = nitroAnchor
-	bar.Position = nitroPos
-	bar.Size = UDim2.fromOffset(barW, barH)
+	-- Inside a billboard the bar simply fills it; on screen it is placed.
+	bar.AnchorPoint = if onKart then Vector2.new(0, 0) else nitroAnchor
+	bar.Position = if onKart then UDim2.fromScale(0, 0) else nitroPos
+	bar.Size = if onKart then UDim2.fromScale(1, 1) else UDim2.fromOffset(barW, barH)
 	bar.BackgroundTransparency = 1
 	bar.BorderSizePixel = 0
 	bar.GroupTransparency = 1 -- hidden until you're in a kart
-	bar.Parent = gui
+	bar.Parent = barParent
 
 	local layout = Instance.new("UIListLayout")
-	layout.FillDirection = Enum.FillDirection.Horizontal
+	layout.FillDirection = if onKart then Enum.FillDirection.Vertical else Enum.FillDirection.Horizontal
 	layout.Padding = UDim.new(0, H.NitroSegmentGap)
 	layout.SortOrder = Enum.SortOrder.LayoutOrder
-	layout.VerticalAlignment = Enum.VerticalAlignment.Center
+	if onKart then
+		layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	else
+		layout.VerticalAlignment = Enum.VerticalAlignment.Center
+	end
 	layout.Parent = bar
 
 	local cells = {}
 	for i = 1, H.NitroSegments do
 		local cell = Instance.new("Frame")
 		cell.Name = "Cell" .. i
-		cell.LayoutOrder = i
-		cell.Size = UDim2.new(0, 0, 1, 0) -- width comes from the flex below
+		-- REVERSED WHEN VERTICAL. A UIListLayout puts LayoutOrder 1 at the
+		-- TOP, and a meter that fills downward from the top reads as
+		-- draining. Cell 1 has to be the bottom one, so the reserve
+		-- stacks upward the way every fuel gauge ever made does.
+		cell.LayoutOrder = if onKart then (H.NitroSegments + 1 - i) else i
+		-- The flex below claims the free axis; this sets the other one.
+		cell.Size = if onKart then UDim2.new(1, 0, 0, 0) else UDim2.new(0, 0, 1, 0)
 		cell.BackgroundTransparency = 1
 		cell.BorderSizePixel = 0
 		cell.Parent = bar
@@ -341,13 +379,15 @@ function SpeedHud.new()
 		stroke.Transparency = H.NitroEmptyTransparency
 		stroke.Parent = cell
 
-		-- Fill grows left to right inside its cell, so a partly-earned
-		-- bar shows progress rather than snapping full.
+		-- Fill grows inside its cell, so a partly-earned bar shows
+		-- progress rather than snapping full. Left-to-right on screen,
+		-- bottom-to-top on the kart — anchored to the edge it grows FROM,
+		-- which is what stops it expanding out of both sides at once.
 		local fill = Instance.new("Frame")
 		fill.Name = "Fill"
-		fill.AnchorPoint = Vector2.new(0, 0.5)
-		fill.Position = UDim2.fromScale(0, 0.5)
-		fill.Size = UDim2.fromScale(0, 1)
+		fill.AnchorPoint = if onKart then Vector2.new(0.5, 1) else Vector2.new(0, 0.5)
+		fill.Position = if onKart then UDim2.fromScale(0.5, 1) else UDim2.fromScale(0, 0.5)
+		fill.Size = if onKart then UDim2.fromScale(1, 0) else UDim2.fromScale(0, 1)
 		fill.BackgroundColor3 = H.NitroFillTop
 		fill.BackgroundTransparency = 1
 		fill.BorderSizePixel = 0
@@ -383,9 +423,15 @@ function SpeedHud.new()
 	nitroLabel.Parent = gui
 	nitroLabel.Position = UDim2.new(1, -20, 1, -190)
 	nitroLabel.AnchorPoint = Vector2.new(1, 1)
+	-- No caption on the kart. A floating bar with the word NITRO beside
+	-- it is the clutter this move was meant to remove, and a boost meter
+	-- attached to your own kart does not need naming.
+	nitroLabel.Visible = not onKart
 
 	return setmetatable({
 		gui = gui,
+		onKart = onKart,
+		billboard = billboard,
 		dial = dial,
 		rim = rim,
 		ticks = ticks,
@@ -411,6 +457,12 @@ function SpeedHud:SetActive(active: boolean)
 	end
 	self.active = active
 	self.gui.Enabled = true
+	-- The billboard has no fade to ride: it is either on a kart or there
+	-- is no kart to hang it on. Toggled rather than tweened for that
+	-- reason — a bar fading in over empty road has nothing to fade onto.
+	if self.billboard then
+		self.billboard.Enabled = active
+	end
 
 	local info = TweenInfo.new(H.SpeedFadeTime, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 	local hide = not active
@@ -496,6 +548,24 @@ function SpeedHud:Update(dt: number, sim)
 	-- Nitro bar — a persistent reserve, not a drift meter. It shows what
 	-- you have banked, so it only moves when you bank or burn.
 	----------------------------------------------------------------
+	-- HANG THE BAR ON WHATEVER KART WE ARE IN NOW.
+	--
+	-- Done here rather than at construction because the HUD is built
+	-- before any kart exists, and re-checked every frame rather than
+	-- once because you get a NEW hitbox on every respawn, every kart
+	-- call and every teleport into a race. A one-shot attach leaves the
+	-- bar adorned to a destroyed part, which shows as it silently
+	-- vanishing partway through a session.
+	--
+	-- Reads `sim.hitbox` only — the same part the Consistency Rule
+	-- guarantees, and read-only. Nothing here feeds back into handling.
+	if self.billboard then
+		local hitbox = sim and sim.hitbox
+		if hitbox and self.billboard.Adornee ~= hitbox then
+			self.billboard.Adornee = hitbox
+		end
+	end
+
 	-- Reserve INCLUDES whatever's still draining out of the current burn,
 	-- so committing a tank shows it emptying rather than a cell blinking
 	-- out of existence.
@@ -521,7 +591,7 @@ function SpeedHud:Update(dt: number, sim)
 	for i, entry in self.cells do
 		local amount = math.clamp(shown - (i - 1), 0, 1)
 
-		entry.fill.Size = UDim2.fromScale(amount, 1)
+		entry.fill.Size = if self.onKart then UDim2.fromScale(1, amount) else UDim2.fromScale(amount, 1)
 		entry.fill.BackgroundTransparency = if amount > 0.01 then 0 else 1
 		entry.grad.Color = ColorSequence.new(tint, tint:Lerp(H.NitroFillBottom, 0.55))
 
@@ -546,6 +616,10 @@ end
 
 function SpeedHud:Destroy()
 	self.gui:Destroy()
+	-- Its own top-level GUI, not a child of `gui`, so it needs saying.
+	if self.billboard then
+		self.billboard:Destroy()
+	end
 end
 
 return SpeedHud

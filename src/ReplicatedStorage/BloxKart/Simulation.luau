@@ -130,6 +130,9 @@ function Simulation.new(model: Model, hitbox: BasePart, seat: VehicleSeat, _char
 		visualNormal = Vector3.yAxis,
 
 		steer = 0,
+		-- Grip is chased rather than switched, so the hop and the drift
+		-- release stop stepping it. See H.GripBlendRate.
+		gripNow = H.Grip,
 		state = STATE_GRIP,
 		hopUntil = 0,
 		driftDir = 0,
@@ -187,6 +190,7 @@ function Simulation.new(model: Model, hitbox: BasePart, seat: VehicleSeat, _char
 		pitch = 0,
 		bob = 0,
 		squash = 0,
+		squashVel = 0, -- the suspension spring's velocity term
 	}, Simulation)
 end
 
@@ -209,6 +213,9 @@ function Simulation:RespawnAt(cf: CFrame)
 	self.grounded = false
 	self.airTime = 0
 	self.normal, self.visualNormal = self.up, self.up
+	-- Full grip, not whatever the drift or hop we died in had left it on.
+	self.gripNow = H.Grip
+	self.squash, self.squashVel = 0, 0
 
 	-- Everything transient is cleared; anything earned is kept.
 	self.state = STATE_GRIP
@@ -468,7 +475,10 @@ function Simulation:Step(dt: number, input): { [string]: any }
 			else
 				self.state = STATE_GRIP
 			end
-			self.squash = FX.LandSquash
+			-- The landing dip is no longer set here. Section 7 owns it for
+			-- every landing there is, and it fires on the frame the wheels
+			-- actually touch rather than the frame after — which is also
+			-- the only place the descent speed still exists to scale it by.
 		end
 	elseif self.state == STATE_DRIFT then
 		local newTier = tierFor(now - self.driftStart)
@@ -606,8 +616,25 @@ function Simulation:Step(dt: number, input): { [string]: any }
 	if drifting then
 		-- Scrub then recover across the life of the drift, so a long
 		-- drift costs speed before it pays it back.
+		--
+		-- ^dt, AND THAT IS NOT A DETAIL. These are retention rates PER
+		-- SECOND; raising them to dt is what turns a rate into this
+		-- frame's share of it.
+		--
+		-- Applied straight, as a per-FRAME multiplier, this compounded
+		-- with the frame rate — the one thing this whole module exists to
+		-- prevent. 0.995 * 0.980 looks like a 2% trim and is 0.9751^60 =
+		-- **22% of your speed per second** at 60fps. Measured, a drift
+		-- fell to 68% of top speed at 60fps, 79% at 30, and 49% at 144:
+		-- a drift on a 144Hz monitor cost you half your speed, and the
+		-- fast line was the slow line on better hardware.
+		--
+		-- The symptom was "it goes slow really quick then goes fast",
+		-- which is this curve's dip and recovery with a 20x magnifier on
+		-- it, not the shape being wrong.
 		local driftAge = (now - self.driftStart) / H.DriftScrubWindow
-		self.speed *= H.DriftSpeedKeep * Util.sampleCurve(H.DriftScrubCurve, driftAge)
+		local retain = H.DriftSpeedKeep * Util.sampleCurve(H.DriftScrubCurve, driftAge)
+		self.speed *= retain ^ dt
 	end
 
 	----------------------------------------------------------------
@@ -663,7 +690,36 @@ function Simulation:Step(dt: number, input): { [string]: any }
 	-- before the new heading takes over. Welding travel to forward is
 	-- what made it feel like it was on rails.
 	----------------------------------------------------------------
-	local gripRate = if drifting then H.DriftGrip else H.Grip
+	-- GRIP IS CHASED, NOT SWITCHED.
+	--
+	-- Taken from the STATE, not from the drift blend, and then approached.
+	-- Both halves matter:
+	--
+	--   Reading the state means landing a hop into a drift goes 1.5 -> 2.9
+	--   and only ever rises. Reading the blend instead would aim at the
+	--   full 9 for the first frames of the drift — because `eased` is
+	--   still near zero there — and the kart would hook up hard at the
+	--   exact moment it is supposed to be letting go.
+	--
+	--   Approaching it means nothing steps. A hop used to drop the kart
+	--   from 9 to nothing and back inside a fifth of a second, and a drift
+	--   release used to snap 2.9 -> 9 in one frame while the body was
+	--   still visibly sideways, unwinding over the next 0.45s with no grip
+	--   left to explain it.
+	--
+	-- The unwind out of a drift follows the same eased blend that drives
+	-- the body angle and the turn rate, so all three arrive together.
+	local gripTarget
+	if self.state == STATE_HOP then
+		gripTarget = H.HopGrip
+	elseif drifting then
+		gripTarget = H.DriftGrip
+	else
+		gripTarget = H.Grip + (H.DriftGrip - H.Grip) * eased
+	end
+	self.gripNow = Util.approach(self.gripNow, gripTarget, H.GripBlendRate, dt)
+
+	local gripRate = self.gripNow
 	self.travel = self.travel:Lerp(self.forward, math.min(gripRate * dt, 1))
 	self.travel = (Util.orthonormal(self.travel, self.up))
 
@@ -996,6 +1052,23 @@ function Simulation:Step(dt: number, input): { [string]: any }
 		-- kart ended up inside it.
 		local gap = -highest - H.RideHeight
 		local allowed = if gap < 0 then H.GroundSnapUp else H.GroundSnap
+
+		-- A HOP IS NOT A DIP IN THE ROAD.
+		--
+		-- The snap refuses to act while the kart is rising, so with a
+		-- 1.08-stud apex sitting well inside a 3.0-stud GroundSnap the
+		-- very first frame vertVel crossed zero — the apex itself — the
+		-- ground reclaimed the kart and put it back down in one step. The
+		-- hop had a rise and no fall at all.
+		--
+		-- GroundSnap exists to follow the road across dips, seams and
+		-- kerbs. A jump the player deliberately asked for is not one of
+		-- those, so while the hop is live only a genuine touchdown counts
+		-- and the arc gets to finish.
+		if self.state == STATE_HOP then
+			allowed = math.min(allowed, H.HopSnap)
+		end
+
 		if self.vertVel <= 0 and gap <= allowed then
 			-- EASE SMALL CORRECTIONS, SNAP BIG ONES.
 			--
@@ -1029,10 +1102,30 @@ function Simulation:Step(dt: number, input): { [string]: any }
 				correction *= math.min(H.GroundSmoothRate * dt, 1)
 			end
 
+			-- How hard we actually arrived. Read before the line below
+			-- throws it away — this is the only frame it exists on, and
+			-- it is the difference between a drift hop and a fall off a
+			-- bridge producing the same cosmetic dip.
+			local impact = math.max(-self.vertVel, 0)
+
 			self.pos += self.up * correction
 			self.vertVel = 0
 			self.grounded = true
 			self.normal = surfaceNormal
+
+			-- Touchdown. Compresses the suspension by an amount the drop
+			-- earned; the spring in section 8 rings it back out.
+			--
+			-- `max` rather than assignment so a second, softer landing a
+			-- frame later can never cut a big compression short.
+			if not self.wasGrounded then
+				local hardness = math.clamp(impact / FX.LandSquashSpeed, 0, 1)
+				local dip = FX.LandSquash + (FX.LandSquashMax - FX.LandSquash) * hardness
+				if dip > self.squash then
+					self.squash = dip
+					self.squashVel = 0
+				end
+			end
 		end
 	end
 
@@ -1071,8 +1164,12 @@ function Simulation:Step(dt: number, input): { [string]: any }
 	end
 	self.forward, self.up = Util.orthonormal(self.forward, self.up)
 
+	-- The dip itself is applied above, for every landing including the
+	-- hop's. This is only the EVENT, and it still deliberately excludes
+	-- the hop: `landed` drives a haptic punch and a quest tally, and
+	-- firing one on every drift entry would buzz the controller through
+	-- every corner and turn "land 50 jumps" into "drift 50 times".
 	if self.grounded and not self.wasGrounded and self.state ~= STATE_HOP then
-		self.squash = FX.LandSquash
 		events.landed = true
 	end
 
@@ -1082,7 +1179,19 @@ function Simulation:Step(dt: number, input): { [string]: any }
 	-- Nose points INTO the turn while the kart keeps travelling along
 	-- `forward`. Driven off the same eased blend as the rotation, so the
 	-- body angle and the turn arrive together.
-	self.driftAngle = -activeDir * math.rad(H.DriftVisualAngle) * eased
+	--
+	-- The angle also ANSWERS THE STICK. A fixed number meant the body
+	-- struck one pose on turn-in and held it for the whole corner, whether
+	-- you were feathering the slide or leaning on the stop — the drift
+	-- looked the same however hard you were working, which is most of what
+	-- made it read as locked-off.
+	--
+	-- Off the SMOOTHED steer, not the raw input, so the body swings with
+	-- the stick instead of snapping to it. Still cosmetic: `travel` and
+	-- `forward` never hear about any of this.
+	local visualTrim = math.clamp(self.steer * activeDir, -1, 1)
+	local visualAngle = H.DriftVisualAngle + visualTrim * H.DriftVisualAngleTrim
+	self.driftAngle = -activeDir * math.rad(visualAngle) * eased
 
 	-- Spinning out overrides the drift angle entirely. Several fast
 	-- revolutions that decelerate, plus roll and pitch thrown around, so
@@ -1109,13 +1218,47 @@ function Simulation:Step(dt: number, input): { [string]: any }
 	-- smoothing toward a steering target would fight it flat.
 	if not spinning then
 		local leanTarget = -self.steer * math.rad(FX.LeanAngle) + -activeDir * math.rad(FX.DriftLeanBonus) * eased
+
+		-- Loading up for a drift that does not exist yet. The hop is the
+		-- only moment the player has already committed and the kart has
+		-- nothing to show for it, so the body rolls the way they are
+		-- steering — which is the way the drift is about to go. Turn-in on
+		-- landing then continues a movement instead of beginning one.
+		--
+		-- Same sign as DriftLeanBonus by construction: both follow the
+		-- steer that decides driftDir, so the roll never has to reverse
+		-- across the landing.
+		if self.state == STATE_HOP then
+			leanTarget += -self.steer * math.rad(FX.HopLean)
+		end
 		self.lean = Util.approach(self.lean, leanTarget, FX.LeanRate, dt)
 
 		local pitchTarget = math.rad(FX.PitchOnAccel) * (boosting and -1 or -throttle) * 0.5
+
+		-- Nose up climbing, nose down falling. Negative is nose-up here,
+		-- same convention as the squat above. Scaled by vertical speed so
+		-- it passes through zero at the apex and unwinds itself on
+		-- touchdown — no state to clear, and a ramp jump gets it free.
+		if not self.grounded then
+			local rise = math.clamp(self.vertVel / H.HopSpeed, -1, 1)
+			pitchTarget += -math.rad(FX.AirPitch) * rise
+		end
 		self.pitch = Util.approach(self.pitch, pitchTarget, FX.PitchRate, dt)
 	end
 
-	self.squash = Util.approach(self.squash, 0, FX.SquashRate, dt)
+	-- SUSPENSION, AS ARITHMETIC. Still no constraint, still no physics —
+	-- a number the controller integrates and hands to a visual offset.
+	--
+	-- A lerp toward zero can only sag back to rest, which reads as the
+	-- kart giving up rather than absorbing. A damped spring overshoots
+	-- once and settles, and that single rebound is the whole difference
+	-- between landing and stopping.
+	--
+	-- Explicit Euler is stable here because dt is capped at MaxTimestep
+	-- (1/20) and the spring's period is a comfortable ~0.45s.
+	self.squashVel += (-FX.SquashSpring * self.squash - FX.SquashDamp * self.squashVel) * dt
+	self.squash += self.squashVel * dt
+	self.squash = math.clamp(self.squash, -FX.LandSquashMax, FX.LandSquashMax)
 	self.speedFrac = math.clamp(speedAbs / H.MaxSpeed, 0, 1)
 	self.bob = if self.grounded
 		then math.sin(now * FX.BobSpeed) * FX.BobAmount * self.speedFrac

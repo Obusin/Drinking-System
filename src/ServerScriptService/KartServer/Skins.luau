@@ -339,9 +339,19 @@ end
 
 -- The real entry point for later: one kart, one skin, no loop. The test
 -- above exists to prove this line is possible; this is the line.
-function Skins.applyTo(kart: Model, skin: { [string]: string }): boolean
-	local _, changed = applySet(kart, skin)
-	return changed > 0
+-- Returns `changed > 0`, plus the counts, because the boolean alone
+-- cannot tell the two failures apart and they need opposite fixes:
+--
+--   found 0  -> the NAMES are wrong. Nothing in the model is called
+--               that, so no swap was ever attempted. This is the bug
+--               that made garage wheels never appear on a kart.
+--   found n, changed 0 -> the names are right and every mesh load
+--               failed. That is an asset problem, not a naming one.
+--
+-- Extra return values are ignored by callers that only want the flag.
+function Skins.applyTo(kart: Model, skin: { [string]: string }): (boolean, number, number)
+	local found, changed = applySet(kart, skin)
+	return changed > 0, found, changed
 end
 
 return Skins

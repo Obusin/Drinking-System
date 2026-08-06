@@ -67,9 +67,15 @@ function VehicleHud:_result(result: unknown)
 	if result == "spawned" then
 		self.hasKart = true
 		self.prompt:SetLabel(LOBBY.DespawnText)
+		if self.labelHandler then
+			self.labelHandler(LOBBY.DespawnText)
+		end
 	elseif result == "despawned" then
 		self.hasKart = false
 		self.prompt:SetLabel(LOBBY.SpawnText)
+		if self.labelHandler then
+			self.labelHandler(LOBBY.SpawnText)
+		end
 	elseif result == "blocked" then
 		self.prompt:Note(LOBBY.BlockedMessage)
 	elseif result == "failed" then
@@ -79,6 +85,23 @@ end
 
 function VehicleHud:Update(dt: number)
 	self.prompt:Update(dt)
+end
+
+function VehicleHud:SetVisible(on: boolean)
+	self.prompt:SetVisible(on)
+end
+
+-- Hide the bottom prompt but keep the key working (the action now lives as a
+-- button in the lobby top bar). See KeyPrompt:SetShown.
+function VehicleHud:SetPromptShown(on: boolean)
+	self.prompt:SetShown(on)
+end
+
+-- Told when the server changes our kart state, so the top-bar button can show
+-- the same CALL KART / PUT AWAY label the prompt would have.
+function VehicleHud:SetLabelHandler(fn: (string) -> ())
+	self.labelHandler = fn
+	fn(if self.hasKart then LOBBY.DespawnText else LOBBY.SpawnText)
 end
 
 function VehicleHud:Destroy()

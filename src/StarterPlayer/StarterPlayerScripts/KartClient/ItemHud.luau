@@ -10,6 +10,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local BloxKart = ReplicatedStorage:WaitForChild("BloxKart")
 
 local Config = require(BloxKart:WaitForChild("Config"))
+local Device = require(BloxKart:WaitForChild("Device"))
 local Util = require(BloxKart:WaitForChild("Util"))
 local H = Config.Hud
 
@@ -33,9 +34,14 @@ function ItemHud.new()
 	local MAX = Config.Items.MaxHeld
 	local SLOT, GAP = H.ItemSlotSize, H.ItemSlotGap
 
+	-- Same Device answer every other HUD uses. On touch the cluster sits
+	-- beside the centred speed readout rather than beside the nitro bar,
+	-- because the mobile layout stacks those two differently.
+	local mobile = Device.touchLayout()
+
 	local panel = Instance.new("Frame")
-	panel.AnchorPoint = H.ItemAnchor
-	panel.Position = H.ItemPosition
+	panel.AnchorPoint = if mobile then H.MobileItemAnchor else H.ItemAnchor
+	panel.Position = if mobile then H.MobileItemPosition else H.ItemPosition
 	panel.Size = UDim2.fromOffset(MAX * SLOT + (MAX - 1) * GAP, SLOT + 36)
 	panel.BackgroundTransparency = 1
 	panel.Parent = gui

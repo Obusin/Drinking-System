@@ -27,10 +27,12 @@ local TeleportService = game:GetService("TeleportService")
 local BloxKart = ReplicatedStorage:WaitForChild("BloxKart")
 local Names = require(BloxKart:WaitForChild("Names"))
 local Place = require(BloxKart:WaitForChild("Place"))
+local Config = require(BloxKart:WaitForChild("Config"))
 
 local QueueService = {}
 
 local remote: RemoteEvent
+local transitionRemote: RemoteEvent
 -- Who is already on their way. A teleport takes seconds and the player
 -- stays in the server for all of them, so without this a second press
 -- starts a second teleport for someone who is already leaving.
@@ -84,6 +86,12 @@ local function onRequest(player: Player, action: unknown)
 
 	inFlight[player] = true
 	remote:FireClient(player, "pending", track.name)
+	transitionRemote:FireClient(player, "teleportOut", "race", track.name)
+
+	-- Give the client-side wipe time to reach full cover before Roblox
+	-- starts tearing the place down. If the remote is delayed, the
+	-- teleport still wins; this is polish, not authority.
+	task.wait(Config.Rewards.WipeTime + Config.Rewards.WipeImageHold)
 
 	-- The mode travels with the player rather than living in the track's
 	-- own config, because a track is a MAP and casual/ranked/time-trial
@@ -101,6 +109,7 @@ local function onRequest(player: Player, action: unknown)
 
 	if not ok then
 		inFlight[player] = nil
+		transitionRemote:FireClient(player, "release")
 		remote:FireClient(player, "failed")
 		warn(("[Queue] teleport to %s (%d) failed: %s"):format(track.name, track.placeId, tostring(err)))
 	end
@@ -114,6 +123,10 @@ function QueueService.start()
 	remote.Name = Names.QUEUE_REMOTE
 	remote.Parent = BloxKart
 
+	transitionRemote = Instance.new("RemoteEvent")
+	transitionRemote.Name = Names.TRANSITION_REMOTE
+	transitionRemote.Parent = BloxKart
+
 	remote.OnServerEvent:Connect(onRequest)
 
 	-- ASYNC FAILURE. TeleportAsync can return cleanly and still fail
@@ -124,6 +137,7 @@ function QueueService.start()
 	TeleportService.TeleportInitFailed:Connect(function(player, result, message)
 		inFlight[player] = nil
 		if player.Parent == Players then
+			transitionRemote:FireClient(player, "release")
 			remote:FireClient(player, "failed")
 		end
 		warn(("[Queue] teleport failed for %s: %s (%s)"):format(player.Name, tostring(result), tostring(message)))

@@ -144,6 +144,33 @@ return {
 	WheelRearTag = "KartWheelRear", -- rolls only
 
 	-- Fallback if nothing is tagged, so the built-in placeholder works.
+	-- THE PART NAMES THE DRESSING LOOKS FOR. One source, both sides.
+	--
+	-- KartDress (the garage preview) already walked these lists;
+	-- GarageService.lookFor did NOT — it hard-coded "FWheel"/"RWheel" as
+	-- part names, which are two ALIASES in the list below and not what
+	-- the actual rig uses. So the preview found WheelFL/FR/RL/RR and
+	-- swapped them, and the spawned kart asked for a part called exactly
+	-- "FWheel", found nothing, and silently kept its old wheels.
+	--
+	-- That is why customisation appeared to work in the garage and then
+	-- not on the kart. Anything that dresses a kart reads these.
+	-- A LIST, exactly like the wheels, and for the same reason.
+	--
+	-- THE GARAGE PREVIEW KART AND THE PLAYER'S REAL KART ARE DIFFERENT
+	-- MODELS. The preview is the authored MenuStage kart; the ridden one
+	-- is built by KartFactory. They are not required to name their parts
+	-- the same way and in this project they do not — which is why the
+	-- garage visibly changed and the real kart never did.
+	--
+	-- A single `BodyName` could only ever be right for one of them. A
+	-- candidate list is right for both: a name a model does not have is
+	-- simply not found, at the cost of one lookup.
+	--
+	-- IF THE MESH SWAP STILL DOES NOTHING, the warn from
+	-- KartService/dress prints this kart's REAL MeshPart names. Add the
+	-- one that is the bodywork here. DO NOT rename art to match code.
+	BodyNames = { "Body", "Shell", "Hull", "Chassis" },
 	FrontWheelNames = { "WheelFL", "WheelFR", "FWheel", "WheelF" },
 	RearWheelNames = { "WheelRL", "WheelRR", "RWheel", "WheelR" },
 

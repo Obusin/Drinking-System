@@ -5,7 +5,7 @@
 	version stacked all three, which was the same information in three
 	times the height and pushed the monthly off the bottom of the screen.
 
-	The whole thing lives behind a QUESTS tab and is closed by default. A
+	The whole thing lives behind a Missions tab and is closed by default. A
 	racing HUD should show what you need while driving, and a quest list
 	is not that — but collapsing it means you stop looking at it, so both
 	the tab and each layer button carry a badge when something is
@@ -258,6 +258,22 @@ end
 
 function QuestHud:IsOpen(): boolean
 	return self.isOpen
+end
+
+function QuestHud:SetVisible(on: boolean)
+	self.gui.Enabled = on
+	if not on then
+		self.isOpen = false
+		self.root.Visible = false
+	end
+end
+
+-- Hides just the floating "Open" pill, independent of SetVisible. Used once
+-- the persistent lobby nav bar exists: MISSIONS lives there now, so this
+-- corner button would otherwise be a second entry point to the same panel.
+-- The panel and hotkey (Toggle) keep working; only the pill disappears.
+function QuestHud:SetButtonVisible(on: boolean)
+	self.open.Visible = on
 end
 
 function QuestHud:Select(layer: string)

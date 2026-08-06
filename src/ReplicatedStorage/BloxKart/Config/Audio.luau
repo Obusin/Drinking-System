@@ -148,4 +148,21 @@ return {
 	-- update and double on the frame after — unsmoothed, every remote
 	-- engine warbles.
 	RemoteSmoothing = 8,
+
+	--== INTERFACE (2D UI SFX) =========================================
+	-- Non-positional menu/HUD cues, played through SoundService by the
+	-- shared UiSound helper. One id per named cue so any screen can ask
+	-- for "Click"/"Hover"/etc. by name without knowing the asset.
+	UI = {
+		Volume = 0.5,
+		Click = "rbxassetid://88442833509532",
+		Hover = "rbxassetid://139800881181209",
+		Error = "rbxassetid://87519554692663",
+		Equip = "rbxassetid://138323438407619",
+		Unequip = "rbxassetid://81904985537003",
+		Open = "rbxassetid://127877437691780",
+		Close = "rbxassetid://74657965144290",
+		Notification = "rbxassetid://105983221709653",
+		QuestCollect = "rbxassetid://80977935658780",
+	},
 }

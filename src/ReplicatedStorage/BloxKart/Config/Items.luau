@@ -58,7 +58,30 @@ return {
 	DodgeEnabled = true,
 	-- Clearance needed under the kart, measured along ITS own up so this
 	-- still works on a loop.
-	DodgeHeight = 4.5,
+	--
+	-- THIS WAS 4.5 AND THE HOP COULD NOT REACH IT. Nobody has ever
+	-- dodged a missile in this game. The arithmetic, which nothing ever
+	-- did:
+	--
+	--   hop apex          HopSpeed^2 / 2*Gravity = 18^2/300 = 1.08 studs
+	--   hitbox clearance  RideHeight + apex      = 1.4 + 1.08 = 2.48
+	--   required                                 = 4.5
+	--
+	-- Short by two studs, permanently. `HopSpeed` would have to be 30.5
+	-- instead of 18 for the old number to be clearable, which is a
+	-- completely different hop. The feature read as working because
+	-- nothing errors — you hop, the missile hits you, and it looks like
+	-- you mistimed it.
+	--
+	-- 2.2 sits between the 1.4 the kart rides at and the 2.48 it peaks
+	-- at, which gives a 122ms window opening 59ms into a 200ms hop.
+	-- Ground margin is 0.8 studs, and GroundSmooth cannot eat into it:
+	-- easing applies to UPWARD corrections only, so it can leave the kart
+	-- lower than nominal, never higher. No accidental immunity.
+	--
+	-- Re-derive this if HopSpeed, Gravity or RideHeight ever move. It is
+	-- three numbers in two different config tables and nothing links them.
+	DodgeHeight = 2.2,
 	-- And the missile has to actually be below you. Without this, any
 	-- airborne kart is immune from every angle, including one flying
 	-- straight at your face.
@@ -66,7 +89,22 @@ return {
 	-- How close a missile gets before its target is told it is coming.
 	-- Late on purpose: a dodge committed early lands before the missile
 	-- arrives and dodges nothing.
-	DodgeWarnRange = 26,
+	--
+	-- THIS IS THE BOT'S CUE, NOT THE PLAYER'S. It drives
+	-- `ProjectileService.onMissileNear` -> `BotService.missileNear` and
+	-- nothing else reads it. A human's warning comes from
+	-- `Projectiles.threatTo()` on the client, held for `Hud.IncomingHold`
+	-- — a different signal on a different clock. Do not tune this
+	-- expecting the player-facing alert to move.
+	--
+	-- 26 studs was 124ms of lead at 210 studs/s, against a hop that does
+	-- not clear until 59ms after the press. `Bots.ReactionTime` is 190ms,
+	-- so a bot was being told to dodge well after the last moment it
+	-- could have acted — on top of a DodgeHeight it could never clear.
+	--
+	-- 65 studs is ~310ms: react at 190ms, hop clears from 249ms to
+	-- 371ms, missile lands at 310ms. Inside the window.
+	DodgeWarnRange = 65,
 
 	ThreatConeAt = 90,
 	ThreatConeMin = 0.55,

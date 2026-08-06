@@ -35,6 +35,7 @@ local BotService = require(script.BotService)
 local Progress = require(script.Progress)
 local Ledger = require(script.Ledger)
 local DataService = require(script.DataService)
+local GarageService = require(script.GarageService)
 local QuestService = require(script.QuestService)
 local PlayerVehicleService = require(script.PlayerVehicleService)
 local QueueService = require(script.QueueService)
@@ -130,6 +131,22 @@ Ledger.start()
 -- Profiles. Gated by Config.Data.Enabled and mocked in Studio, so this
 -- is safe to leave wired while the trust seams are still open.
 DataService.start()
+-- After DataService: it subscribes to onLoaded to push each player their
+-- equipped loadout as soon as their profile is up.
+GarageService.start()
+
+-- EQUIPPING HAS TO REACH THE KART, not just the profile.
+--
+-- A hook rather than a require, same shape as the missile relay below:
+-- KartService already requires GarageService, so GarageService cannot
+-- require it back. Wired here because this is the file that knows both
+-- exist.
+--
+-- Without it, equipping wrote the profile and stopped there — the kart
+-- you were sitting in kept its old bodywork until something destroyed
+-- and rebuilt it, which reads exactly like the garage not saving.
+GarageService.onEquipped = KartService.redressFor
+
 QuestService.start()
 
 -- The wiring BETWEEN the race services. Gated with them rather than

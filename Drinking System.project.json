@@ -2,6 +2,9 @@
   "name": "Roblox Development",
   "tree": {
     "$className": "DataModel",
+    "ReplicatedFirst": {
+      "$path": "src/ReplicatedFirst"
+    },
     "ReplicatedStorage": {
       "$path": "src/ReplicatedStorage"
     },

@@ -35,6 +35,7 @@ return {
 	Data = require(script.Data), -- persistence, off by default
 	Minimap = require(script.Minimap), -- the track, drawn from Route
 	Skins = require(script.Skins), -- what a kart can look like
+	Garage = require(script.Garage), -- the customisation catalogue (keys -> meshes/paint)
 	Hud = require(script.Hud), -- shared on-screen styling
 	Places = require(script.Places), -- lobby vs race place, and the track list
 	Lobby = require(script.Lobby), -- the hub: calling and putting away your kart

@@ -22,10 +22,12 @@ local TeleportService = game:GetService("TeleportService")
 
 local BloxKart = ReplicatedStorage:WaitForChild("BloxKart")
 local Config = require(BloxKart:WaitForChild("Config"))
+local Names = require(BloxKart:WaitForChild("Names"))
 
 local PL = Config.Places
 
 local ReturnService = {}
+local transitionRemote: RemoteEvent
 
 -- Rounds completed since the last trip home, or since server start.
 local sinceReturn = 0
@@ -67,10 +69,14 @@ function ReturnService.onResults()
 			return
 		end
 
+		transitionRemote:FireAllClients("teleportOut", "lobby")
+		task.wait(Config.Rewards.WipeTime + Config.Rewards.WipeImageHold)
+
 		local ok, err = pcall(function()
 			TeleportService:TeleportAsync(PL.LobbyPlaceId, here)
 		end)
 		if not ok then
+			transitionRemote:FireAllClients("release")
 			-- FALLS BACK TO "KEEP RACING", not a retry loop. A failed
 			-- batch teleport leaves everyone exactly where they were —
 			-- mid-game, which is the honest state to be in rather than
@@ -81,12 +87,19 @@ function ReturnService.onResults()
 end
 
 function ReturnService.start()
+	transitionRemote = Instance.new("RemoteEvent")
+	transitionRemote.Name = Names.TRANSITION_REMOTE
+	transitionRemote.Parent = BloxKart
+
 	-- The async half of the same failure TeleportInitFailed exists for
 	-- everywhere else in this codebase: TeleportAsync can return cleanly
 	-- and still fail moments later. QueueService has its own connection
 	-- to the same signal — Roblox signals are multi-subscriber, so the
 	-- two do not conflict or overwrite each other.
 	TeleportService.TeleportInitFailed:Connect(function(player, result, message)
+		if player.Parent == Players then
+			transitionRemote:FireClient(player, "release")
+		end
 		warn(("[Return] teleport home failed for %s: %s (%s)"):format(player.Name, tostring(result), tostring(message)))
 	end)
 end

@@ -204,6 +204,43 @@ so anything measuring distance sees the same total for everyone.
 They cross the line rather than arriving at it. Lowering the gains
 doesn't fix it — same fight, slower.
 
+### Grip does not set the drift radius. It only sets the entry.
+The most natural wrong assumption about this kart, and it survived two
+sets of design notes before anyone checked it.
+
+`travel` chases `forward` proportionally, so in a **settled** drift travel
+rotates at exactly the same rate as the nose — that is what settled
+means. The arc the kart holds is therefore `speed / driftTurn` and
+`DriftGrip` is nowhere in it. Grip decides how far travel *lags* and how
+wide the kart washes on the way IN, and nothing else.
+
+So "lower the grip, then raise something to stop drifts running wide" is
+compensating for an effect that does not exist, and the compensation
+silently changes what the fast line is. The vault carried a
+`DriftInwardPull` dial for exactly this purpose for months; it was never
+implemented, and working through the algebra showed it would have been
+redundant with `DriftGrip` in steady state and a second answer to "how
+tight is the drift line" — root cause #1 in this file.
+
+### A clamp on a proportional lag has a THRESHOLD, and it moves.
+`MaxSlip` caps how far travel may trail the nose. In a settled drift
+
+    slip ≈ driftTurn / DriftGrip
+
+so the cap is reached at some *fraction of full lock*, and that fraction
+moves whenever either number does. Past it, extra steering still rotates
+the kart but adds no visible slide: the drift feels like it hit a stop.
+
+Dropping `DriftGrip` 3.5 -> 2.9 while leaving `MaxSlip` at 32 would have
+pulled that threshold from 68% of lock down to **57%** — a wider dead
+band, which is the exact opposite of the loosening the change was for.
+The cap had to move to 38 just to stand still.
+
+**Write the threshold down before tuning either half.** It is one line of
+arithmetic and it is invisible from the driver's seat, because the
+symptom of a clamp biting is not "it stops turning", it is "it stops
+looking like it is turning".
+
 ---
 
 # 3. Replication and authority
@@ -542,6 +579,18 @@ opened the file.
 **Luau resolves globals lazily, so the analyser cannot see this.** After
 any revert or partial merge, grep every call site of the functions
 involved. `luau-analyze` reporting clean means nothing here.
+
+### A rate applied per frame is not a rate. Same bug as the one below.
+`speed *= 0.98` inside the step loop is not a 2% trim, it is `0.98^fps`
+per second — 30% surviving at 60fps, 5% at 144. The drift scrub shipped
+like this and cost 32% of top speed at 60fps and **51% at 144fps**, so
+the fast line was the slow line on better hardware.
+
+The tell is that the number *looks* like a percentage. `0.995` reads as
+"half a percent" and is 74% per second. Anything of the form `x *= k` in
+a per-frame loop wants `k ^ dt`, and the config comment wants the word
+PER SECOND in it, in capitals, because the next person will read the
+number and not the loop.
 
 ### A probability rolled per step is not a probability.
 ```lua

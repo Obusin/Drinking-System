@@ -128,12 +128,14 @@ function KeyPrompt.new(opts: Options)
 		keyName = keyLabel(opts.keys),
 		words = "",
 		noteUntil = 0,
+		enabled = true,
+		shown = true,
 	}, KeyPrompt)
 
 	button.Activated:Connect(opts.onActivate)
 
 	UserInputService.InputBegan:Connect(function(input, typing)
-		if typing then
+		if typing or not self.enabled then
 			return
 		end
 		for _, key in opts.keys do
@@ -165,7 +167,20 @@ function KeyPrompt:Note(text: string)
 end
 
 function KeyPrompt:SetVisible(on: boolean)
+	self.enabled = on
 	self.gui.Enabled = on
+end
+
+-- Hide the on-screen prompt while KEEPING the key live.
+--
+-- The lobby moved these actions into the top bar, so the bottom-centre prompt
+-- is now clutter — but the binding is muscle memory for anyone who learned it,
+-- and SetVisible would kill both. Only the BUTTON is hidden, deliberately:
+-- the note line still shows, so a refusal ("NOT ENOUGH ROOM") is still seen
+-- even though nothing is asking to be pressed.
+function KeyPrompt:SetShown(on: boolean)
+	self.shown = on
+	self.button.Visible = on
 end
 
 -- Fades the note out. Driven from the client's frame loop rather than

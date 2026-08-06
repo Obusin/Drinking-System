@@ -775,6 +775,547 @@ against a 5° slope would have caught #19 before it ever went in.
 
 ---
 
+# 22. FIXED 2026-08-06 — the drift hop had a rise and no fall
+
+Found while recalibrating the drift, not by report. The hop was described
+as "a discrete state change" and it turned out to be literally that.
+
+`HopSpeed = 18` against `Gravity = 150` gives an apex of **1.08 studs**.
+`GroundSnap` is **3.0**. The snap only declines to act while the kart is
+still rising (`vertVel <= 0` gates it), so the very first frame vertical
+velocity crossed zero — **the apex itself** — the gap was 1.08, well
+inside 3.0, and the ground reclaimed the kart in a single frame.
+
+Measured, at 60fps:
+
+| | air time | apex reached | landing speed |
+|---|---|---|---|
+| before | 133 ms | 0.93 studs | **2.0 studs/s** |
+| after | 200 ms | 0.93 studs | 12.0 studs/s |
+
+A landing speed of 2 studs/s is the tell: the kart was not landing, it
+was being switched off at the top of its arc. Half the hop did not exist,
+and no amount of easing the *visuals* would have recovered it, because
+there was no descent to put visuals on.
+
+Fixed with `HopSnap = 0.35` — while the hop state is live the snap
+distance shrinks so only a genuine touchdown counts. `GroundSnap` exists
+to follow the road across dips, seams and kerb nosings; a jump the player
+deliberately asked for is not one of those, and the two cases wanted
+different numbers all along.
+
+Air time stays deterministic (200ms at 30 and 60fps, 217 at 120), which
+matters because the hop is the gate the drift is timed off.
+
+## What to learn from this one
+
+**A constant that is right for one caller is not a constant.**
+`GroundSnap` was tuned for road-following and then silently applied to a
+jump. Nothing was wrong with either value; the bug was one number
+answering two questions — which is *pattern 1* in this file, showing up
+for the fourth time.
+
+**The symptom named the wrong layer.** "The hop feels like a state
+change, make it fluid" points straight at presentation, and three of the
+four things queued for it (arc pitch, hop lean, landing spring) were
+cosmetic. None of them would have fixed anything. The arithmetic —
+apex 1.08 vs snap 3.0 — took one line and found the real cause.
+
+---
+
+# 23. FIXED 2026-08-06 — drifting cost half your speed, and more on a better monitor
+
+Reported as *"it goes slow really quick then go fast"*, asked as a
+balancing question. It was not balancing.
+
+`Simulation` applied the drift scrub as a **per-frame** multiplier:
+
+```lua
+self.speed *= H.DriftSpeedKeep * Util.sampleCurve(H.DriftScrubCurve, driftAge)
+```
+
+`0.995 * 0.980` reads like a 2% trim. Compounded 60 times a second it is
+`0.9751^60` = **22% of your speed surviving per second**. Against the
+accel curve pulling the other way, measured:
+
+| | trough | as % of top speed |
+|---|---|---|
+| 30 fps | 74.8 | 79% |
+| 60 fps | 65.0 | **68%** |
+| 144 fps | 46.7 | **49%** |
+
+So the dip and recovery the player described were real and were this
+curve's intended shape with a 20x magnifier on it. Worse, the fast line
+was the slow line on better hardware — a drift on a 144Hz monitor cost
+half your speed. Every other rate in the module takes `dt`; this one line
+did not.
+
+Now `retain ^ dt`, with the curve redefined as retention PER SECOND and
+retuned to `{1.0, 0.90, 0.84, 0.86, 0.93, 0.99, 1.00}`. Result: a trough
+of 88.5 (93% of top speed) at 1.4s, recovering to ~94.6, and **identical
+at 30, 60, 144 and 240fps**.
+
+`DriftSpeedKeep` is now 1.0 and is the single dial for whether drifting
+is faster or slower than driving straight.
+
+# 24. FIXED 2026-08-06 — a missile has never been dodgeable
+
+Reported as a feature request — *"rocket should be dodgeable too"*. It
+was already built, `DodgeEnabled = true`, and it could not fire.
+
+```
+hop apex          HopSpeed^2 / 2*Gravity  =  18^2/300  =  1.08 studs
+hitbox clearance  RideHeight + apex       =  1.4 + 1.08 =  2.48
+IT.DodgeHeight required                                 =  4.5
+```
+
+Short by two studs, always. `HopSpeed` would have to be **30.5** instead
+of 18 for the old threshold to be reachable. Nothing errored: you hop,
+the missile hits you, and it reads as a mistimed dodge rather than an
+impossible one.
+
+`DodgeHeight = 2.2` sits between the 1.4 the kart rides at and the 2.48
+it peaks at — a 122ms window opening 59ms into a 200ms hop. `GroundSmooth`
+cannot manufacture false clearance, because easing applies to UPWARD
+corrections only and so can only leave the kart lower than nominal.
+
+`DodgeWarnRange` went 26 -> 65 in the same breath, **but note what it
+actually feeds**: `ProjectileService.onMissileNear` ->
+`BotService.missileNear`, and nothing else. It is the BOT's cue. A human
+is warned by `Projectiles.threatTo()` on the client, held for
+`Hud.IncomingHold` and shown from `Hud.IncomingLead` (3.0s) out — a
+different signal on a different clock, and already generous.
+
+26 studs was 124ms of lead at 210 studs/s, against a hop that does not
+clear for 59ms and a `Bots.ReactionTime` of 190ms: bots were told to
+dodge well after the last moment they could act, on top of a height they
+could never clear. 65 studs is ~310ms, which fits both.
+
+So the player's side of this was only ever the height. The warning was
+never the problem — it has been arriving three seconds out the whole
+time, for a dodge that could not be performed.
+
+## What to learn from both of these
+
+**A rate applied per frame is not a rate.** #23 is the same shape as
+FINDINGS' *"a probability rolled per step is not a probability"*, which
+this project has already paid for once in bot nitro. Anything of the form
+`x *= k` or `if rand() < p` inside a per-frame loop needs `dt` in it or
+it is secretly a frame-rate setting.
+
+**A dependency across two config tables has nothing checking it.**
+`Items.DodgeHeight` is only meaningful against `Handling.HopSpeed`,
+`Handling.Gravity` and `Handling.RideHeight`. Nothing links them,
+`config-keys.py` cannot see it, and the type checker certainly cannot.
+Both numbers were individually plausible and jointly impossible.
+
+**Neither was reported as a bug.** One arrived as a balancing question
+and one as a feature request. Both took a single line of arithmetic to
+find. **When a feel complaint has a specific shape to it, compute the
+mechanism before tuning anything** — three sessions of tuning the scrub
+curve would never have found a missing `^dt`.
+
+---
+
+# 25. FIXED 2026-08-06 — a kart could spawn before its owner's profile loaded, and nothing went back
+
+Reported as "customisation only saves per session — I customise it then
+have to re-customise". **Two different things produce that symptom and
+only one of them is a bug.**
+
+## Not a bug: Studio always mocks
+
+`DataService.start()`:
+
+```lua
+local useMock = D.Mock or (RunService:IsStudio() and not D.LiveInStudio)
+```
+
+With `Mock = false` and `LiveInStudio = false`, Studio uses ProfileStore's
+mock store, so nothing survives a Studio restart. It says so in the
+output — `[DataService] MOCK store — nothing written here survives the
+session.` To actually test persistence, `Config.Data.LiveInStudio = true`,
+play, rejoin, check, **turn it off again** (see #11 — it was left on once
+and every playtest read and wrote real profile data).
+
+The write path itself was verified sound: `GarageService` is the only
+writer of `equipped`, it writes into the live `profile.Data` table that
+ProfileStore autosaves and flushes on `EndSession`, and
+`ReconcileTable` is **additive only** — it never strips keys, so nothing
+was being deleted on load.
+
+## The actual bug: the dressing had no second chance
+
+`createKart` dressed a kart like this, and the comment admitted the race
+without resolving it:
+
+> *"bots (and anyone whose profile has not loaded) keep the stable random
+> dresser, so a kart is never undressed while waiting on a profile."*
+
+That is fine as far as it goes — the kart is never naked. But nothing
+ever came back. If `GarageService.lookFor` returned nil because the
+profile was still loading, the player raced the entire round in a
+randomly dressed kart, **and from the seat that is indistinguishable
+from customisation not having saved.**
+
+The race is not rare and it is worst where it matters most. Arriving in a
+RACE place, the kart is built as the round starts while
+`StartSessionAsync` is still doing a DataStore round trip — possibly
+waiting on the lobby server to release the session lock first. The lobby
+is the forgiving case; the race is not, and the race is the one people
+see.
+
+Fixed by pulling the dressing out into `KartService.dressKart(player,
+kart)` and calling it from `DataService.onLoaded` as well as from spawn.
+Costs one extra mesh swap for a player who was already dressed correctly,
+and nothing at all for a player whose profile beat their kart.
+
+`equipped.Paint` was also missing from the profile TEMPLATE. Harmless —
+Reconcile is additive and every caller defaults it to `"stock"` — but
+the template is the schema, and a slot the code writes that the schema
+does not name is a field nobody can find by reading it.
+
+## What to learn from this one
+
+**A fallback with no retry is a permanent wrong answer.** The random
+dresser is the right thing to do while waiting; the bug was that
+"while waiting" had no end. Any code shaped *"use the good value, or a
+default if it is not ready yet"* needs to say what happens when it
+becomes ready — otherwise the default is not a fallback, it is the
+outcome.
+
+**Two causes, one symptom, and the harmless one is louder.** The Studio
+mock explanation is true, documented, and would have closed this report.
+It was also not the whole story, and stopping there would have shipped
+the real bug. When a known non-bug explains a report, check whether it
+explains ALL of it.
+
+---
+
+# 26. FIXED 2026-08-06 — below 20fps the kart was LITERALLY slower, not juddery
+
+Reported as "kart feels super slow now" after a HUD change. The handling
+was not touched and simulates 23% FASTER through a corner than before
+(avg 74.1 -> 91.4 studs/s). The slowness was real anyway.
+
+`Simulation.Step` opens with `dt = math.min(dt, H.MaxTimestep)` and
+MaxTimestep is 1/20. That clamp is right — a huge frame integrated in one
+go tunnels the sweep through walls. But the client called `Step` **once
+per Heartbeat with the raw dt**, so every frame longer than 50ms silently
+discarded the excess:
+
+| frame rate | integrated | kart runs at |
+|---|---|---|
+| 30 fps | 33ms of 33ms | 100% |
+| 15 fps | 50ms of 66ms | **75%** |
+| 10 fps | 50ms of 100ms | **50%** |
+
+Discarded time is lost MOTION. The kart does not stutter — it goes slow,
+smoothly, and the speedometer agrees with it, because the simulation
+genuinely is moving that slowly. From the seat it reads as the handling
+having been nerfed, which is the last thing anyone would investigate.
+
+Fixed by sub-stepping: a long frame is integrated as several capped
+steps. `Handling.MaxSubSteps = 4` bounds the catch-up, because fully
+repaying a one-second hitch costs a second of simulation on the next
+frame and turns one hitch into a spiral. Real-time coverage is now 100%
+down to 5fps.
+
+## What dropped the frame rate in the first place — my own HUD
+
+Two defects in the new `ThreatHud`, both mine, both from the same
+session:
+
+1. **A thumbnail request storm.** `headshotFor` cleared its in-flight
+   flag and stored nothing on failure, so a headshot that would not load
+   was re-requested **every frame** — sixty web calls a second, for as
+   long as that racer stayed on your bumper. The comment above it
+   claimed the failure was cached. It was not: only success was ever
+   recorded, and the failure path was indistinguishable from "never
+   asked". Now a failure is stored as `false` and never retried.
+2. **A per-frame `GetTagged` scan** over every kart, for a display whose
+   answer changes over tenths of a second. Now scanned at `RearScanHz`
+   (12Hz) with the drawn value eased toward the reading, so it still
+   sweeps smoothly.
+
+## What to learn from this one
+
+**A clamp is not a budget.** `math.min(dt, cap)` protects the integrator
+and silently loses time unless the caller loops. The module cannot
+enforce that on its callers, so the requirement has to live where the
+constant does — it now does.
+
+**A comment asserting the safe behaviour is not the safe behaviour.**
+FINDINGS already says "a comment asserting something is not evidence it's
+true", and here the comment and the code disagreed in the same five
+lines, written at the same moment, by the same author. The comment
+described the intent; the code did the opposite.
+
+**A performance regression can present as a gameplay regression.** Nobody
+reports "my frame rate dropped" when the symptom is a slow kart. Any time
+a feel complaint follows a rendering change, check the frame budget
+before touching a handling dial — tuning would have made it genuinely
+worse, on top of a bug.
+
+---
+
+# 27. FIXED 2026-08-06 — the garage saved fine; the DRESSER was looking for parts that do not exist
+
+Reported three times as "the kart doesn't save". It always saved. The
+server log, once `Config.Garage.Debug` existed, settled it in one run:
+
+```
+[GarageService] wrote Obus1n.FWheel+RWheel = "slick"
+[GarageService] wrote Obus1n.Paint = "purple"
+[GarageService] wrote Obus1n.Body  = "brute"
+-> reply after commit: Body=brute Wheels=slick Paint=purple
+```
+
+Three good writes, on a live server, with no MOCK warning. The profile
+had the loadout the whole time.
+
+## The actual bug: two dressers, two ideas of the part names
+
+`Config.Rig.FrontWheelNames = { "WheelFL", "WheelFR", "FWheel", "WheelF" }`
+— a list of CANDIDATE names, of which the real rig uses `WheelFL` /
+`WheelFR` / `WheelRL` / `WheelRR`.
+
+- `KartDress` (garage preview) walked the whole list, found them, swapped
+  them. **Worked.**
+- `GarageService.lookFor` hard-coded the two strings `"FWheel"` and
+  `"RWheel"` as part names. `Skins.applyTo` does
+  `FindFirstChild("FWheel", true)`, found nothing, and swapped nothing —
+  **silently, on every kart ever spawned.**
+
+So it changed in the garage and never on the kart, which reads exactly
+like customisation not persisting. Three sessions were spent on the
+persistence path because the symptom pointed there.
+
+Fixed by making `lookFor` emit the rig's own names for every candidate,
+and adding `Config.Rig.BodyName` so the body name has one home too. The
+full rule is written up in the vault under *"THE RULE: dressing a kart is
+setting properties on parts found BY NAME"*.
+
+## Why it stayed hidden
+
+`Skins.diagnose` — which exists precisely to name missing parts — is only
+wired into the RANDOM dress path, never into `applyTo`. So the garage
+path had no diagnostic at all.
+
+`Skins.applyTo` now returns `(ok, found, changed)`, because the boolean
+cannot tell apart two failures that need opposite fixes:
+
+- **found 0** — the NAMES are wrong; no swap was attempted
+- **found n, changed 0** — names right, mesh loads failed; an asset problem
+
+`found == 0` now warns by name.
+
+## What to learn from this one
+
+**A list of candidate names is not a name.** `FrontWheelNames` is a
+compatibility list; treating any single entry as "the" name is a
+coin-flip that happened to lose. If a config field is plural, iterating
+it is not optional.
+
+**The same job in two places will diverge — the only question is when.**
+Root cause #1 in this file, again. The preview and the server were both
+"dress a kart", written at different times, and only one of them was
+told where the parts were.
+
+**A silent no-op imitates the failure one layer down.** Nothing errored,
+so the symptom surfaced as the nearest visible system — persistence —
+and three rounds of work went into a subsystem that was already correct.
+The fix that mattered was not code, it was the log line that made the
+no-op audible.
+
+---
+
+# 28. THE KEY FACT, learned 2026-08-06: THE PREVIEW KART AND THE RIDDEN KART ARE DIFFERENT MODELS
+
+Reported directly, and it reframes every entry below it:
+
+> the kart asset of the player is completely different from the garage
+
+The garage previews the authored **MenuStage** kart. The player rides one
+built by **KartFactory**. They are separate assets and are under no
+obligation to name their parts alike — and they do not.
+
+**This is why the garage visibly changed and the real kart never did.**
+Every dresser reads ONE set of names out of `Config.Rig`, so a single
+name can only ever be correct for one of the two models. The preview
+happened to be the one that matched.
+
+## What that means for the config
+
+Every name field must be a CANDIDATE LIST holding the union of both
+models' names, and every dresser must walk the whole list:
+
+| field | was | now |
+|---|---|---|
+| `BodyName` | one string, `"Body"` | **`BodyNames`**, a list |
+| `FrontWheelNames` / `RearWheelNames` | already lists | unchanged |
+| `PaintParts` | already a list | unchanged |
+
+A name a model does not have is simply not found, at the cost of one
+lookup. That is the whole mechanism, and it is why the wheels were
+written as a list in the first place — the lesson was already in the
+file, applied to one field and not the others.
+
+**DO NOT RENAME ART TO MATCH CODE.** Add the name to the list.
+
+## Finding the names without opening Studio
+
+`Config.Garage.Debug` + the **Server** tab. `KartService/dress` prints,
+per kart:
+
+```
+<name>: <kart path> -> found N, swapped M | HAS [...] | MISSING [...]
+```
+
+`MISSING` is the answer: those are the candidate names this particular
+kart does not have. If `found` is 0 it also warns with the kart's REAL
+MeshPart names, and separately lists any part that has the right name but
+the wrong class (a Part or Union cannot take a mesh).
+
+---
+
+# 28c. FIXED 2026-08-06 — THE ROOT CAUSE. The start-line kart skipped the dresser entirely.
+
+**Diagnosed by the reporter, from one log line**, after four sessions of
+looking in the wrong layer:
+
+> maybe that is what its wrong when it tries never try again when kart is
+> spawned in that mightve been the problem all this time
+
+`spawnKartFor` has TWO ways to produce a kart:
+
+```lua
+if unclaimed and unclaimed.Parent and slot == 0 and not ownArt then
+    kart = unclaimed          -- claimed as-is. createKart NEVER runs.
+else
+    kart = createKart(...)    -- and createKart is where dressKart lived
+end
+```
+
+The pre-built start-line kart is handed to **slot 0**. Slot 0 is the first
+player to join — so in any solo test that is **always you**. That kart
+never went through `createKart`, so nothing ever dressed it.
+
+Everything else was working: the garage saved, the profile was correct,
+the reply carried the right loadout, and the mesh swap provably worked
+(the cycle test changed meshes on the same kart). The one kart actually
+being ridden was the one kart nothing had ever dressed.
+
+## The fix, and the shape of it
+
+Dressing moved OUT of `createKart` — which builds a kart and has no
+business deciding what it wears — and into its callers, **after** the
+branch:
+
+| caller | dresses |
+|---|---|
+| `spawnKartFor` | once, after `karts[player] = kart`, so BOTH branches are covered |
+| `addBot` | once, explicitly (bots land on the random dresser) |
+
+Placing it after the branch is the whole point: no new path through
+`spawnKartFor` can silently skip it, which is exactly how this survived.
+
+## What to learn from this one
+
+**A conditional that produces the same THING by two routes must converge
+before anything acts on it.** The bug is not that the claim path forgot
+to dress — it is that dressing lived inside one of the two branches at
+all. Anything that must happen to "the kart" belongs after the `if`, not
+inside a leg of it.
+
+**The cheap path was always the same one.** Five bugs wore this disguise
+and every one was found by making a silent step audible, never by
+reasoning. The line that cracked it —
+`re-dress requested, but they have NO KART spawned` — existed only
+because the previous round added it.
+
+---
+
+# 28b. SUPERSEDED by #28c — on rejoin the kart loads DEFAULT.
+
+**Still broken as of 2026-08-06. Reported four times. Do not touch the
+persistence path — it is correct and has been proven correct.**
+
+The profile saves and loads. The server log shows the writes landing and
+the reply carrying them back. What is broken is that **the look is
+applied at moments that happen BEFORE the profile is ready, and only one
+of the three consumers ever retries.**
+
+## The requirement, in the reporter's own words
+
+> when player joins it should load the data and then load the kart to the
+> preview, to the garage, and also to the kart that i ride
+
+So there are **three sinks** for one look, and all three must be fed
+after the profile resolves:
+
+| # | sink | who owns it | retries after profile load? |
+|---|---|---|---|
+| 1 | MenuStage preview kart | `MainMenuHud` / `GarageHud` | **NO** |
+| 2 | garage selection state | `GarageHud.ApplyEquipped` | partly — only if the push arrives |
+| 3 | the kart the player drives | `KartService.dressKart` | yes, via `DataService.onLoaded` |
+
+## The evidence, from the client log
+
+```
+18:18:08 [GarageHud] server sent no equipped state — the profile is not
+                     loaded, so nothing can be saved yet.      <- push #1
+18:18:08 [GarageHud] <- server: Body=brute Wheels=slick Paint=purple  <- push #2
+```
+
+Two pushes, ~0 seconds apart. The FIRST is `GarageService.start()`'s
+`refresh` reply, fired before the profile exists, and it carries `nil`.
+The second is the real one. So the ordering already loses the race on
+join, every join, and only the garage recovers.
+
+**Nothing re-dresses the MenuStage preview when push #2 lands** unless
+the garage happens to be open — `ApplyEquipped` re-dresses
+`opts.getKart()`, and at 18:18:08 the stage rig was still being built
+(`[MainMenuHud] Built Obus1n's R15 avatar onto MenuStage.Rig` at the same
+second).
+
+## What to build — one ordering, one broadcast
+
+Do NOT add a fourth ad-hoc call site. The shape that fixes this is:
+
+1. `DataService.onLoaded` is the ONLY trigger. Nothing dresses anything
+   off join, character-added, or menu-built.
+2. On that event the server sends the authoritative `equipped` once.
+3. The client applies it to **the preview and the garage** on receipt,
+   and re-applies whenever the MenuStage kart is (re)built — the stage
+   rig is created asynchronously and can miss the push, which is failure
+   #1 above.
+4. The server applies it to the ridden kart via `KartService.redressFor`,
+   which already exists and already handles "no kart yet".
+
+The missing piece is a **client-side cache of the last `equipped`
+payload** so a stage kart built *after* the push can ask for it instead
+of waiting for another one. Everything else is wired.
+
+## Check these first, in this order
+
+1. Turn on `Config.Garage.Debug` and read the **Server** tab. If
+   `[KartService/dress]` shows `found 0`, it is still a naming problem
+   (#27) and the warn will print the kart's real part names.
+2. If `dress` shows `re-dress requested, but they have NO KART`, the
+   ordering is the whole bug and the fix is above.
+3. If neither line appears at all, `DataService.onLoaded` is not firing —
+   check that `KartService.start()` runs after `DataService.start()`.
+
+## Do not re-investigate
+
+`ProfileStore`, `DataService`, `GarageService.equip/commit`, session
+locking, `Reconcile`. All verified correct. Four separate bugs (#25, #27,
+the missing re-dress hook, and the paint-set mismatch) have already worn
+this same disguise; the fifth is not going to be in the store either.
+
+---
+
 # WATCH — recently fixed, unproven
 
 Each of these has run for at most one session. If something in this area
@@ -790,6 +1331,17 @@ misbehaves, suspect the fix before anything else.
 - **The personal board** gets its own reward payload on finish.
 - **Character stash** — deleted along with retirement. If a player ever
   comes back invisible, this left something behind.
+- **Drift recalibration + hop** (2026-08-06, all in `Simulation` and
+  `Config/Handling` / `Config/Effects`). `DriftGrip` 3.5 -> 2.9 with
+  `MaxSlip` 32 -> 38 as a set; grip is now a chased value rather than a
+  per-state switch; `HopSnap` restored the hop's descent (#22); landing
+  compression is scaled by impact and rung out by a damped spring.
+  If drifts start running wide or the kart feels like it pogos on
+  landing, suspect these before anything else.
+- **The drift button must now be held ~70ms longer** — the hop lasts
+  200ms instead of 133ms, and the drift is still gated on the button
+  being down at touchdown. Intended, but it is the most likely thing to
+  be reported as "drift sometimes doesn't engage".
 
 ---
 

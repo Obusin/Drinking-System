@@ -1,0 +1,2 @@
+# ReplicatedFirst — scripts/assets that must replicate before anything else
+# (loading screens, critical early-init). Synced by Argon via "Drinking System.project.json".
