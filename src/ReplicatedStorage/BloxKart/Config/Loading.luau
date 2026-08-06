@@ -17,20 +17,43 @@
 
 return {
 	--== PLACEMENT =====================================================
-	-- Bottom edge, centred, deliberately small. It is a status line, not
-	-- a modal — the menu is fully usable while it runs.
-	BarWidth = 220,
-	BarHeight = 4,
-	BarBottom = 18, -- px above the bottom edge
+	-- FULL WIDTH, HARD AGAINST THE BOTTOM EDGE.
+	--
+	-- A centred 220px pill read as a UI element the player was meant to
+	-- look at. Pinned edge-to-edge along the very bottom it reads as
+	-- chrome — the browser-tab convention — which is what a background
+	-- task should look like. It is a status line, not a modal: the menu
+	-- is fully usable the whole time it runs.
+	BarHeight = 3,
+	BarBottom = 0, -- flush with the edge
 
-	BarText = "LOADING CONTENT",
+	-- Small, bottom LEFT, sat just above the bar. Left because that is
+	-- where the eye rests when nothing is asking for it, and the middle
+	-- of the screen belongs to the kart.
+	BarText = "INITIALIZING",
+	-- Swapped in at 100%, so the last thing on screen is not a stale
+	-- "INITIALIZING..." on a bar that has already finished.
+	BarDoneText = "READY",
 	BarTextSize = 11,
-	BarTextColor = Color3.fromRGB(198, 197, 186),
+	BarTextColor = Color3.fromRGB(232, 234, 238),
+	BarTextInset = 20, -- px from the left edge
+	BarTextBottom = 10, -- px above the bar
+
+	-- Trailing dots, so the label is visibly ALIVE even on a batch that
+	-- takes a while. A bar that has not moved for ten seconds and a game
+	-- that has hung look identical without this.
+	BarDotRate = 2.5, -- dot changes per second
 
 	--== LOOK ==========================================================
 	BarTrackColor = Color3.fromRGB(255, 255, 255),
-	BarTrackTransparency = 0.82, -- barely there until it fills
-	BarFillColor = Color3.fromRGB(245, 197, 66), -- the menu's gold
+	BarTrackTransparency = 0.9, -- barely there until it fills
+	BarFillColor = Color3.fromRGB(255, 255, 255), -- white, per the brief
+
+	-- The fill fades out toward its TAIL rather than being a solid block,
+	-- so it reads as a sweep with a bright leading edge instead of a
+	-- growing rectangle. This is the whole difference between "a bar" and
+	-- "something is happening".
+	BarGradientTail = 0.75, -- transparency at the far left of the fill
 
 	--== TIMING ========================================================
 	-- Tweened rather than snapped: batches land in chunks, and a bar that

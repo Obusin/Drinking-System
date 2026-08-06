@@ -66,40 +66,17 @@ function LoadingBar.new()
 	gui.DisplayOrder = 40 -- above the menu, below the transition wipe
 	gui.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
 
-	local root = Instance.new("Frame")
-	root.Name = "Root"
-	root.AnchorPoint = Vector2.new(0.5, 1)
-	root.Position = UDim2.new(0.5, 0, 1, -L.BarBottom)
-	root.Size = UDim2.fromOffset(L.BarWidth, L.BarHeight + 18)
-	root.BackgroundTransparency = 1
-	root.Parent = gui
-
-	local label = Instance.new("TextLabel")
-	label.Name = "Label"
-	label.AnchorPoint = Vector2.new(0.5, 1)
-	label.Position = UDim2.new(0.5, 0, 1, -L.BarHeight - 4)
-	label.Size = UDim2.fromOffset(L.BarWidth, 14)
-	label.BackgroundTransparency = 1
-	label.FontFace = Util.font(H.FontName, H.FontWeight)
-	label.Text = L.BarText
-	label.TextSize = L.BarTextSize
-	label.TextColor3 = L.BarTextColor
-	label.TextTransparency = 0.25
-	label.Parent = root
-
+	-- Edge-to-edge along the very bottom. Scale width, not offset, so it
+	-- spans any window without a resize handler.
 	local track = Instance.new("Frame")
 	track.Name = "Track"
-	track.AnchorPoint = Vector2.new(0.5, 1)
-	track.Position = UDim2.new(0.5, 0, 1, 0)
-	track.Size = UDim2.fromOffset(L.BarWidth, L.BarHeight)
+	track.AnchorPoint = Vector2.new(0, 1)
+	track.Position = UDim2.new(0, 0, 1, -L.BarBottom)
+	track.Size = UDim2.new(1, 0, 0, L.BarHeight)
 	track.BackgroundColor3 = L.BarTrackColor
 	track.BackgroundTransparency = L.BarTrackTransparency
 	track.BorderSizePixel = 0
-	track.Parent = root
-
-	local trackRound = Instance.new("UICorner")
-	trackRound.CornerRadius = UDim.new(1, 0)
-	trackRound.Parent = track
+	track.Parent = gui
 
 	local fill = Instance.new("Frame")
 	fill.Name = "Fill"
@@ -110,11 +87,53 @@ function LoadingBar.new()
 	fill.BorderSizePixel = 0
 	fill.Parent = track
 
-	local fillRound = Instance.new("UICorner")
-	fillRound.CornerRadius = UDim.new(1, 0)
-	fillRound.Parent = fill
+	-- Faded toward the TAIL, so the bright end is the leading edge and it
+	-- reads as a sweep rather than a growing rectangle.
+	local grad = Instance.new("UIGradient")
+	grad.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, L.BarGradientTail),
+		NumberSequenceKeypoint.new(1, 0),
+	})
+	grad.Parent = fill
 
-	return setmetatable({ gui = gui, root = root, fill = fill, label = label, done = false }, LoadingBar)
+	local label = Instance.new("TextLabel")
+	label.Name = "Label"
+	label.AnchorPoint = Vector2.new(0, 1)
+	label.Position = UDim2.new(0, L.BarTextInset, 1, -(L.BarBottom + L.BarHeight + L.BarTextBottom))
+	label.Size = UDim2.fromOffset(320, 14)
+	label.BackgroundTransparency = 1
+	label.FontFace = Util.font(H.FontName, H.FontWeight)
+	label.Text = L.BarText
+	label.TextSize = L.BarTextSize
+	label.TextColor3 = L.BarTextColor
+	label.TextXAlignment = Enum.TextXAlignment.Left
+	label.TextTransparency = 0.3
+	-- Readable over a bright menu as well as a dark one.
+	label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+	label.TextStrokeTransparency = 0.55
+	label.Parent = gui
+
+	local self = setmetatable({
+		gui = gui,
+		track = track,
+		fill = fill,
+		label = label,
+		done = false,
+	}, LoadingBar)
+
+	-- TRAILING DOTS. A batch can take seconds, and a bar that has not
+	-- moved is indistinguishable from a game that has hung. The dots cost
+	-- nothing and say "still here" during exactly those gaps.
+	task.spawn(function()
+		local n = 0
+		while not self.done and self.gui.Parent do
+			n = (n + 1) % 4
+			self.label.Text = L.BarText .. string.rep(".", n)
+			task.wait(1 / math.max(L.BarDotRate, 0.1))
+		end
+	end)
+
+	return self
 end
 
 function LoadingBar:Set(fraction: number)
@@ -131,7 +150,8 @@ function LoadingBar:Finish()
 	if self.done then
 		return
 	end
-	self.done = true
+	self.done = true -- also stops the dot animation
+	self.label.Text = L.BarDoneText
 	self:Set(1)
 	task.delay(L.BarHoldWhenDone, function()
 		-- Faded, not destroyed on the spot: the bar reaching full is the
@@ -140,8 +160,7 @@ function LoadingBar:Finish()
 		local info = TweenInfo.new(L.BarFadeTime, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 		TweenService:Create(self.fill, info, { BackgroundTransparency = 1 }):Play()
 		TweenService:Create(self.label, info, { TextTransparency = 1 }):Play()
-		local track = self.fill.Parent :: Frame
-		TweenService:Create(track, info, { BackgroundTransparency = 1 }):Play()
+		TweenService:Create(self.track, info, { BackgroundTransparency = 1 }):Play()
 		task.delay(L.BarFadeTime + 0.05, function()
 			self.gui:Destroy()
 		end)
