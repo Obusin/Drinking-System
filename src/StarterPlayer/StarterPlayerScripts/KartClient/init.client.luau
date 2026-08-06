@@ -139,6 +139,24 @@ local warnedName = nil
 local warnedIcon = nil
 local mainMenu = nil
 local garageHud = nil
+
+-- DEVELOPER OVERRIDE: treat this client as "racing" for item purposes.
+--
+-- Exists because the two halves of the game disagree (BUGS #29): the
+-- SERVER allows items in the lobby and grants them happily, while this
+-- client gates `items:Update` on match:IsRacing(), which a lobby can
+-- never satisfy. So a granted item lands in a slot and can never be
+-- used, which makes the practice ring untestable.
+--
+-- LOCAL ONLY, AND THAT IS THE WHOLE POINT. It does not touch the server,
+-- does not fake a match phase, and changes nothing for anybody else. The
+-- server has ALREADY decided items are allowed here — this only unlocks
+-- this client's ability to use what it was legitimately given.
+--
+-- It is therefore not a privilege escalation: an exploiter can flip
+-- their own client's local state whenever they like, and the reason that
+-- is not a problem is that the server never asked this flag anything.
+local devForceRace = false
 if transitionRemote then
 	transitionRemote.OnClientEvent:Connect(function(action, destination, label)
 		if action == "teleportOut" then
@@ -184,7 +202,18 @@ task.spawn(function()
 			return
 		end
 		local DevConsoleController = require(script.DeveloperConsole.DevConsoleController)
-		DevConsoleController.start(grantedRole or "viewer", Config.DevConsole.Hotkey)
+		DevConsoleController.start(grantedRole or "viewer", Config.DevConsole.Hotkey, {
+			-- A SETTER, not access. The console submits an intent and this
+			-- file — which owns the game wiring — acts on it. A tab that
+			-- could reach `items` directly would have broken the layering
+			-- the whole console is built on.
+			setForceRace = function(on: boolean)
+				devForceRace = on == true
+			end,
+			getForceRace = function()
+				return devForceRace
+			end,
+		})
 		print("[DevConsole] ready — press " .. Config.DevConsole.Hotkey.Name .. " to toggle.")
 	end)
 	if not ok then
@@ -795,7 +824,8 @@ local function step(dt: number)
 	-- roll around between rounds, but not to collect a stack or drop a
 	-- mine while the grid is forming. The server enforces this too; this
 	-- half is so the HUD and the sounds agree with it.
-	local itemEvents = if match:IsRacing() then items:Update(sim, Input) else NO_EVENTS
+	-- `devForceRace` is a developer-console override; see its declaration.
+	local itemEvents = if match:IsRacing() or devForceRace then items:Update(sim, Input) else NO_EVENTS
 	-- One click per name the roulette cycles past, then the reveal.
 	tally:Items(itemEvents)
 	if itemEvents.ticks then

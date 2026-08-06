@@ -29,6 +29,11 @@ local Client = require(script.Parent.DevConsoleClient)
 
 local DevConsoleController = {}
 
+-- Callbacks into init.client for LOCAL-ONLY overrides. The console never
+-- touches gameplay itself; it asks the file that owns it. See the
+-- setForceRace note there.
+local localHooks: any = {}
+
 local started = false
 local visible = false
 local role = "viewer"
@@ -117,6 +122,17 @@ local function drawServer()
 	field("AI (all)", s.aiCount)
 	field("AI (developer)", s.devAiCount)
 	field("Pickups (developer)", s.devPickupCount)
+
+	-- LOCAL OVERRIDES. Nothing here crosses the wire.
+	if localHooks.getForceRace then
+		Iris.Separator()
+		local on = localHooks.getForceRace() == true
+		Iris.Text({ ("Local: force race state — %s"):format(if on then "ON" else "off") })
+		if Iris.Button({ if on then "Disable local race state" else "Enable local race state" }).clicked() then
+			localHooks.setForceRace(not on)
+		end
+		Iris.Text({ "Lets THIS client use items outside a race (BUGS #29). Local only." })
+	end
 
 	Iris.Separator()
 	Iris.SameLine()
@@ -426,12 +442,13 @@ end
 -- `start` is called only after the server has confirmed this client may
 -- use the console. An unauthorized player never reaches it, so Iris is
 -- never even initialised for them.
-function DevConsoleController.start(grantedRole: string, hotkey: Enum.KeyCode)
+function DevConsoleController.start(grantedRole: string, hotkey: Enum.KeyCode, hooks: any?)
 	if started then
 		return
 	end
 	started = true
 	role = grantedRole
+	localHooks = hooks or {}
 
 	Iris.Init()
 
