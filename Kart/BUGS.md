@@ -6,7 +6,7 @@ this is the live list of things that are currently wrong.
 **Read this before fixing anything.** Most of the bugs below were caused
 by a fix for the one above it.
 
-Last reviewed: 2026-08-02, after deleting kart retirement.
+Last reviewed: 2026-08-06, after the kart-feel pass and the skinning chain.
 
 ---
 
@@ -1236,7 +1236,7 @@ because the previous round added it.
 
 ---
 
-# 28b. SUPERSEDED by #28c — on rejoin the kart loads DEFAULT.
+# 28b. CLOSED by #28c — on rejoin the kart loads DEFAULT.
 
 **Still broken as of 2026-08-06. Reported four times. Do not touch the
 persistence path — it is correct and has been proven correct.**

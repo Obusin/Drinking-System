@@ -592,6 +592,88 @@ a per-frame loop wants `k ^ dt`, and the config comment wants the word
 PER SECOND in it, in capitals, because the next person will read the
 number and not the loop.
 
+### A clamp is not a budget. `math.min(dt, cap)` silently LOSES time.
+`Simulation.Step` clamps dt to `MaxTimestep` so a huge frame cannot tunnel
+the sweep through a wall. Correct — and a caller that calls Step ONCE per
+frame throws away everything past the cap. Discarded time is lost MOTION:
+at 15fps the kart ran at 75% speed, at 10fps 50%, smoothly, **with the
+speedometer agreeing** because the simulation really was that slow.
+
+From the seat that is indistinguishable from the handling being nerfed,
+which is the last thing anyone investigates. A long frame must be
+integrated as SEVERAL capped steps, bounded (`MaxSubSteps`) so repaying a
+one-second hitch cannot cost a second of simulation on the next frame.
+
+The module cannot enforce this on its callers, so the requirement lives
+where the constant does.
+
+### A fallback with no retry is a permanent wrong answer.
+"Use the good value, or a default if it is not ready yet" is only half a
+design. A kart spawned before its profile loaded got the random dresser —
+correct — and nothing ever went back, so it raced the whole round in a
+kart nobody chose. Any code of that shape must say what happens when the
+value BECOMES ready, or the default is not a fallback, it is the outcome.
+
+### A list of candidate names is not a name.
+`Rig.FrontWheelNames` is a compatibility list. Treating any single entry
+as "the" name is a coin flip, and it lost: `lookFor` hard-coded `FWheel`
+while the rig used `WheelFL`/`WheelFR`. **If a config field is plural,
+iterating it is not optional.**
+
+This matters more than it sounds because the garage PREVIEW kart and the
+RIDDEN kart are different models with no obligation to name parts alike.
+One name can only ever be right for one of them.
+
+### Remembering what you did is not knowing what is true.
+A change-detector built on "what did I last apply" is correct only while
+it is the sole writer. The moment anything else can touch the same
+object — and something always can — the only reliable question is "is it
+right NOW", asked of the object itself.
+
+The menu preview was dressed once, in a guessed window, and anything that
+rebuilt the kart afterwards won. Polling harder is a longer guess, not a
+fix. Stamp the object with what it is wearing and compare.
+
+### A cache key must record an OUTCOME, never an INTENTION.
+The corollary, and it cost a full extra round. The verifier above was
+sound and still failed, because the stamp was written whether or not the
+mesh actually applied — and during loading it genuinely can fail
+(`CreateMeshPartAsync` fetches over the network). A claim made at the
+wrong moment was both wrong and PERMANENT: the verifier believed it and
+never looked again.
+
+**If a result gates a retry, that result has to be measured.** And "no
+matching parts" is a FAILURE, not a no-op — reporting success there is
+how a naming mismatch stays invisible.
+
+### A success message that cannot be wrong is not a diagnostic.
+`preview ready` printed, truthfully, every time — while dressing a kart
+nobody could see. Any log line asserting work was done must name the
+OBJECT it was done to, or it cannot tell success apart from doing the
+work in the wrong place.
+
+Corollary for silent pipelines: a wrong part name swaps nothing and says
+nothing, which is indistinguishable from the data never having saved.
+Five separate bugs wore that one disguise. **Print what was found, not
+just what was attempted.**
+
+### "It works" and "it is observable" are different claims.
+The loading bar was built, filled, faded and destroyed itself — every
+line correct — entirely behind a splash screen that had seconds left to
+run. Never on screen for a frame. For anything whose job is to
+COMMUNICATE, *when* it runs is part of whether it works at all, and
+neither the type checker nor a log line can tell you that.
+
+### A conditional that yields the same THING by two routes must converge.
+`spawnKartFor` either claimed a pre-built kart or called `createKart` —
+and the dressing lived inside `createKart`. So slot 0, which is the first
+player to join and therefore always you in a solo test, rode the one kart
+nothing had ever dressed.
+
+The bug is not that the claim path forgot. It is that the work lived
+inside one leg of a branch at all. **Anything that must happen to "the
+kart" belongs after the `if`.**
+
 ### A probability rolled per step is not a probability.
 ```lua
 if rng:NextNumber() > B.NitroHoldChance * (1 - bot.skill) then  -- every step
