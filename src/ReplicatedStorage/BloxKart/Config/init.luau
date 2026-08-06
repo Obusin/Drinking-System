@@ -11,6 +11,7 @@
 --]]
 
 return {
+	Loading = require(script.Loading),
 	Handling = require(script.Handling), -- how it moves
 	Rig = require(script.Rig), -- how it's built and spawned
 	Bots = require(script.Bots), -- AI racers

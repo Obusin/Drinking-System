@@ -62,6 +62,7 @@ local VehicleHud = require(script.VehicleHud)
 local QueueHud = require(script.QueueHud)
 local MainMenuHud = require(script.MainMenuHud)
 local GarageHud = require(script.GarageHud)
+local LoadingBar = require(script.LoadingBar)
 local SpeedHud = require(script.SpeedHud)
 local ItemHud = require(script.ItemHud)
 local ThreatHud = require(script.ThreatHud)
@@ -233,6 +234,14 @@ if lobby then
 	questHud:SetVisible(false)
 	-- Only in a hub. A race place hands you a kart because a round is
 	-- starting, so there is nothing to call for.
+	-- "Still loading", without taking the menu away. The splash already
+	-- covered the part that must not be seen half-done; this reports the
+	-- art still streaming in behind a menu that is fully usable.
+	--
+	-- Lobby only: in a race place the wipe lands on a track and there is
+	-- no menu to be usable underneath it.
+	LoadingBar.new():Start()
+
 	vehicleHud = VehicleHud.new()
 	queueHud = QueueHud.new()
 	setLobbyPrompts(false)

@@ -30,7 +30,13 @@ ReplicatedFirst:RemoveDefaultLoadingScreen()
 -- (it usually does in Studio), so it reads as a deliberate "getting ready"
 -- beat instead of a blink — and gives real joins time to stream in behind it.
 -- Tune within ~5–10s to taste.
-local MIN_SHOWN = 6
+--
+-- 7.5 as of 2026-08-06: the splash now also covers the saved kart being
+-- dressed on the menu stage, and the extra beat keeps the wipe from
+-- landing on the same frame that finishes. Note this is a FLOOR, not a
+-- delay — a slow join already waits longer than this and pays nothing
+-- extra for it.
+local MIN_SHOWN = 7.5
 local BG = Color3.fromRGB(0, 0, 0)
 local GOLD = Color3.fromRGB(245, 197, 66)
 
