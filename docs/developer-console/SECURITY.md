@@ -120,6 +120,75 @@ throws, handler that throws, unresolvable target, absent gameplay service —
 error goes to the server log, never to the caller, because it can carry file
 paths and internal state.
 
+## Moderation (kick / ban / unban)
+
+Added 2026-08-07. These are the only actions here that reach **beyond the
+current server**, so they carry two protections nothing else needs.
+
+### Rank immunity
+
+`DevPermissions.canModerate` is enforced **by the router**, not by the
+handlers, for the same reason permissions are: a check written per command is
+one that will eventually be forgotten in one of them — and this is the one
+where forgetting it means a developer can ban the owner.
+
+- **Never yourself.** Kicking yourself is silly; banning yourself is
+  unrecoverable without a second owner.
+- **Never an equal or senior.** A developer cannot touch an owner or another
+  developer. Without this, one compromised developer account can remove
+  everyone able to revoke it — turning a small breach into a total one.
+
+The refusal is deliberately vague (`Permission denied.`) so the reply cannot
+be used to discover who is on the roster. The audit log records the real
+reason.
+
+### Confirmation is in the schema, not the UI
+
+`ban_player` and `unban_player` require `confirm = true` as a **validated
+field**. The UI's two-click arming is therefore load-bearing rather than
+decorative: a stray click, a replayed payload or a hand-built remote call that
+omits it fails validation on the server.
+
+Arming is per (action, target) and clears on tab or selection change, so an
+arm left sitting cannot fire at whoever happens to be selected later.
+
+### Capability split
+
+| action | capability | why |
+|---|---|---|
+| kick | `KICK_PLAYER` (developer) | annoying, reversible by rejoining, useful mid-playtest |
+| ban | `BAN_PLAYER` (**owner**) | persists, reaches absent accounts, not undoable by the target |
+| unban | `UNBAN_PLAYER` (**owner**) | — |
+
+**`unban_player` is deliberately NOT rank-checked.** It is the recovery path:
+requiring the actor to outrank the target would make a mistaken ban on a
+fellow owner permanently unfixable from here, which is the opposite of what
+rank immunity is for.
+
+### Uses Roblox's native ban API
+
+`Players:BanAsync` / `UnbanAsync` — enforced by Roblox at join, persistent
+without a store of our own, and able to cover known alts. A hand-rolled ban
+list would need its own DataStore and a secured join-time check, which is
+more persistent surface reachable (indirectly) from a remote.
+
+- `ApplyToUniverse = false` — this experience only. A universe-wide ban from a
+  debug console is a larger blast radius than this tool should have.
+- `ExcludeAltAccounts` is passed **explicitly** rather than left to the API
+  default: whether a ban reaches alts is a policy decision and should be
+  visible in the code that makes it.
+- Duration is bounded (0 = permanent, max 365 days), so a typo cannot become a
+  thousand-year ban.
+- Reasons are length-capped and stripped of control characters — **not text
+  filtered**, since they are authored by an owner and filtering would mostly
+  mangle legitimate wording.
+- Rate limit is harsh (2 per 60s), so a runaway script or stolen session is a
+  nuisance rather than a catastrophe.
+
+**BanAsync does not work in Studio** — it needs a published, running
+experience. The adapter reports `UNAVAILABLE` rather than swallowing the
+error, so a test cannot silently look successful.
+
 ## Known limitations
 
 1. **Item slots are client-authoritative.** `give` reuses the real grant path
@@ -132,6 +201,9 @@ paths and internal state.
 3. **No global/cross-server anything.** Current server only, by design.
 4. **A compromised developer account has developer powers.** Rate limits and
    the audit trail bound and record the damage; they do not prevent it.
-5. **Private servers are not treated specially.** `PrivateServerOwnerId` is
+5. **A ban is only as good as Roblox's enforcement.** Determined evasion via
+   new accounts is outside what any in-experience tool can prevent;
+   `ExcludeAltAccounts = false` covers alts Roblox already knows about.
+6. **Private servers are not treated specially.** `PrivateServerOwnerId` is
    reported but confers nothing — owning a private server does not grant
    console access.

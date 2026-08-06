@@ -27,6 +27,7 @@ local Inspect = require(script.Parent.adapters.Inspect)
 local Powerups = require(script.Parent.adapters.Powerups)
 local World = require(script.Parent.adapters.World)
 local AI = require(script.Parent.adapters.AI)
+local Moderation = require(script.Parent.adapters.Moderation)
 
 local Code = Protocol.Code
 local Commands = {}
@@ -226,6 +227,86 @@ Commands.respawn_player = {
 			return false, Code.INTERNAL, "LoadCharacter failed."
 		end
 		return true, Code.OK, ("Respawned %s."):format(player.Name)
+	end,
+}
+
+--=====================================================================
+--  MODERATION
+--
+--  Every one of these goes through DevPermissions.canModerate as well as
+--  its declared capability. That check is what stops a developer kicking
+--  an owner, and stops anyone moderating themselves — see its note on
+--  why a compromised account must not be able to remove the people who
+--  could revoke it.
+--=====================================================================
+
+Commands.kick_player = {
+	permission = "KICK_PLAYER",
+	rate = { burst = 4, per = 20 },
+	destructive = true,
+	validate = function(p)
+		return DevSchema.shape(p, {
+			targetUserId = DevSchema.userId(),
+			reason = DevSchema.optional(DevSchema.string(200)),
+		})
+	end,
+	moderates = true,
+	run = function(ctx, p)
+		return Moderation.kick(p.targetUserId, p.reason, ctx.player.Name)
+	end,
+}
+
+Commands.ban_player = {
+	permission = "BAN_PLAYER",
+	-- Deliberately harsh. Banning is not something anyone needs to do
+	-- three times in ten seconds, and a slow limit turns a runaway script
+	-- or a stolen session into a nuisance rather than a catastrophe.
+	rate = { burst = 2, per = 60 },
+	destructive = true,
+	validate = function(p)
+		return DevSchema.shape(p, {
+			targetUserId = DevSchema.userId(),
+			-- 0 or below means permanent; bounded above so a typo cannot
+			-- become a thousand-year ban.
+			durationDays = DevSchema.numberRange(0, Moderation.MAX_DURATION_DAYS),
+			reason = DevSchema.optional(DevSchema.string(200)),
+			privateNote = DevSchema.optional(DevSchema.string(200)),
+			includeAlts = DevSchema.optional(DevSchema.boolean()),
+			-- EXPLICIT CONFIRMATION, required by the schema itself.
+			--
+			-- A stray click, a replayed payload or a half-built request
+			-- simply fails validation. The UI asks twice; this is what
+			-- makes that ask load-bearing rather than decorative.
+			confirm = DevSchema.boolean(),
+		})
+	end,
+	moderates = true,
+	run = function(_, p)
+		if p.confirm ~= true then
+			return false, Code.BAD_PAYLOAD, "Ban requires confirm = true."
+		end
+		return Moderation.ban(p.targetUserId, p.durationDays, p.reason, p.privateNote, p.includeAlts == true)
+	end,
+}
+
+Commands.unban_player = {
+	permission = "UNBAN_PLAYER",
+	rate = { burst = 4, per = 60 },
+	validate = function(p)
+		return DevSchema.shape(p, {
+			targetUserId = DevSchema.userId(),
+			confirm = DevSchema.boolean(),
+		})
+	end,
+	-- NOT `moderates`. Unbanning is the RECOVERY path: requiring the
+	-- actor to outrank the target would make a mistaken ban on a fellow
+	-- owner permanently unfixable from here, which is the opposite of
+	-- what the rank check is for.
+	run = function(_, p)
+		if p.confirm ~= true then
+			return false, Code.BAD_PAYLOAD, "Unban requires confirm = true."
+		end
+		return Moderation.unban(p.targetUserId)
 	end,
 }
 

@@ -96,6 +96,37 @@ function DevPermissions.describe(player: any): { userId: number, name: string, r
 	}
 end
 
+-- MAY THIS ACTOR MODERATE THIS TARGET?
+--
+-- Two rules, and both matter:
+--
+--   1. NEVER YOURSELF. Kicking yourself is merely silly; banning
+--      yourself is unrecoverable without another owner.
+--   2. NEVER AN EQUAL OR SENIOR. A developer cannot kick or ban an
+--      owner, and cannot touch another developer. Without this, one
+--      compromised developer account can remove everyone who could
+--      revoke it — which turns a small breach into a total one.
+--
+-- Takes the target as a UserId, so it works for an account that is not
+-- in the server (an offline ban) as well as one that is.
+function DevPermissions.canModerate(actor: any, targetUserId: number): (boolean, string?)
+	local actorRole = DevPermissions.getRole(actor)
+	if not actorRole then
+		return false, "Permission denied."
+	end
+	if typeof(actor) == "Instance" and actor:IsA("Player") and actor.UserId == targetUserId then
+		return false, "You cannot moderate yourself."
+	end
+	local DevRoster = require(script.Parent.DevRoster)
+	local targetRole = DevRoster.roleForUserId(targetUserId)
+	if targetRole and DevRoster.rankOf(targetRole) >= DevRoster.rankOf(actorRole) then
+		-- Deliberately vague to the caller. The audit log records the
+		-- real reason; the reply does not confirm who is on the roster.
+		return false, "Permission denied."
+	end
+	return true, nil
+end
+
 function DevPermissions.start()
 	print(("[DevPermissions] roster loaded — %d authorized account(s)."):format(DevRoster.size()))
 end

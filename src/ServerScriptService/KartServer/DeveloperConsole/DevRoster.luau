@@ -81,10 +81,23 @@ DevRoster.Permissions = table.freeze({
 	MODIFY_PLAYER = "developer", -- respawn, reset kart
 	CLEANUP_OWN = "developer", -- remove entities you spawned
 
+	-- MODERATION. Kick is developer-level: it is annoying, reversible by
+	-- rejoining, and useful during a playtest.
+	KICK_PLAYER = "developer",
+
 	-- Owner only. Destructive or server-wide.
 	CLEANUP_ALL = "owner", -- remove EVERY developer entity, not just yours
 	ANNOUNCE = "owner",
 	MODIFY_CONFIG = "owner",
+
+	-- BAN IS OWNER-ONLY AND SEPARATE FROM EVERYTHING ELSE.
+	--
+	-- It is the only action here that persists beyond the server, reaches
+	-- accounts that are not present, and cannot be undone by the person
+	-- it happened to. A compromised developer account should be able to
+	-- waste your afternoon, not your player base.
+	BAN_PLAYER = "owner",
+	UNBAN_PLAYER = "owner",
 })
 
 -- Rank, higher is more privileged. Kept private so nothing outside can
@@ -144,6 +157,12 @@ function DevRoster.satisfies(role: string?, required: string?): boolean
 		return false
 	end
 	return have >= need
+end
+
+-- Numeric rank of a role, or 0 for none. Exposed so moderation can ask
+-- "does the actor outrank the target" — see DevPermissions.canModerate.
+function DevRoster.rankOf(role: string?): number
+	return (role and RANK[role]) or 0
 end
 
 -- Count, for the boot log. Never exposes the ids themselves.

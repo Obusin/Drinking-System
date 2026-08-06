@@ -156,6 +156,20 @@ local function route(player: Player, requestId: string, command: string, payload
 		end
 	end
 
+	-- 6c. MODERATION RANK. A command flagged `moderates` may only act on
+	-- someone the caller outranks, and never on the caller.
+	--
+	-- Enforced HERE rather than in each handler for the same reason
+	-- permissions are: a check written per command is a check that will
+	-- eventually be forgotten in one of them, and this is the one where
+	-- forgetting it means a developer can ban the owner.
+	if entry.moderates then
+		local mayModerate, why = DevPermissions.canModerate(player, cleanPayload.targetUserId)
+		if not mayModerate then
+			return deny(Code.NOT_AUTHORIZED, why)
+		end
+	end
+
 	-- 7. RUN.
 	local okRun, a, b, c, d = pcall(entry.run, ctx, cleanPayload)
 	if not okRun then

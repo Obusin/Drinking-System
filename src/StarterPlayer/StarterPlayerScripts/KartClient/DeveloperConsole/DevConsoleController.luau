@@ -39,7 +39,33 @@ local selected = { userId = nil :: number?, name = "" }
 local chosenItem = 1
 local tab = "Server"
 
-local TABS = { "Server", "Players", "Power-Ups", "AI", "World", "Logs" }
+local TABS = { "Server", "Players", "Power-Ups", "AI", "World", "Moderate", "Logs" }
+
+-- ARMING IS LOCAL AND DELIBERATELY FRAGILE.
+--
+-- A ban button that fires on one click is a ban you will eventually
+-- issue by accident. The first click arms, the second commits, and
+-- changing target or tab disarms — so an arm left sitting from five
+-- minutes ago cannot fire at whoever happens to be selected now.
+--
+-- This is UX, not security: the schema requires `confirm = true`, so a
+-- request that skips the arming step fails validation on the server.
+local armed = { action = nil :: string?, forUserId = nil :: number? }
+local banDays = 0 -- 0 = permanent
+local banReason = "Breaking the rules"
+
+local function disarm()
+	armed.action, armed.forUserId = nil, nil
+end
+
+local function armOrFire(action: string, userId: number, fire: () -> ())
+	if armed.action == action and armed.forUserId == userId then
+		disarm()
+		fire()
+	else
+		armed.action, armed.forUserId = action, userId
+	end
+end
 
 local function may(permission: string): boolean
 	-- A COSMETIC check, and labelled as such. It greys out buttons the
@@ -126,6 +152,7 @@ local function drawPlayers()
 		if Iris.Button({ label }).clicked() then
 			selected.userId = p.userId
 			selected.name = p.name
+			disarm()
 			Client.refreshPlayer(p.userId, true)
 		end
 	end
@@ -299,6 +326,68 @@ local function drawWorld()
 	end
 end
 
+local function drawModerate()
+	if not selected.userId then
+		Iris.Text({ "Select a player on the Players tab first." })
+		return
+	end
+	Iris.Text({ ("Target: %s (%d)"):format(selected.name, selected.userId) })
+	Iris.Text({ "You cannot moderate yourself or anyone at your rank or above." })
+	Iris.Separator()
+
+	if not may("developer") then
+		Iris.Text({ "Viewer role: moderation is disabled." })
+		return
+	end
+
+	-- KICK — developer level, reversible by rejoining.
+	local kickArmed = armed.action == "kick" and armed.forUserId == selected.userId
+	if Iris.Button({ if kickArmed then "CONFIRM KICK" else "Kick" }).clicked() then
+		armOrFire("kick", selected.userId, function()
+			Client.send("kick_player", { targetUserId = selected.userId, reason = banReason })
+		end)
+	end
+
+	if not may("owner") then
+		Iris.Separator()
+		Iris.Text({ "Banning is owner-only." })
+		return
+	end
+
+	Iris.Separator()
+	Iris.Text({ ("Duration: %s"):format(if banDays <= 0 then "PERMANENT" else (banDays .. " day(s)")) })
+	Iris.SameLine()
+	for _, d in { 0, 1, 7, 30 } do
+		if Iris.Button({ if d == 0 then "perm" else (d .. "d") }).clicked() then
+			banDays = d
+			disarm() -- changing the terms invalidates an existing arm
+		end
+	end
+	Iris.End()
+
+	local banArmed = armed.action == "ban" and armed.forUserId == selected.userId
+	if Iris.Button({ if banArmed then "CONFIRM BAN — THIS PERSISTS" else "Ban" }).clicked() then
+		armOrFire("ban", selected.userId, function()
+			Client.send("ban_player", {
+				targetUserId = selected.userId,
+				durationDays = banDays,
+				reason = banReason,
+				includeAlts = false,
+				confirm = true,
+			})
+		end)
+	end
+
+	local unbanArmed = armed.action == "unban" and armed.forUserId == selected.userId
+	if Iris.Button({ if unbanArmed then "CONFIRM UNBAN" else "Unban" }).clicked() then
+		armOrFire("unban", selected.userId, function()
+			Client.send("unban_player", { targetUserId = selected.userId, confirm = true })
+		end)
+	end
+
+	Iris.Text({ "Bans use Roblox BanAsync — they do not work in Studio." })
+end
+
 local function drawLogs()
 	if Iris.Button({ "Refresh" }).clicked() then
 		Client.refreshLogs(true)
@@ -364,6 +453,7 @@ function DevConsoleController.start(grantedRole: string, hotkey: Enum.KeyCode)
 		for _, name in TABS do
 			if Iris.Button({ (if tab == name then "[" .. name .. "]" else name) }).clicked() then
 				tab = name
+				disarm()
 			end
 		end
 		Iris.End()
@@ -379,6 +469,8 @@ function DevConsoleController.start(grantedRole: string, hotkey: Enum.KeyCode)
 			drawAI()
 		elseif tab == "World" then
 			drawWorld()
+		elseif tab == "Moderate" then
+			drawModerate()
 		else
 			drawLogs()
 		end
