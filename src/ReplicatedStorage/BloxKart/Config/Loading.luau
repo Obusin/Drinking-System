@@ -24,7 +24,10 @@ return {
 	-- chrome — the browser-tab convention — which is what a background
 	-- task should look like. It is a status line, not a modal: the menu
 	-- is fully usable the whole time it runs.
-	BarHeight = 3,
+	-- Tall enough to hold its own label. A 3px hairline with the text
+	-- floating above it was legible only if you already knew where to
+	-- look; a band with the text INSIDE reads as one object.
+	BarHeight = 30,
 	BarBottom = 0, -- flush with the edge
 
 	-- Small, bottom LEFT, sat just above the bar. Left because that is
@@ -34,10 +37,9 @@ return {
 	-- Swapped in at 100%, so the last thing on screen is not a stale
 	-- "INITIALIZING..." on a bar that has already finished.
 	BarDoneText = "READY",
-	BarTextSize = 11,
+	BarTextSize = 13,
 	BarTextColor = Color3.fromRGB(232, 234, 238),
-	BarTextInset = 20, -- px from the left edge
-	BarTextBottom = 10, -- px above the bar
+	BarTextInset = 22, -- px from the left edge, vertically centred
 
 	-- Trailing dots, so the label is visibly ALIVE even on a batch that
 	-- takes a while. A bar that has not moved for ten seconds and a game
@@ -45,15 +47,23 @@ return {
 	BarDotRate = 2.5, -- dot changes per second
 
 	--== LOOK ==========================================================
-	BarTrackColor = Color3.fromRGB(255, 255, 255),
-	BarTrackTransparency = 0.9, -- barely there until it fills
+	-- A dark band, so white text sits on it cleanly whether or not the
+	-- fill has reached that point yet.
+	BarTrackColor = Color3.fromRGB(8, 9, 12),
+	BarTrackTransparency = 0.35,
 	BarFillColor = Color3.fromRGB(255, 255, 255), -- white, per the brief
 
 	-- The fill fades out toward its TAIL rather than being a solid block,
 	-- so it reads as a sweep with a bright leading edge instead of a
 	-- growing rectangle. This is the whole difference between "a bar" and
 	-- "something is happening".
-	BarGradientTail = 0.75, -- transparency at the far left of the fill
+	--
+	-- The HEAD is deliberately not opaque either: the label sits on top of
+	-- this, and a solid white leading edge would swallow white text as it
+	-- swept past. Kept translucent so the text stays readable across the
+	-- whole width, filled or not.
+	BarGradientTail = 0.95, -- transparency at the far left of the fill
+	BarGradientHead = 0.45, -- ...and at the leading edge
 
 	--== TIMING ========================================================
 	-- Tweened rather than snapped: batches land in chunks, and a bar that

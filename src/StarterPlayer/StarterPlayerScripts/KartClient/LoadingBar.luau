@@ -95,15 +95,19 @@ function LoadingBar.new()
 	local grad = Instance.new("UIGradient")
 	grad.Transparency = NumberSequence.new({
 		NumberSequenceKeypoint.new(0, L.BarGradientTail),
-		NumberSequenceKeypoint.new(1, 0),
+		NumberSequenceKeypoint.new(1, L.BarGradientHead),
 	})
 	grad.Parent = fill
 
+	-- INSIDE the band, and a sibling of the fill rather than a child of
+	-- it: a child would be clipped and dragged along as the fill grows,
+	-- so the text would slide in from the left edge instead of sitting
+	-- still while the sweep passes under it.
 	local label = Instance.new("TextLabel")
 	label.Name = "Label"
-	label.AnchorPoint = Vector2.new(0, 1)
-	label.Position = UDim2.new(0, L.BarTextInset, 1, -(L.BarBottom + L.BarHeight + L.BarTextBottom))
-	label.Size = UDim2.fromOffset(320, 14)
+	label.AnchorPoint = Vector2.new(0, 0.5)
+	label.Position = UDim2.new(0, L.BarTextInset, 0.5, 0)
+	label.Size = UDim2.new(1, -L.BarTextInset * 2, 1, 0)
 	label.BackgroundTransparency = 1
 	label.FontFace = Util.font(H.FontName, H.FontWeight)
 	label.Text = L.BarText
@@ -114,7 +118,8 @@ function LoadingBar.new()
 	-- Readable over a bright menu as well as a dark one.
 	label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
 	label.TextStrokeTransparency = 1
-	label.Parent = gui
+	-- Parented AFTER the fill so it draws over the sweep.
+	label.Parent = track
 
 	local self = setmetatable({
 		gui = gui,
