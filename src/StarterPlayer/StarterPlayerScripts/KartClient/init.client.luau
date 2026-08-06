@@ -213,6 +213,12 @@ task.spawn(function()
 			getForceRace = function()
 				return devForceRace
 			end,
+			-- READ-ONLY, for the speed graph. The console plots the value
+			-- this client is already simulating with, so the graph cannot
+			-- disagree with the kart.
+			getSpeed = function(): number?
+				return sim and math.abs(sim.speed) or nil
+			end,
 		})
 		print("[DevConsole] ready — press " .. Config.DevConsole.Hotkey.Name .. " to toggle.")
 	end)

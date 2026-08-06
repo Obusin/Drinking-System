@@ -37,6 +37,14 @@ Names.KART_TAG = "Kart"
 -- which has to stop simulating a kart it no longer owns.
 Names.AI_DRIVEN = "AiDriven"
 
+-- DEVELOPER SPEED OVERRIDE, set by the console on a KART model.
+--
+-- A multiplier on MaxSpeed, absent or 1 meaning normal. It is on the
+-- kart rather than the player so it replicates to whoever is simulating
+-- that kart, and so it dies with the kart — a dev override cannot
+-- outlive the thing it was applied to.
+Names.DEV_SPEED_SCALE = "DevSpeedScale"
+
 -- Who is driving, as text. Players resolve through OWNER, but a bot has
 -- no UserId and no existence on the client at all, so anything that has
 -- to DISPLAY a name reads this instead of guessing.

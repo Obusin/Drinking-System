@@ -57,6 +57,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local BloxKart = ReplicatedStorage:WaitForChild("BloxKart")
 
 local Config = require(BloxKart:WaitForChild("Config"))
+local Names = require(BloxKart:WaitForChild("Names"))
 local Util = require(BloxKart:WaitForChild("Util"))
 local WorldFilter = require(BloxKart:WaitForChild("WorldFilter"))
 
@@ -589,11 +590,32 @@ function Simulation:Step(dt: number, input): { [string]: any }
 	-- through the midrange, tapering at the top — that shape is what
 	-- reads as mass. Braking and coasting stay linear; only power
 	-- delivery is curved, same as a real drivetrain.
+	-- DEVELOPER SPEED OVERRIDE.
+	--
+	-- Scaled ONCE here and used for every derived quantity below, because
+	-- almost everything in this module is measured as a FRACTION of top
+	-- speed — the accel curve, the turn-rate falloff, speedFrac. Scaling
+	-- only the target would leave those curves sampling against the old
+	-- number, so the kart would go faster while accelerating and turning
+	-- as though it had not. Config.Handling says exactly this about
+	-- MaxSpeed; the override has to respect it.
+	--
+	-- Clamped, and absent means 1. A deliberate exception to the
+	-- Consistency Rule: it is not derived from art, it is only ever
+	-- written by the developer console, and it dies with the kart.
+	local maxSpeed = H.MaxSpeed
+	do
+		local scale = self.model and self.model:GetAttribute(Names.DEV_SPEED_SCALE)
+		if type(scale) == "number" and scale == scale then
+			maxSpeed = H.MaxSpeed * math.clamp(scale, 0.1, 5)
+		end
+	end
+
 	local speedNow = math.abs(self.speed)
-	local powerBand = Util.sampleCurve(H.AccelCurve, speedNow / H.MaxSpeed)
+	local powerBand = Util.sampleCurve(H.AccelCurve, speedNow / maxSpeed)
 
 	local target, rate
-	local burnTarget = if stage then H.MaxSpeed + stage.Speed else 0
+	local burnTarget = if stage then maxSpeed + stage.Speed else 0
 
 	if boosting and self.boostSpeed >= burnTarget then
 		-- A pad stronger than the burn wins; otherwise the burn does.
@@ -601,7 +623,7 @@ function Simulation:Step(dt: number, input): { [string]: any }
 	elseif stage then
 		target, rate = burnTarget, N.BurnAccel
 	elseif throttle > 0.05 then
-		target, rate = H.MaxSpeed, H.Accel * powerBand
+		target, rate = maxSpeed, H.Accel * powerBand
 	elseif throttle < -0.05 then
 		if self.speed > 1 then
 			target, rate = 0, H.BrakeRate
@@ -665,7 +687,7 @@ function Simulation:Step(dt: number, input): { [string]: any }
 	local eased = Util.smoothstep(self.driftBlend)
 
 	-- Normal steering. Heading DECREASES to turn right, hence the minus.
-	local ratio = math.clamp(speedAbs / H.MaxSpeed, 0, 1)
+	local ratio = math.clamp(speedAbs / maxSpeed, 0, 1)
 	local turn = H.TurnRate + (H.TurnRateTop - H.TurnRate) * ratio
 	local reversing = if self.speed < 0 then -1 else 1
 	local steerTurn = -self.steer * turn * reversing
@@ -766,7 +788,7 @@ function Simulation:Step(dt: number, input): { [string]: any }
 	-- three things at once, whichever is greatest.
 	----------------------------------------------------------------
 	local effort = self.slip
-	local speedFrac = math.clamp(math.abs(self.speed) / H.MaxSpeed, 0, 1)
+	local speedFrac = math.clamp(math.abs(self.speed) / maxSpeed, 0, 1)
 
 	if self.state == STATE_DRIFT then
 		-- A committed drift is never quiet. The rear is loose regardless of
@@ -1259,7 +1281,7 @@ function Simulation:Step(dt: number, input): { [string]: any }
 	self.squashVel += (-FX.SquashSpring * self.squash - FX.SquashDamp * self.squashVel) * dt
 	self.squash += self.squashVel * dt
 	self.squash = math.clamp(self.squash, -FX.LandSquashMax, FX.LandSquashMax)
-	self.speedFrac = math.clamp(speedAbs / H.MaxSpeed, 0, 1)
+	self.speedFrac = math.clamp(speedAbs / maxSpeed, 0, 1)
 	self.bob = if self.grounded
 		then math.sin(now * FX.BobSpeed) * FX.BobAmount * self.speedFrac
 		else 0

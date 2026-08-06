@@ -44,7 +44,36 @@ local selected = { userId = nil :: number?, name = "" }
 local chosenItem = 1
 local tab = "Server"
 
-local TABS = { "Server", "Players", "Power-Ups", "AI", "World", "Moderate", "Logs" }
+local TABS = { "Server", "Players", "Power-Ups", "AI", "World", "Tune", "Moderate", "Logs" }
+
+-- SPEED HISTORY, sampled locally for the graph.
+--
+-- Read from the live Simulation via a hook, not from a remote: a graph
+-- wants ~30 samples a second and no server round trip survives that.
+-- Purely a readout — the value it plots is the one the client is already
+-- simulating with.
+local SAMPLES = 120
+local speedHistory: { number } = {}
+local lastSampleAt = 0
+
+local function sampleSpeed()
+	if not localHooks.getSpeed then
+		return
+	end
+	local now = os.clock()
+	if now - lastSampleAt < 1 / 30 then
+		return
+	end
+	lastSampleAt = now
+	table.insert(speedHistory, localHooks.getSpeed() or 0)
+	while #speedHistory > SAMPLES do
+		table.remove(speedHistory, 1)
+	end
+end
+
+-- Local slider value per tunable, so dragging is smooth and only the
+-- committed value crosses the wire.
+local tuneValue: { [string]: number } = {}
 
 -- ARMING IS LOCAL AND DELIBERATELY FRAGILE.
 --
@@ -342,6 +371,78 @@ local function drawWorld()
 	end
 end
 
+local function drawTune()
+	local snap = Client.cache.snapshot
+	local tunables = (snap and snap.tunables) or {}
+	local target = selected.userId or Client.localUserId()
+
+	Iris.Text({ ("Target: %s"):format(if selected.userId then selected.name else "me") })
+	Iris.Text({ "Applies to that player's CURRENT kart, and dies with it." })
+	Iris.Separator()
+
+	if not may("owner") then
+		Iris.Text({ "Tuning is owner-only." })
+		return
+	end
+
+	for _, t in tunables do
+		local current = tuneValue[t.key] or t.default
+		Iris.Text({ ("%s: %.2f  (%.1f - %.1f)"):format(t.label, current, t.min, t.max) })
+
+		-- Stepped buttons rather than a drag widget: this has to commit a
+		-- value over a remote, and a slider fires one request per pixel.
+		Iris.SameLine()
+		for _, step in { -0.5, -0.1, 0.1, 0.5 } do
+			if Iris.Button({ ("%+.1f"):format(step) }).clicked() then
+				tuneValue[t.key] = math.clamp(current + step, t.min, t.max)
+				Client.send("set_tunable", { targetUserId = target, key = t.key, value = tuneValue[t.key] })
+			end
+		end
+		Iris.End()
+
+		Iris.SameLine()
+		for _, preset in { 0.5, 1, 2, 3 } do
+			if preset >= t.min and preset <= t.max and Iris.Button({ ("x%g"):format(preset) }).clicked() then
+				tuneValue[t.key] = preset
+				Client.send("set_tunable", { targetUserId = target, key = t.key, value = preset })
+			end
+		end
+		if Iris.Button({ "reset" }).clicked() then
+			tuneValue[t.key] = t.default
+			Client.send("reset_tunable", { targetUserId = target, key = t.key })
+		end
+		Iris.End()
+		Iris.Separator()
+	end
+
+	-- THE GRAPH. Local speed over the last few seconds.
+	if #speedHistory > 1 then
+		local peak = 0
+		for _, v in speedHistory do
+			peak = math.max(peak, v)
+		end
+		-- ARGUMENTS ARE (Text, Height, Min, Max, TextOverlay); the VALUES
+		-- go in the states table, not the arguments. Getting that wrong
+		-- silently plots the height as data.
+		--
+		-- `speedHistory` is mutated in place, so the state holds the same
+		-- table across frames and `:set(v, true)` forces Iris to re-read
+		-- it — that second argument is what makes a live graph update at
+		-- all, since the reference never changes.
+		local values = Iris.State(speedHistory)
+		values:set(speedHistory, true)
+		Iris.PlotLines({
+			"Speed (studs/s)",
+			80,
+			0,
+			math.max(peak * 1.1, 10),
+			("%.0f"):format(speedHistory[#speedHistory]),
+		}, { values = values })
+	else
+		Iris.Text({ "Speed graph: get in a kart." })
+	end
+end
+
 local function drawModerate()
 	if not selected.userId then
 		Iris.Text({ "Select a player on the Players tab first." })
@@ -459,6 +560,7 @@ function DevConsoleController.start(grantedRole: string, hotkey: Enum.KeyCode, h
 
 		-- Cheap and throttled inside the client cache; safe to call every
 		-- frame because it no-ops until the age threshold passes.
+		sampleSpeed()
 		Client.refreshSnapshot(2)
 		if tab == "Logs" then
 			Client.refreshLogs()
@@ -486,6 +588,8 @@ function DevConsoleController.start(grantedRole: string, hotkey: Enum.KeyCode, h
 			drawAI()
 		elseif tab == "World" then
 			drawWorld()
+		elseif tab == "Tune" then
+			drawTune()
 		elseif tab == "Moderate" then
 			drawModerate()
 		else

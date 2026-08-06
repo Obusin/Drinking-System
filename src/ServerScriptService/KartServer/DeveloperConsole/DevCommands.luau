@@ -28,6 +28,7 @@ local Powerups = require(script.Parent.adapters.Powerups)
 local World = require(script.Parent.adapters.World)
 local AI = require(script.Parent.adapters.AI)
 local Moderation = require(script.Parent.adapters.Moderation)
+local Tuning = require(script.Parent.adapters.Tuning)
 
 local Code = Protocol.Code
 local Commands = {}
@@ -65,6 +66,7 @@ Commands.snapshot = {
 			server = Inspect.server(),
 			players = Inspect.playerList(),
 			catalogue = Powerups.catalogue(),
+			tunables = Tuning.list(),
 			canDriveAI = AI.canDrive(),
 		}
 	end,
@@ -227,6 +229,48 @@ Commands.respawn_player = {
 			return false, Code.INTERNAL, "LoadCharacter failed."
 		end
 		return true, Code.OK, ("Respawned %s."):format(player.Name)
+	end,
+}
+
+--=====================================================================
+--  TUNING — registered keys only, never arbitrary attributes
+--=====================================================================
+
+Commands.set_tunable = {
+	permission = "MODIFY_CONFIG",
+	-- Generous: this is a slider, and a stingy limit makes live tuning
+	-- feel broken rather than safe.
+	rate = { burst = 20, per = 5 },
+	validate = function(p)
+		return DevSchema.shape(p, {
+			targetUserId = DevSchema.userId(),
+			key = DevSchema.inRegistry(function(k)
+				return if Tuning.isKey(k) then k else nil
+			end),
+			-- Range is re-checked per key in the adapter; this is the
+			-- outer sanity bound so a NaN or an absurd value never
+			-- reaches it.
+			value = DevSchema.numberRange(-1000, 1000),
+		})
+	end,
+	run = function(_, p)
+		return Tuning.set(p.targetUserId, p.key, p.value)
+	end,
+}
+
+Commands.reset_tunable = {
+	permission = "MODIFY_CONFIG",
+	rate = { burst = 10, per = 5 },
+	validate = function(p)
+		return DevSchema.shape(p, {
+			targetUserId = DevSchema.userId(),
+			key = DevSchema.inRegistry(function(k)
+				return if Tuning.isKey(k) then k else nil
+			end),
+		})
+	end,
+	run = function(_, p)
+		return Tuning.reset(p.targetUserId, p.key)
 	end,
 }
 
