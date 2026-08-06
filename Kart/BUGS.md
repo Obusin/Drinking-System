@@ -1316,6 +1316,76 @@ this same disguise; the fifth is not going to be in the store either.
 
 ---
 
+# 29. OPEN — the server says items work in the lobby; the client says they do not
+
+Found 2026-08-07 while testing the developer console's "give item" in the
+lobby. It looked like the console failing. It is not — the console fires
+the real grant remote and the client receives it. **The game itself
+cannot use items in the lobby**, and item boxes in the practice ring have
+the same problem.
+
+## Two halves, two answers
+
+`init.server.luau` is explicit that this is wanted:
+
+> *"Items stay ON in the lobby. A hub with karts and no power-ups is a
+> driving demo; the practice ring is where you learn what a missile feels
+> like, and none of that needs a round."*
+
+And it delivers: `RaceService.start()` and `ProjectileService.start()`
+both run unconditionally, so the `KartItemPickup` remote exists and the
+server will happily grant.
+
+The CLIENT disagrees, at `init.client.luau`:
+
+```lua
+local itemEvents = if match:IsRacing() then items:Update(sim, Input) else NO_EVENTS
+```
+
+In a lobby there is no MatchService, so no phase attribute, so
+`Match:Phase()` falls back to `Waiting`, and `isDriving(Waiting)` is
+false. **`items:Update()` never runs.**
+
+## Why it looks like nothing happened
+
+The grant is not lost. `Items.new`'s `OnClientEvent` handler is a plain
+connection and fires regardless — the item lands in `self.held` as a
+SPINNING slot. But `Update` is what runs `_spin` to resolve the roulette
+and what surfaces the slot to the HUD, so the item sits there
+permanently unresolved and can never be used.
+
+So: granted, received, stored, never usable. Silent, like everything else
+in this project's cosmetic pipelines.
+
+## The fix is one line, and it is a DESIGN decision
+
+The gate exists for a real reason — the comment above it says items must
+not be usable "while the grid is forming". That is a race concern, and a
+lobby has no grid. Something like:
+
+```lua
+local canUseItems = match:IsRacing() or Place.isLobby()
+local itemEvents = if canUseItems then items:Update(sim, Input) else NO_EVENTS
+```
+
+Not applied, because it changes GAMEPLAY rather than fixing the console:
+whether the hub is a place you can fire a missile is Mark's call, not a
+bug fix. **The server has already answered yes; the client has never been
+told.**
+
+## What to learn from this one
+
+**Two halves of one question, again** — root cause #1, and this time the
+two answers are in files that quote each other. The server comment
+describes the intended behaviour in detail and the client gate silently
+overrides it.
+
+**A feature nobody has tried is not a working feature.** The lobby
+practice ring has presumably never had a working item box, and nothing
+errored, so nothing said so.
+
+---
+
 # WATCH — recently fixed, unproven
 
 Each of these has run for at most one session. If something in this area
