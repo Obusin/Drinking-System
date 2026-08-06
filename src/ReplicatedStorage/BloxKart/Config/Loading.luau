@@ -60,6 +60,26 @@ return {
 	-- jumps in steps reads as broken even when the numbers are honest.
 	BarEase = 0.25,
 
+	-- WAIT FOR THE SPLASH TO GO BEFORE DOING ANY OF THIS.
+	--
+	-- The bar used to start on client init, which is while the splash
+	-- still has seconds to run. 37 assets preload in about two, so it
+	-- filled, faded and destroyed itself entirely BEHIND the splash and
+	-- was never once seen. Reported, correctly, as "I don't see it at
+	-- all".
+	--
+	-- Nothing is lost by waiting: these are menu decorations and the menu
+	-- is not on screen yet. Starting when the splash lifts also means the
+	-- bar always has real work left to show, instead of reporting on work
+	-- that finished before anyone could look.
+	BarSplashName = "BloxKartLoading",
+	BarSplashWait = 20, -- give up waiting and show anyway
+
+	-- Minimum time on screen once shown. A preload that finishes in 300ms
+	-- would otherwise be a flicker, which is worse than not showing it:
+	-- the player registers "something flashed" and not "it loaded".
+	BarMinShown = 1.4,
+
 	-- How many assets per PreloadAsync call.
 	--
 	-- THIS IS WHY IT IS BATCHED AT ALL: PreloadAsync on one big list

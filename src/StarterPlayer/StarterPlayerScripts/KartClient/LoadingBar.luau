@@ -74,7 +74,9 @@ function LoadingBar.new()
 	track.Position = UDim2.new(0, 0, 1, -L.BarBottom)
 	track.Size = UDim2.new(1, 0, 0, L.BarHeight)
 	track.BackgroundColor3 = L.BarTrackColor
-	track.BackgroundTransparency = L.BarTrackTransparency
+	-- Built hidden. Revealed by Start() once the splash is gone — see
+	-- Config.Loading.BarSplashName for why.
+	track.BackgroundTransparency = 1
 	track.BorderSizePixel = 0
 	track.Parent = gui
 
@@ -84,6 +86,7 @@ function LoadingBar.new()
 	fill.Position = UDim2.fromScale(0, 0.5)
 	fill.Size = UDim2.fromScale(0, 1)
 	fill.BackgroundColor3 = L.BarFillColor
+	fill.BackgroundTransparency = 1
 	fill.BorderSizePixel = 0
 	fill.Parent = track
 
@@ -107,10 +110,10 @@ function LoadingBar.new()
 	label.TextSize = L.BarTextSize
 	label.TextColor3 = L.BarTextColor
 	label.TextXAlignment = Enum.TextXAlignment.Left
-	label.TextTransparency = 0.3
+	label.TextTransparency = 1
 	-- Readable over a bright menu as well as a dark one.
 	label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-	label.TextStrokeTransparency = 0.55
+	label.TextStrokeTransparency = 1
 	label.Parent = gui
 
 	local self = setmetatable({
@@ -153,7 +156,13 @@ function LoadingBar:Finish()
 	self.done = true -- also stops the dot animation
 	self.label.Text = L.BarDoneText
 	self:Set(1)
-	task.delay(L.BarHoldWhenDone, function()
+
+	-- Held for BarMinShown from when it BECAME VISIBLE, not from now. A
+	-- preload that finishes in 300ms would otherwise be a flicker, and a
+	-- flicker reads as "something flashed", not as "it loaded".
+	local visibleFor = os.clock() - (self.shownAt or os.clock())
+	local hold = math.max(L.BarHoldWhenDone, L.BarMinShown - visibleFor)
+	task.delay(hold, function()
 		-- Faded, not destroyed on the spot: the bar reaching full is the
 		-- only confirmation the player gets that it finished rather than
 		-- gave up, so it has to be visible for a moment at 100%.
@@ -176,6 +185,20 @@ end
 -- point of showing this instead of extending the splash.
 function LoadingBar:Start()
 	task.spawn(function()
+		-- The splash owns the screen until it destroys its own ScreenGui.
+		-- Bounded, so a splash that never lifts cannot hide this forever.
+		local pg = Players.LocalPlayer:WaitForChild("PlayerGui")
+		local deadline = os.clock() + L.BarSplashWait
+		while os.clock() < deadline and pg:FindFirstChild(L.BarSplashName) do
+			task.wait(0.1)
+		end
+
+		self.shownAt = os.clock()
+		self.track.BackgroundTransparency = L.BarTrackTransparency
+		self.fill.BackgroundTransparency = 0
+		self.label.TextTransparency = 0.3
+		self.label.TextStrokeTransparency = 0.55
+
 		local assets, seen = {}, {}
 		collectAssets(Config, assets, seen, 0)
 
