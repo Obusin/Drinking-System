@@ -1252,6 +1252,35 @@ visibly resisting.
 
 ---
 
+### A cosmetic spin has to snap back. A real one has nowhere to snap to.
+
+The wall stun rotated `driftAngle`, which is a visual offset — so when
+the spin ended, `driftAngle` returned to normal and the kart jumped back
+to the heading it had never actually left. **That jump was the snap, and
+no amount of easing the spin could have removed it**, because the
+discontinuity was at the end, in a value being released rather than
+travelled.
+
+Turning `forward` instead means the kart genuinely faces wherever the
+impact left it. There is no offset outstanding, so there is nothing to
+unwind.
+
+Which is right depends on what the effect is FOR:
+
+| | rotation | why |
+|---|---|---|
+| item spinout | cosmetic | being put back on your line is the mercy |
+| wall hit | real | ending up facing the wrong way IS the punishment |
+
+A visual-only version of a punishment is a punishment you can ignore.
+
+Note also that the two numbers stop meaning the same thing: cosmetic
+revolutions are "how much spinning you saw", real ones are "where you
+are pointing when it stops". 0.8 turns is fine as footage and is
+288 degrees — facing backwards — as an outcome.
+
+---
+
 ### Shortening a fixed-rotation stun makes it faster, not gentler.
 
 A wall hit reused the item spinout, which is 2.75 revolutions. Halving

@@ -424,7 +424,19 @@ return {
 	-- spinout: most of one turn, over half a second.
 	WallStunSpeed = 70, -- impact speed at which a bump becomes a stun
 	WallStunTime = 0.55, -- how long it lasts
-	WallStunRevs = 0.8, -- turns, against the item spinout's 2.75
+	-- HOW FAR YOU END UP TURNED, and now that the spin is REAL this is a
+	-- different quantity from the cosmetic one — it is where you are
+	-- pointing when it stops, not how much footage of spinning you saw.
+	--
+	-- 0.8 turns is 288 degrees: facing almost backwards after clipping a
+	-- barrier, which is a lap-ender rather than a mistake. A knock that
+	-- leaves you 90-160 degrees off is recoverable and reads as being
+	-- slewed round.
+	--
+	-- Scaled by the impact, because a hit that just crosses the threshold
+	-- and one taken flat out should not leave you in the same place.
+	WallStunRevsMin = 0.25, -- 90 deg, at the stun threshold
+	WallStunRevsMax = 0.45, -- 162 deg, flat out
 	WallStunKeep = 0.4, -- fraction of speed kept through it
 	WallStunFreeze = 0.1, -- of that, how long is a dead stop
 

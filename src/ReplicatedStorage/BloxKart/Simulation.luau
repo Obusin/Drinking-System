@@ -360,7 +360,9 @@ end
 --
 -- Returns false if a shield absorbed it, so the caller can play
 -- "blocked" feedback rather than "hit".
-function Simulation:Spinout(duration: number, keep: number, stun: number?, revs: number?): boolean
+-- `real` makes the spin turn the kart for ACTUAL — see the note where it
+-- is applied. An item spinout stays visual; a wall does not.
+function Simulation:Spinout(duration: number, keep: number, stun: number?, revs: number?, real: boolean?): boolean
 	-- One hit, one shield. Consumed whether or not another was incoming.
 	if self:HasShield() then
 		self.shieldUntil = 0
@@ -374,6 +376,9 @@ function Simulation:Spinout(duration: number, keep: number, stun: number?, revs:
 	-- one: shortening the duration alone would spin the SAME distance in
 	-- less time, which is faster rather than gentler.
 	self.spinRevs = revs
+	self.spinReal = real == true
+	self.spinApplied = 0
+	self.spinDir = if math.random() < 0.5 then -1 else 1
 
 	-- KNOCKED OFF LINE, not just slowed.
 	--
@@ -1040,6 +1045,26 @@ function Simulation:Step(dt: number, input): { [string]: any }
 		yawDelta += corridorPush(self, dt)
 	end
 
+	-- A REAL SPIN TURNS THE KART, NOT THE PICTURE OF IT.
+	--
+	-- The item spinout rotates `driftAngle`, which is cosmetic — so when
+	-- it ends the kart snaps back to the heading it never actually left.
+	-- Fine for a shell, where being flung back onto your original line is
+	-- the mercy. Wrong for a wall, where you should end up facing wherever
+	-- the impact left you, and where the snap-back was the thing that
+	-- looked broken.
+	--
+	-- Driven off the same eased curve the visual uses, applied as the
+	-- DIFFERENCE since last frame, so the total lands exactly on the
+	-- revolution count however the framerate wobbles.
+	if self.spinReal and now < (self.spinUntil or 0) then
+		local span = math.max(self.spinUntil - self.spinFrom, 1e-3)
+		local t = math.clamp((now - self.spinFrom) / span, 0, 1)
+		local swept = (1 - (1 - t) ^ FX.SpinEase) * (self.spinRevs or FX.SpinRevolutions) * math.pi * 2
+		yawDelta += (swept - (self.spinApplied or 0)) * self.spinDir
+		self.spinApplied = swept
+	end
+
 	self.forward = Util.rotateAbout(self.forward, self.up, yawDelta)
 	self.forward, self.up = Util.orthonormal(self.forward, self.up)
 
@@ -1389,7 +1414,16 @@ function Simulation:Step(dt: number, input): { [string]: any }
 			-- every other hit in the game. A player holding one should not
 			-- discover that walls are the exception.
 			if hitSpeed >= H.WallStunSpeed then
-				if self:Spinout(H.WallStunTime, H.WallStunKeep, H.WallStunFreeze, H.WallStunRevs) then
+				-- Scaled between the threshold and top speed, so a hit that
+				-- barely qualifies slews you and a flat-out one turns you
+				-- most of the way round.
+				local over = math.clamp(
+					(hitSpeed - H.WallStunSpeed) / math.max(maxSpeed - H.WallStunSpeed, 1),
+					0,
+					1
+				)
+				local revs = H.WallStunRevsMin + (H.WallStunRevsMax - H.WallStunRevsMin) * over
+				if self:Spinout(H.WallStunTime, H.WallStunKeep, H.WallStunFreeze, revs, true) then
 					events.wallStunned = hitSpeed
 				end
 			end
@@ -1843,7 +1877,10 @@ function Simulation:Step(dt: number, input): { [string]: any }
 	-- The kart still TRAVELS along `forward` throughout — only the body is
 	-- thrashing. That's what keeps a spinout recoverable instead of
 	-- disorienting: you never actually lose your line, just your dignity.
-	local spinning = now < self.spinUntil
+	-- A REAL SPIN has already turned the kart, so there is nothing
+	-- cosmetic left to add — driftAngle staying 0 is exactly why it does
+	-- not snap back when the spin ends.
+	local spinning = now < self.spinUntil and not self.spinReal
 	if spinning then
 		local span = math.max(self.spinUntil - self.spinFrom, 1e-3)
 		local t = math.clamp((now - self.spinFrom) / span, 0, 1)
