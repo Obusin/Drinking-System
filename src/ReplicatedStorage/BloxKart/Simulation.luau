@@ -60,11 +60,13 @@ local CollectionService = game:GetService("CollectionService")
 
 local Config = require(BloxKart:WaitForChild("Config"))
 local Names = require(BloxKart:WaitForChild("Names"))
+local TagZones = require(script.Parent.TagZones)
 local Util = require(BloxKart:WaitForChild("Util"))
 local WorldFilter = require(BloxKart:WaitForChild("WorldFilter"))
 
 local H = Config.Handling
 local GL = Config.Glide
+local SW = Config.Swim
 local N = Config.Nitro
 local FX = Config.Effects
 local RS = Config.Respawn
@@ -559,11 +561,42 @@ local function corridorPush(self, dt: number): number
 	return -math.sign(side) * strength * GL.CorridorPull * dt
 end
 
+--=====================================================================
+--  SWIM
+--
+--  A CONTINUOUS 0..1, NOT A BOOLEAN. Crossing a shoreline is a step
+--  change in top speed, and a step change in top speed reads as hitting
+--  something. Easing it means the kart slows into the water and picks up
+--  as it leaves, which is both what water does and what feels like a
+--  transition rather than a wall.
+--
+--  Overlapping() rather than Touch(): Touch answers "which trigger did I
+--  just enter", which is right for a boost pad and wrong here — being in
+--  water is a state you are continuously in, not an event.
+--=====================================================================
+local swimZones: any = nil
+
+function Simulation:_updateSwim(dt: number)
+	if not SW.Enabled then
+		self.swim = 0
+		return
+	end
+	if not swimZones then
+		swimZones = TagZones.new(SW.ZoneTag, { cooldown = 0, forceQueryable = true })
+	end
+	local wet = #swimZones:Overlapping(CFrame.new(self.pos), self.hitbox.Size) > 0
+	self.swim = Util.approach(self.swim or 0, if wet then 1 else 0, SW.BlendRate, dt)
+	if self.model then
+		self.model:SetAttribute(Names.SWIMMING, self.swim)
+	end
+end
+
 function Simulation:Step(dt: number, input): { [string]: any }
 	local events = {}
 	dt = math.min(dt, H.MaxTimestep) -- never integrate a huge frame
 
 	local now = os.clock()
+	self:_updateSwim(dt)
 	local frozen = self.held or now < self.frozenUntil
 
 	-- A held kart is pinned, not merely uncontrollable: zeroing speed
@@ -759,6 +792,12 @@ function Simulation:Step(dt: number, input): { [string]: any }
 	-- Consistency Rule: it is not derived from art, it is only ever
 	-- written by the developer console, and it dies with the kart.
 	local maxSpeed = H.MaxSpeed
+	-- WATER IS THICKER THAN AIR, and that is the entire handling change.
+	-- A scalar on a figure that already exists, so retuning the kart
+	-- retunes the boat and the two can never drift apart.
+	if (self.swim or 0) > 0 then
+		maxSpeed *= 1 - (1 - SW.SpeedScale) * self.swim
+	end
 	do
 		local scale = self.model and self.model:GetAttribute(Names.DEV_SPEED_SCALE)
 		if type(scale) == "number" and scale == scale then

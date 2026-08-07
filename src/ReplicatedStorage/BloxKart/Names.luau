@@ -70,6 +70,7 @@ Names.PLAYER_STATE_REASON = "BloxKartStateReason"
 Names.STATE_LOADING = "Loading"
 Names.STATE_CHARACTER_LOADING = "CharacterLoading"
 Names.STATE_LOBBY = "Lobby"
+Names.SWIMMING = "Swimming" -- 0..1, eased, so visuals can fade in
 Names.BOOSTING = "Boosting" -- any boost source: pad, drift release, item
 Names.NITRO_ON = "NitroOn" -- the nitro tank specifically, which recolours
 Names.GLIDING = "Gliding" -- published so OTHER people's gliders animate

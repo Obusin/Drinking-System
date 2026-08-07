@@ -1180,6 +1180,54 @@ bounded. Two schedules, and both problems went away.
 
 ---
 
+### Move the floor, not the movement code.
+
+Swim mode is a floor at the waterline and nothing else. The kart drives
+on it exactly as it drives on tarmac, so the sweep, the ground probe,
+surface gravity, drift and the suspension all keep working unchanged —
+from the controller's point of view nothing has happened.
+
+The alternative, replacing the ground probe with a water plane and
+buoyancy, is a **second movement mode**: its own ride height, its own
+landing rules, its own bugs, and every future handling change now has to
+be made twice.
+
+The general form: **when a new mode can be expressed as different
+geometry plus different dials, it should be.** New state in the
+simulation is the expensive option and should be the last one reached
+for. Compare the glider, which genuinely needed a state because gravity
+and steering authority both change — and note that even there the
+forcing machinery all came out again.
+
+---
+
+### A mode change should alter the silhouette, not just add particles.
+
+The clearest signal that the kart has entered water is the wheels laying
+flat. It reads from further away and faster than any effect, because it
+changes the shape rather than adding to it.
+
+Applied about the wheel's own FORWARD axis — the cross of the roll and
+steer axes it already carries — so it lies over without disturbing
+either, and both keep working underneath.
+
+Two sines at unrelated rates for the bob, too. One reads as a machine;
+two reads as water, for one extra term.
+
+---
+
+### A mode boundary must be a ramp, not a boolean.
+
+Crossing a shoreline is a step change in top speed, and a step change in
+top speed reads as hitting something. `swim` is a continuous 0..1 eased
+at `BlendRate`, so every visual and every scalar fades together.
+
+Use `Overlapping()` rather than `Touch()` for it: `Touch` answers "which
+trigger did I just enter", which is right for a boost pad and wrong for
+a state you are continuously in.
+
+---
+
 ### Mid-drift, the stick does not mean "where the front wheels point".
 
 Front-wheel counter-steer was ADDED to the player's steering, and at full

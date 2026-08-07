@@ -57,6 +57,11 @@ local function tagList(): { string }
 		Config.Glide.RampTag,
 		Config.Glide.LandTag,
 
+		-- WATER. A marker for "you are in the wet", never geometry — the
+		-- thing the kart drives on is a floor at the waterline, which is
+		-- ordinary road as far as the controller is concerned.
+		Config.Swim.ZoneTag,
+
 		-- PROPS. Scenery you can knock over, and the reason it belongs
 		-- HERE rather than being disarmed by the client module that
 		-- animates it:

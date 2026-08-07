@@ -42,6 +42,7 @@ local R = Config.Rider
 local H = Config.Handling
 local GLD = Config.Glide
 local RIG = Config.Rig
+local SW = Config.Swim
 local SUS = Config.Suspension
 local KART_TAG = "Kart"
 
@@ -415,7 +416,26 @@ local function updateBody(kart: Model, s, dt: number)
 	s.bodyPitch = (s.bodyPitch or 0) + (pitch - (s.bodyPitch or 0)) * blend
 	s.bodyDip = (s.bodyDip or 0) + (dip - (s.bodyDip or 0)) * blend
 
-	motor.Transform = CFrame.new(0, -s.bodyDip, 0)
+	-- FLOATING RIDES THE SAME MOTOR as roll and squash, so it composes
+	-- with them rather than fighting: a kart landing in water still dips,
+	-- it just dips while bobbing.
+	--
+	-- Two sines at unrelated rates. One reads as a machine; two reads as
+	-- water, and it costs a single extra term.
+	local wet = s.wet or 0
+	local bob = 0
+	if wet > 0.001 then
+		s.bobT = (s.bobT or 0) + dt
+		bob = wet
+			* (
+				math.sin(s.bobT * math.pi * 2 * SW.BobRate) * SW.BobHeight
+				+ math.sin(s.bobT * math.pi * 2 * SW.BobRate2) * SW.BobHeight2
+			)
+		-- A hull rolls more than a chassis does.
+		s.bodyRoll *= 1 + (SW.RollScale - 1) * wet
+	end
+
+	motor.Transform = CFrame.new(0, bob - s.bodyDip, 0)
 		* CFrame.Angles(math.rad(s.bodyPitch), 0, math.rad(s.bodyRoll))
 end
 
@@ -835,7 +855,14 @@ local function updateRoadWheels(kart: Model, s, dt: number)
 	-- speed, which is the most convincing possible way to be wrong: it
 	-- tracks acceleration, braking and reverse perfectly and is still
 	-- inside out.
+	-- PADDLES, NOT TYRES. A wheel turning at road speed while the kart is
+	-- clearly on water reads as the animation not knowing where it is.
+	local wet = kart:GetAttribute(Names.SWIMMING)
+	wet = if typeof(wet) == "number" then math.clamp(wet, 0, 1) else 0
+	s.wet = wet
+
 	local spin = -moved / math.max(RIG.RoadWheelRadius, 0.1)
+	spin *= 1 - (1 - SW.WheelSpinScale) * wet
 	local maxSpin = RIG.RoadWheelMaxSpin * dt
 	s.roll = (s.roll or 0) + math.clamp(spin, -maxSpin, maxSpin)
 
@@ -901,8 +928,32 @@ local function updateRoadWheels(kart: Model, s, dt: number)
 			-- frame — so it stays correct upside down in a loop, where
 			-- world Y would send the wheels through the floor.
 			local travel = suspensionFor(kart, motor, hitbox, s, dt, up)
+			-- LYING OVER IS THE MODE SIGNAL. It changes the kart's
+			-- silhouette, which reads from further away and faster than
+			-- any particle effect can.
+			--
+			-- About the wheel's FORWARD axis — the cross of its own roll
+			-- and steer axes — so the wheel lies down without disturbing
+			-- either. Both keep working underneath, which is why it can
+			-- still spin and steer while flat.
+			local lay = CFrame.new()
+			if s.wet and s.wet > 0.001 then
+				local fwdAxis = rollAxis:Cross(steerAxis)
+				if fwdAxis.Magnitude > 1e-3 then
+					s.wheelLay = Util.approach(s.wheelLay or 0, s.wet, SW.WheelTiltRate, dt)
+					lay = CFrame.fromAxisAngle(fwdAxis.Unit, math.rad(SW.WheelTilt) * s.wheelLay)
+				end
+			elseif (s.wheelLay or 0) > 0.001 then
+				s.wheelLay = Util.approach(s.wheelLay, 0, SW.WheelTiltRate, dt)
+				local fwdAxis = rollAxis:Cross(steerAxis)
+				if fwdAxis.Magnitude > 1e-3 then
+					lay = CFrame.fromAxisAngle(fwdAxis.Unit, math.rad(SW.WheelTilt) * s.wheelLay)
+				end
+			end
+
 			motor.Transform = CFrame.new(steerAxis * travel)
 				* turn
+				* lay
 				* CFrame.fromAxisAngle(rollAxis, s.roll)
 		end
 	end
