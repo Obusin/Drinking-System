@@ -943,28 +943,40 @@ function Simulation:Step(dt: number, input): { [string]: any }
 		local square = math.abs(dir:Dot(hit.Normal))
 
 		if square >= H.BounceMinDot and math.abs(self.speed) >= H.BounceMinSpeed then
-			-- BOUNCE. Reflect travel about the surface normal and keep a
-			-- fraction of the speed. Authored, not simulated: there is no
-			-- constraint and physics is not consulted.
-			local reflected = self.travel - hit.Normal * (2 * self.travel:Dot(hit.Normal))
-			-- Flattened back onto our own up so a bounce off a wall
-			-- cannot launch the kart at the sky, and so this still
-			-- behaves on a loop where "up" is not world up.
-			self.travel = (Util.orthonormal(reflected, self.up))
-			-- The NOSE comes with it. Leaving forward pointing into the
-			-- wall would have the kart reverse away from it while still
-			-- facing it, then immediately drive back in — a wall you get
-			-- stuck against rather than bounce off.
-			self.forward = self.travel
-			self.forward, self.up = Util.orthonormal(self.forward, self.up)
+			-- RECOIL, NOT REFLECT. The kart backs off the wall while
+			-- still FACING it, the way a car actually rebounds.
+			--
+			-- The first version reflected `travel` about the surface
+			-- normal and turned the nose to match. That is a mirror, not
+			-- a bounce: hit a wall head-on and the kart spun a full 180
+			-- and drove away, which is nothing like being stopped by it.
+			--
+			-- Reflecting travel WITHOUT the nose does not work either,
+			-- and the reason is MaxSlip: travel may only lag forward by
+			-- 38 degrees, so a travel vector pointing backwards is
+			-- clamped straight back into the wall on the same frame.
+			--
+			-- So neither direction moves. `speed` goes NEGATIVE, and the
+			-- kart moves backwards along the direction it is already
+			-- pointing — away from the wall — with forward and travel
+			-- still aligned, so the clamp has nothing to argue with.
+			--
+			-- Recovery is free: holding the throttle lerps speed back up
+			-- through zero and you drive off again. Steering inverts
+			-- while reversing, which is correct and makes the recoil feel
+			-- like a car rather than a slider.
+			self.speed = -math.abs(self.speed) * H.BounceKeep
 
-			self.speed = math.abs(self.speed) * H.BounceKeep
+			-- Pushed clear along the surface normal as well. Without it
+			-- the kart can rest a hair inside the wall, re-trigger next
+			-- frame, and buzz against it.
+			self.pos += hit.Normal * H.SkinWidth
+
 			self.bounceUntil = now + H.BounceLockout
 			events.bounced = square
 
-			-- Nothing left to slide with: the frame's movement was spent
-			-- on the impact, and continuing to sweep would carry the old
-			-- direction into the wall we just left.
+			-- Nothing left to slide with: this frame's movement was spent
+			-- on the impact.
 			break
 		end
 

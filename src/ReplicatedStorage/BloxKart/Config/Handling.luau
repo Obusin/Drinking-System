@@ -369,9 +369,15 @@ return {
 	-- kept, and that matters — wall-riding a corner has to stay smooth,
 	-- and a kart that pinballs off every kerb it brushes is unusable.
 	BounceMinDot = 0.45, -- squarer than this and it bounces
-	BounceKeep = 0.45, -- fraction of speed surviving the bounce. Below
-	-- half on purpose: a bounce that returns most of your speed reads as
-	-- a trampoline, and makes walls faster than the racing line.
+	-- Fraction of speed that comes back as REVERSE. The kart keeps
+	-- facing the wall and backs away from it — see the block in
+	-- Simulation for why nothing is reflected.
+	--
+	-- Lower than it looks like it should be. This is applied to your FULL
+	-- speed, so 0.3 at 95 studs/s is still 28 studs/s backwards, which is
+	-- a firm shove. Push it toward 0.5 and hitting a wall starts throwing
+	-- you further than the corner would have cost you.
+	BounceKeep = 0.3,
 	BounceMinSpeed = 18, -- below this it just stops. A crawl that pings
 	-- backwards off a wall looks broken rather than physical.
 
