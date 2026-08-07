@@ -85,6 +85,24 @@ ShieldName = "Shield",
 	-- Scaled by how hard you actually arrive, because a drift hop and a
 	-- fall off a bridge used to produce the identical 0.35 dip. Now the
 	-- hop gets a light nod and a real drop gets a proper compression.
+	-- THE LANDING DIP IS AN IMPULSE, NOT A POSITION.
+	--
+	-- It used to be assigned straight onto `squash`, which moves the
+	-- kart's visual position — so on the contact frame the whole kart
+	-- teleported downward by up to LandSquashMax studs. That instant drop
+	-- was the "snap on the ground", and it happened on ARRIVAL, which is
+	-- why easing the rebound never touched it.
+	--
+	-- The spring is given a VELOCITY instead and compresses over about
+	-- five frames on its own, which is the suspension doing what it was
+	-- always modelled to do. The damping is deliberately low (12 against
+	-- a critical ~27.5), so it rings back out rather than sagging.
+	--
+	-- Doubled, because a spring that has to travel loses half its
+	-- amplitude to damping on the way — the old assignment cheated by
+	-- starting AT the target.
+	LandSquashImpulse = 2, -- multiplier on the velocity needed to reach the dip
+
 	LandSquash = 0.22, -- dip on the gentlest landing
 	LandSquashMax = 0.9, -- ...and on the hardest
 	LandSquashSpeed = 55, -- descent speed, studs/s, that reaches the max

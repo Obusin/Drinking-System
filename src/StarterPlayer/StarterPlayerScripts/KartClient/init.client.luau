@@ -709,6 +709,15 @@ local function step(dt: number)
 	if events.landed then
 		haptics:Punch(HAP.LandPunch)
 	end
+	-- The camera reacts to the DROP, not to the fact of landing. A drift
+	-- hop and a fall off a bridge both raise `landed`; only one of them
+	-- should move the camera, and the impact speed is the difference.
+	if events.bouncedLanding and camera then
+		camera:Land(events.bouncedLanding)
+	end
+	if events.wallStunned and camera then
+		camera:WallHit()
+	end
 	-- Only raised for a square impact, so wall-riding stays silent and a
 	-- real crash does not. The value IS how head-on it was, which the
 	-- sound uses for its pitch.

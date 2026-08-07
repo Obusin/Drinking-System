@@ -1678,9 +1678,14 @@ function Simulation:Step(dt: number, input): { [string]: any }
 			if not self.wasGrounded then
 				local hardness = math.clamp(impact / FX.LandSquashSpeed, 0, 1)
 				local dip = FX.LandSquash + (FX.LandSquashMax - FX.LandSquash) * hardness
-				if dip > self.squash then
-					self.squash = dip
-					self.squashVel = 0
+				-- A PUSH, NOT A PLACEMENT. `squash` moves the kart's visual
+				-- position, so assigning it teleported the kart downward on
+				-- the contact frame. Handing the spring a velocity lets it
+				-- compress over about five frames instead — which is the
+				-- suspension doing the job it was already modelled for.
+				local push = dip * math.sqrt(FX.SquashSpring) * FX.LandSquashImpulse
+				if push > self.squashVel then
+					self.squashVel = push
 				end
 			end
 		end

@@ -1235,6 +1235,44 @@ happen to use the same function.
 
 ---
 
+### Assigning to a value that IS a position teleports.
+
+The landing dip was written straight onto `squash`, and `squash` is
+subtracted from the kart's visual position. So on the contact frame the
+whole kart dropped up to 0.9 studs instantly — that was the "snap on the
+ground", and it happened on ARRIVAL, which is why every attempt to ease
+the REBOUND left it untouched.
+
+Handing the spring a **velocity** instead lets it compress over about
+five frames, which is what the spring was modelled to do in the first
+place. The spring was always there; it was being bypassed.
+
+```
+frame    assigned    impulse
+    0      0.900       0.000
+    1      0.853       0.331
+    3      0.662       0.745
+    5      0.417       0.871
+```
+
+**Anything that feeds a spring should push it, not place it.** Placing
+it discards the spring and keeps only the decay.
+
+---
+
+### The camera must not roll with the kart.
+
+A camera that inverts through a barrel roll is one nobody can play
+through: the horizon goes with it, and the player loses the single
+reference they steer against. Shake and widen instead — "something big
+is happening" without taking the world away.
+
+Related: **one decaying shake channel, many sources.** A timer per event
+means two of them writing the same offset in the same frame, and the
+winner is whichever ran second.
+
+---
+
 ### A reversal is not a bounce. Something has to absorb first.
 
 The landing bounce set `vertVel` from -116 to +58 on the contact frame:

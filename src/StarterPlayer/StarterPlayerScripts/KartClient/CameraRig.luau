@@ -41,6 +41,10 @@ function CameraRig.new(sim)
 		boostDrop = 0,
 		lag = 0,
 		shakePhase = 0,
+		impact = 0,
+		drop = 0,
+		flip = 0,
+		glide = 0,
 	}, CameraRig)
 end
 
@@ -95,6 +99,30 @@ end
 -- says "that accelerated" better than any amount of blur.
 function CameraRig:BoostLag(tier: number)
 	self.lag = math.max(self.lag, pick(CAM.BoostLag, tier))
+end
+
+-- IMPACTS FEED ONE DECAYING CHANNEL. Several sources, one amplitude,
+-- one decay rate — two separate shake timers end up fighting over the
+-- same offset, and the loser is whichever ran second.
+function CameraRig:Impact(amount: number)
+	self.impact = math.max(self.impact or 0, amount)
+end
+
+-- Landing. Scaled by how hard, so a drift hop does nothing at all.
+function CameraRig:Land(impact: number)
+	if impact < CAM.LandShakeMin then
+		return
+	end
+	local amt = math.min((impact - CAM.LandShakeMin) * CAM.LandShakePer, CAM.LandShakeMax)
+	self:Impact(amt)
+	-- The camera drops with the kart, a beat behind. That lag is the
+	-- weight of the CAMERA, and it is what makes the landing feel shared
+	-- rather than watched.
+	self.drop = math.max(self.drop or 0, CAM.LandDrop * (amt / CAM.LandShakeMax))
+end
+
+function CameraRig:WallHit()
+	self:Impact(CAM.WallShake)
 end
 
 function CameraRig:Snap()
@@ -232,9 +260,44 @@ function CameraRig:Update(dt: number, sim, input)
 	-- consciously see becomes motion sickness inside a lap. Sine rather
 	-- than random, because random noise on a camera reads as a dropped
 	-- frame.
-	local shake = pick(CAM.BoostShake, stage)
+	-- FLIP AND GLIDE FRAMING, eased so the transitions are not cuts.
+	--
+	-- The camera deliberately does NOT roll with a flip. A camera that
+	-- inverts with a barrel roll is one nobody can play through — the
+	-- horizon goes with it and the player loses the reference they steer
+	-- against. It shakes and widens instead: "something big is happening"
+	-- without taking the world away.
+	local flipping = if (sim.trickAngle or 0) ~= 0 then 1 else 0
+	self.flip = Util.approach(self.flip, flipping, CAM.GlideRate, dt)
+	if self.flip > 0.01 then
+		camera.FieldOfView += CAM.FlipFov * self.flip
+		eye -= camLook * (CAM.FlipPull * self.flip)
+		self:Impact(CAM.FlipShake * self.flip * dt * 6)
+	end
+
+	-- Gliding pulls back and rises. A glide is about where you are GOING
+	-- — the gap, the landing zone — and the ground game's tight framing
+	-- puts all of that off the bottom of the screen.
+	local gliding = if sim.state == "glide" then 1 else 0
+	self.glide = Util.approach(self.glide, gliding, CAM.GlideRate, dt)
+	if self.glide > 0.01 then
+		camera.FieldOfView += CAM.GlideFov * self.glide
+		eye -= camLook * (CAM.GlidePull * self.glide)
+		eye += camUp * (CAM.GlideRise * self.glide)
+	end
+
+	-- The landing drop. Recovers on its own.
+	if (self.drop or 0) > 0.001 then
+		eye -= camUp * self.drop
+		self.drop = math.max(self.drop - CAM.LandDropRecover * dt, 0)
+	end
+
+	local shake = pick(CAM.BoostShake, stage) + (self.impact or 0)
+	if (self.impact or 0) > 0.001 then
+		self.impact = math.max(self.impact - CAM.ImpactShakeDecay * dt, 0)
+	end
 	if shake > 0 then
-		self.shakePhase += dt * CAM.BoostShakeSpeed
+		self.shakePhase += dt * (CAM.BoostShakeSpeed + CAM.ImpactShakeSpeed * math.min((self.impact or 0) * 3, 1))
 		local side = camLook:Cross(camUp)
 		eye += side * math.sin(self.shakePhase) * shake
 		eye += camUp * math.sin(self.shakePhase * 1.7) * shake * 0.6

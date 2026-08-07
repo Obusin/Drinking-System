@@ -47,6 +47,51 @@ return {
 
 	BoostShakeSpeed = 28,
 
+	--== IMPACTS AND EVENTS ===========================================
+	-- ONE SHAKE CHANNEL, DECAYING, fed by several sources. A separate
+	-- timer per event ends up with two of them fighting over the same
+	-- offset — and the loser is whichever ran second, which is a
+	-- coin-flip nobody can debug.
+	--
+	-- Everything below just raises the same amplitude, and it bleeds off
+	-- at one rate.
+	ImpactShakeDecay = 6, -- per second
+	ImpactShakeSpeed = 42, -- oscillations, faster than the boost jitter
+
+	-- LANDING. Scaled by how hard, so a drift hop is nothing and a drop
+	-- off a bridge rattles.
+	LandShakeMin = 55, -- studs/s of impact before the camera notices
+	LandShakePer = 0.006, -- amplitude per stud/s above that
+	LandShakeMax = 0.55,
+
+	-- The camera also dips with the kart on a heavy landing, a beat
+	-- behind — it is the weight of the CAMERA, not of the kart, and
+	-- having it lag is what makes the drop feel shared.
+	LandDrop = 0.5, -- studs, at LandShakeMax
+	LandDropRecover = 7,
+
+	-- WALL. A stun should feel like one.
+	WallShake = 0.7,
+
+	--== FLIPPING =====================================================
+	-- The camera does NOT roll with the kart. A camera that flips with a
+	-- barrel roll is a camera nobody can play through — the horizon
+	-- inverts, and the player loses the one reference they steer against.
+	-- It shakes and widens instead, which reads as "something big is
+	-- happening" without taking the world away.
+	FlipShake = 0.42,
+	FlipFov = 5, -- degrees wider through the trick
+	FlipPull = 3.5, -- studs further back, to fit the kart in
+
+	--== GLIDING ======================================================
+	-- Pulled back and raised. A glider is about where you are GOING —
+	-- the gap, the landing zone — and the ground game's tight framing
+	-- puts all of that off the bottom of the screen.
+	GlideFov = 6, -- degrees wider
+	GlidePull = 7, -- studs further back
+	GlideRise = 3, -- studs higher, to show the ground you are crossing
+	GlideRate = 2.5, -- how fast it eases in and out
+
 	BoostLag = {
 		0.4,
 		0.8,
