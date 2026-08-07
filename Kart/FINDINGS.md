@@ -1202,6 +1202,39 @@ sharing a name list with `KartDress`.)
 
 ---
 
+### Deleting a block deletes everything in it, including what you still needed.
+
+Stripping the real wave impulses out of `_updateSwim` took the
+`seaClock` increment with them, because the increment happened to sit
+inside the region being removed. `waveAt` then got `nil` for its clock
+and threw sixty times a second.
+
+**Cutting by region is not cutting by concern.** After removing a block,
+the question is not "does it still compile" — it is "what else lived in
+there". `check.sh` said ALL CLEAN, because a nil arithmetic is a runtime
+fact and there is no static analysis that would have found it.
+
+Cheap defence for the shape of thing that gets deleted: a function that
+takes a clock should tolerate not getting one. A missing clock is a
+wiring error either way, but it should produce a wrong-looking sea
+rather than sixty log lines a second that bury everything else in
+Output.
+
+---
+
+### Two clocks stepped by dt from different moments are not one clock.
+
+Rider advanced its own `seaT` while Simulation advanced `seaClock`. Both
+by `dt`, both every frame — and still not the same number, because they
+started at different moments and one only ran while wet.
+
+So the crest the hull was drawn riding and the burst meant to accompany
+it were on different waves. The whole point of exporting `waveAt` was
+one field; the clock has to be shared too, or it is two fields that
+happen to use the same function.
+
+---
+
 ### Never write a per-frame contribution into smoothed persistent state.
 
 The wave tilt was added straight onto `s.bodyRoll` — which is a

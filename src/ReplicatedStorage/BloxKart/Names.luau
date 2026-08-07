@@ -70,6 +70,7 @@ Names.PLAYER_STATE_REASON = "BloxKartStateReason"
 Names.STATE_LOADING = "Loading"
 Names.STATE_CHARACTER_LOADING = "CharacterLoading"
 Names.STATE_LOBBY = "Lobby"
+Names.SEA_CLOCK = "SeaClock" -- one clock, so hull and field agree
 Names.WAVE_RISE = "WaveRise" -- studs/s the sea is rising under the kart
 Names.SWIMMING = "Swimming" -- 0..1, eased, so visuals can fade in
 Names.BOOSTING = "Boosting" -- any boost source: pad, drift release, item

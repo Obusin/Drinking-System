@@ -410,10 +410,10 @@ local function updateBody(kart: Model, s, dt: number)
 	-- AUTHORED LEAN ON TOP. Suspension alone gives you bumps; this gives
 	-- you cornering, which is the part players actually read as weight.
 	-- Outward, away from the turn — leaning into it reads as a motorbike.
-	local rawSteer = kart:GetAttribute(Names.STEER)
-	local steer = if typeof(rawSteer) == "number" then math.clamp(rawSteer, -1, 1) else 0
-	local rawDrift = kart:GetAttribute(Names.DRIFT)
-	local drift = if typeof(rawDrift) == "number" then math.clamp(rawDrift / 40, -1, 1) else 0
+	local rawSteer: any = kart:GetAttribute(Names.STEER)
+	local steer = if type(rawSteer) == "number" then math.clamp(rawSteer, -1, 1) else 0
+	local rawDrift: any = kart:GetAttribute(Names.DRIFT)
+	local drift = if type(rawDrift) == "number" then math.clamp(rawDrift / 40, -1, 1) else 0
 	roll += steer * RIG.BodyRollPerSteer + drift * RIG.BodyRollPerDrift
 
 	roll = math.clamp(roll, -RIG.BodyRollMax, RIG.BodyRollMax)
@@ -443,7 +443,12 @@ local function updateBody(kart: Model, s, dt: number)
 		local hitbox = kart.PrimaryPart
 		local pos = if hitbox then hitbox.Position else Vector3.zero
 		local cf = if hitbox then hitbox.CFrame else CFrame.new()
-		s.seaT = (s.seaT or 0) + dt
+		-- THE SIMULATION'S CLOCK, not a second one. Rider used to advance
+		-- its own, and two clocks stepped by dt from different starting
+		-- moments drift — putting the visual crest and the burst meant to
+		-- accompany it on different waves.
+		local shared = kart:GetAttribute(Names.SEA_CLOCK)
+		s.seaT = if typeof(shared) == "number" then shared else (s.seaT or 0) + dt
 
 		-- Driving fast into a swell hits harder than drifting over it, so
 		-- the whole sea scales with speed. A moored kart wallows.

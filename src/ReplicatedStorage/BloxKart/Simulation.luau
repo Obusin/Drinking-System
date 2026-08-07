@@ -580,12 +580,16 @@ local swimZones: any = nil
 -- CANNOT disagree about where the water is — a kart pitching over a
 -- crest the simulation does not believe in is the whole failure this
 -- avoids.
-function Simulation.waveAt(pos: Vector3, t: number): number
+function Simulation.waveAt(pos: Vector3, t: number?): number
+	-- DEFENSIVE ON THE CLOCK ONLY, because a missing one is a wiring
+	-- mistake that otherwise throws sixty times a second and buries every
+	-- other message in Output — which is exactly what it did.
+	local clock = if type(t) == "number" then t else 0
 	local h = 0
 	for _, w in SW.Waves do
 		local rad = math.rad(w.heading)
 		local along = pos.X * math.cos(rad) + pos.Z * math.sin(rad)
-		h += math.sin(along / w.length * math.pi * 2 + t * w.speed) * w.amp
+		h += math.sin(along / w.length * math.pi * 2 + clock * w.speed) * w.amp
 	end
 	return h
 end
@@ -604,8 +608,15 @@ function Simulation:_updateSwim(dt: number)
 		self.model:SetAttribute(Names.SWIMMING, self.swim)
 	end
 
-	-- The sea's clock. The hull's motion is drawn from this on the
-	-- client; nothing here pushes the kart any more.
+	-- THE SEA'S CLOCK. Advanced here and nowhere else.
+	--
+	-- Never reset to zero on leaving the water: restarting it would make
+	-- the swell jump to a different phase every time you touch land, so
+	-- the sea would visibly lurch as you re-enter it.
+	self.seaClock = (self.seaClock or 0) + dt
+
+	-- The hull's motion is drawn from this on the client; nothing here
+	-- pushes the kart any more.
 	--
 	-- Real vertical impulses came out: under GroundSnap they were
 	-- swallowed and did nothing, over it they were a literal jump, and a
@@ -616,6 +627,11 @@ function Simulation:_updateSwim(dt: number)
 	self.lastWave = now
 	if self.model then
 		self.model:SetAttribute(Names.WAVE_RISE, self.waveRise)
+		-- PUBLISHED, so the hull is drawn from the same clock the rise was
+		-- measured with. Two clocks advancing by dt from different start
+		-- moments drift apart, and then the visual crest and the burst
+		-- that is supposed to accompany it are on different waves.
+		self.model:SetAttribute(Names.SEA_CLOCK, self.seaClock)
 	end
 
 end
