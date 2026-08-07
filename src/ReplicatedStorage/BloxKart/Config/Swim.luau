@@ -53,6 +53,12 @@ return {
 	-- About the wheel's own FORWARD axis, so a wheel lies over rather
 	-- than steering; the roll and steer axes it already has are left
 	-- alone and keep working underneath.
+	--
+	-- MIRRORED PER SIDE, so both pairs lean their tops toward the centre
+	-- like a hull. A single shared angle tilts every wheel the same way,
+	-- which leans one pair in and the other OUT — and a kart with its
+	-- wheels leaning the same direction looks like it is falling over
+	-- rather than floating.
 	WheelTilt = 82, -- degrees. 90 is dead flat, which reads as broken.
 	WheelTiltRate = 4, -- how fast they lie over
 

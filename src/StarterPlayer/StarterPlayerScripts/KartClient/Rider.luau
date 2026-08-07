@@ -936,18 +936,28 @@ local function updateRoadWheels(kart: Model, s, dt: number)
 			-- and steer axes — so the wheel lies down without disturbing
 			-- either. Both keep working underneath, which is why it can
 			-- still spin and steer while flat.
+			-- MIRRORED, SO BOTH SIDES LEAN INWARD.
+			--
+			-- One shared angle tilted every wheel the same way, so the left
+			-- pair leaned in and the right pair leaned out — the kart looked
+			-- like it was falling over rather than like a hull.
+			--
+			-- The sign, derived once so nobody has to again:
+			--   fwdAxis = rollAxis x steerAxis = (kart +X) x (kart +Y) = +Z
+			--   a rotation about +Z sends +Y toward -X, i.e. leans the top
+			--   of the wheel LEFT
+			-- so the RIGHT wheel wants a positive angle to lean inward and
+			-- the LEFT wheel a negative one.
+			--
+			-- Read off the joint's own X, which is already in the hitbox's
+			-- frame and therefore already means "left".
 			local lay = CFrame.new()
-			if s.wet and s.wet > 0.001 then
+			s.wheelLay = Util.approach(s.wheelLay or 0, s.wet or 0, SW.WheelTiltRate, dt)
+			if s.wheelLay > 0.001 then
 				local fwdAxis = rollAxis:Cross(steerAxis)
 				if fwdAxis.Magnitude > 1e-3 then
-					s.wheelLay = Util.approach(s.wheelLay or 0, s.wet, SW.WheelTiltRate, dt)
-					lay = CFrame.fromAxisAngle(fwdAxis.Unit, math.rad(SW.WheelTilt) * s.wheelLay)
-				end
-			elseif (s.wheelLay or 0) > 0.001 then
-				s.wheelLay = Util.approach(s.wheelLay, 0, SW.WheelTiltRate, dt)
-				local fwdAxis = rollAxis:Cross(steerAxis)
-				if fwdAxis.Magnitude > 1e-3 then
-					lay = CFrame.fromAxisAngle(fwdAxis.Unit, math.rad(SW.WheelTilt) * s.wheelLay)
+					local inward = if motor.C0.Position.X < 0 then -1 else 1
+					lay = CFrame.fromAxisAngle(fwdAxis.Unit, math.rad(SW.WheelTilt) * s.wheelLay * inward)
 				end
 			end
 
