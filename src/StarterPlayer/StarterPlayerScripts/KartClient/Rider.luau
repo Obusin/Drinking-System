@@ -601,15 +601,26 @@ local function ensureGliderFx(kart: Model, s)
 				ends = { if reach[1].dist > reach[2].dist then reach[1].side else reach[2].side }
 			end
 
+			-- The gap between the two attachments IS the ribbon's width, so
+			-- it comes off the wing's own thickness rather than a constant.
+			local thickness = math.min(size.X, math.min(size.Y, size.Z))
+			local halfSpread = math.max(thickness * GLD.TrailSpreadScale, GLD.TrailSpreadMin) * 0.5
+
+			-- And it starts at the TRAILING edge. Emitting from the leading
+			-- edge makes the ribbon appear to pass through the wing.
+			local depth = if wide then size.Z else size.X
+			local backAxis = if wide then Vector3.zAxis else Vector3.xAxis
+			local backset = backAxis * (depth * GLD.TrailBackset)
+
 			for _, side in ends do
-				local tip = axis * (half * side)
+				local tip = axis * (half * side) + backset
 				local a0 = Instance.new("Attachment")
 				a0.Name = "GlideTrailTop"
-				a0.Position = tip + Vector3.new(0, 0.15, 0)
+				a0.Position = tip + Vector3.new(0, halfSpread, 0)
 				a0.Parent = inst
 				local a1 = Instance.new("Attachment")
 				a1.Name = "GlideTrailBottom"
-				a1.Position = tip - Vector3.new(0, 0.15, 0)
+				a1.Position = tip - Vector3.new(0, halfSpread, 0)
 				a1.Parent = inst
 
 				local trail = Instance.new("Trail")

@@ -265,7 +265,24 @@ return {
 	WindFade = 2.5, -- per second, so it swells rather than snapping on
 
 	-- Ribbons off the wing tips. Off on the ground, in for the glide.
-	TrailWidth = 0.5,
+	--
+	-- THE RIBBON'S WIDTH IS THE GAP BETWEEN ITS TWO ATTACHMENTS, times
+	-- WidthScale. That was 0.3 studs times 0.5 — a fifteen-hundredths-of-
+	-- a-stud ribbon, which is a hairline and read as a stray line rather
+	-- than as a wing trail. A kart wheel is 1.7 studs across for scale.
+	--
+	-- The gap is taken from the WING'S OWN THICKNESS now, so a chunky wing
+	-- gets a chunky ribbon and a thin one stays elegant, with a floor so a
+	-- paper-thin mesh still shows something.
+	TrailSpreadMin = 0.9, -- studs, floor on the attachment gap
+	TrailSpreadScale = 1.4, -- multiplier on the wing's thickness
+
+	-- Pulled back from the tip toward the trailing edge, as a fraction of
+	-- the wing's depth. A ribbon that starts at the leading edge appears
+	-- to pass THROUGH the wing.
+	TrailBackset = 0.35,
+
+	TrailWidth = 1,
 	TrailLife = 0.45,
 	TrailColor = Color3.fromRGB(196, 226, 255),
 	TrailTransparency = 0.35,
