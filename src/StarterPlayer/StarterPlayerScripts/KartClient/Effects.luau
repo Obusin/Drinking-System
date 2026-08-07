@@ -151,17 +151,16 @@ function Effects:_findShield(model: Model?)
 end
 
 function Effects:SetTrails(on: boolean, tier: number)
+	-- COLOUR AND GLOW ONLY. Width moved to Update, because it now tracks
+	-- the slip angle, which changes continuously — and this is called
+	-- only when the tier changes.
 	local color = if tier > 0 then FX.TierColors[math.clamp(tier, 1, #FX.TierColors)] else FX.TrailBaseColor
+	self.trailTier = tier
 	for _, trail in self.trails do
 		trail.Enabled = on
 		trail.Color = ColorSequence.new(color)
 		-- Charged tiers glow; the uncharged ribbon is just rubber.
 		trail.LightEmission = if tier > 0 then 1 else 0.15
-		trail.WidthScale = NumberSequence.new({
-			NumberSequenceKeypoint.new(0, if tier > 0 then 1.15 else 1),
-			NumberSequenceKeypoint.new(0.35, 0.8),
-			NumberSequenceKeypoint.new(1, 0),
-		})
 	end
 end
 
@@ -172,6 +171,37 @@ end
 function Effects:Update(dt: number, sim)
 	if not sim.boosting and self.speedLines.Enabled then
 		self.speedLines.Enabled = false
+	end
+
+	--=================================================================
+	--  THE RIBBON'S SIZE IS THE SLIP ANGLE.
+	--
+	--  How hard the kart is actually sliding, right now — the thing the
+	--  driver controls moment to moment with opposite lock, and which
+	--  previously had no readout anywhere. A lazy drift and a balanced
+	--  one on the edge of MaxSlip looked exactly the same.
+	--
+	--  Colour still means charge. Two facts, two channels; sharing one
+	--  would make a wide ribbon ambiguous between "nearly boosting" and
+	--  "sliding hard", which are different things to know.
+	--=================================================================
+	local slip = math.abs(sim.driftAngle or 0)
+	local span = math.max(H.MaxSlip - FX.TrailSlipFloor, 1)
+	local hard = math.clamp((math.deg(slip) - FX.TrailSlipFloor) / span, 0, 1)
+	self.slipNow = Util.approach(self.slipNow or 0, hard, FX.TrailSlipRate, dt)
+
+	local tier = self.trailTier or 0
+	local base = if tier > 0 then 1.15 else 1
+	local width = base * (1 + (FX.TrailSlipWidth - 1) * self.slipNow)
+	for _, trail in self.trails do
+		if trail.Enabled then
+			trail.WidthScale = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, width),
+				NumberSequenceKeypoint.new(0.35, width * 0.8),
+				NumberSequenceKeypoint.new(1, 0),
+			})
+			trail.LightEmission = (if tier > 0 then 1 else 0.15) + FX.TrailSlipGlow * self.slipNow
+		end
 	end
 
 	-- Shield bubble. Driven off the same HasShield the hit logic reads, so

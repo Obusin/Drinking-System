@@ -1180,6 +1180,25 @@ bounded. Two schedules, and both problems went away.
 
 ---
 
+### One visual channel per fact, or the readout is ambiguous.
+
+Drift trails encoded the TIER — how charged the drift is — in colour,
+width and glow together. So a lazy 20-degree slide and a balanced
+36-degree one on opposite lock looked identical, and the skill the
+player was actually exercising had no readout anywhere.
+
+Split: **colour is charge, width is slip angle.** Two facts the driver
+needs at once, and sharing one channel makes a wide ribbon ambiguous
+between "nearly boosting" and "sliding hard" — which call for opposite
+inputs.
+
+The general rule: if a player is controlling something moment to moment,
+it needs its own channel. Counter-steering to hold a big angle was fully
+modelled in the physics and completely invisible on screen, so it read
+as a thing the kart did rather than a thing the player did.
+
+---
+
 ### Two roles that look like variations of one idea usually are not.
 
 The thrusters: the centre reads SPEED, the sides read BOOST and nothing

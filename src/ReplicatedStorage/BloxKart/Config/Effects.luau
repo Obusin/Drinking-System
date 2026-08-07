@@ -14,7 +14,23 @@ return {
 	-- found — it's decoration welded to the kart and must never register
 	-- as a wall, least of all to the swept collision of the racer it's
 	-- wrapped around.
-	ShieldName = "Shield",
+	-- SLIP ANGLE DRIVES THE RIBBON'S SIZE; the tier drives its COLOUR.
+--
+-- Two different facts, so two different channels. Colour says "how
+-- charged is this drift" — a countdown to a boost. Width says "how hard
+-- am I actually sliding right now", which is the thing the driver is
+-- controlling moment to moment and had no readout at all.
+--
+-- Without this a lazy 20-degree drift and a balanced 36-degree one on
+-- opposite lock look identical, so the skill of holding a big angle is
+-- invisible. Nothing about the handling changes; it is only that the
+-- technique becomes legible.
+TrailSlipFloor = 12, -- degrees below which the ribbon stays thin
+TrailSlipWidth = 2.2, -- width multiplier at full MaxSlip
+TrailSlipGlow = 0.5, -- extra LightEmission at full slip
+TrailSlipRate = 8, -- how fast width follows the angle
+
+ShieldName = "Shield",
 	ShieldTransparency = 0.45, -- how solid it looks while up
 	ShieldFadeRate = 8, -- faded rather than toggled: a bubble that pops
 	-- into existence reads as a glitch, one that swells reads as a shield
