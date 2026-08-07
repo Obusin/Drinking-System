@@ -1113,6 +1113,28 @@ corner, every deploy would have walked the wing sideways.
 
 ---
 
+### `Attachment.Position` is in local studs and does not follow `Size`.
+
+Scaling the wings open broke the wing-tip trails. The attachments stayed
+at the full-size tip offset while the part shrank to a speck, so at
+scale 0.01 they sat nearly six studs outside a wing that was barely
+there.
+
+Anything positioned relative to a part's dimensions must be **rescaled
+with it**, and the offsets have to be cached at creation for the same
+reason the size is — the live value is the animation's own last write.
+
+Second, quieter failure: **a Trail draws whatever its attachments do.**
+Streaming while the wing grows smears the deploy itself into a ribbon.
+Enable the trail only once the animation has settled, which is also the
+only moment the tips are where the art says they are.
+
+The general form: **an animation that moves geometry invalidates
+everything anchored to that geometry.** Emitters, attachments, welds and
+lights all have to be told.
+
+---
+
 ### Reuse the event, not the asset.
 
 The glide launch fires a real boost through `ApplyBoost` and reports

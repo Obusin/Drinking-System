@@ -605,7 +605,12 @@ local function ensureGliderFx(kart: Model, s)
 				})
 				trail.Enabled = false
 				trail.Parent = inst
-				table.insert(s.trails, trail)
+				-- The offsets are kept so they can be scaled with the wing.
+				-- Attachment.Position is in LOCAL STUDS and does not follow
+				-- Size, so a wing scaled to 0.01 leaves its attachments at
+				-- the full-size tip — several studs outside a part that is
+				-- currently a speck.
+				table.insert(s.trails, { trail = trail, a0 = a0, a1 = a1, p0 = a0.Position, p1 = a1.Position })
 			end
 		end
 	end
@@ -647,8 +652,18 @@ local function updateGliderFx(kart: Model, s, gliding: boolean, dt: number)
 		s.wind:Stop()
 	end
 
-	for _, trail in s.trails or {} do
-		trail.Enabled = gliding
+	-- TIPS FOLLOW THE SCALE, AND THE RIBBON WAITS FOR THE WING TO SETTLE.
+	--
+	-- A Trail draws whatever its attachments do, so streaming while the
+	-- wing is growing smears the deploy itself into a ribbon. Enabled only
+	-- once the deploy animation has finished, which is also the only time
+	-- the tips are where the art says they are.
+	local scale = s.wingScale or 0
+	local settled = gliding and (s.deployT or 0) >= 1
+	for _, t in s.trails or {} do
+		t.a0.Position = t.p0 * scale
+		t.a1.Position = t.p1 * scale
+		t.trail.Enabled = settled
 	end
 end
 
@@ -716,6 +731,9 @@ local function updateGlider(kart: Model, s, dt: number)
 
 	-- A part scaled to nearly nothing is still a visible speck, so the
 	-- transparency is still doing a job — just a much smaller one.
+	-- Shared with the trails, whose attachment offsets have to track it.
+	s.wingScale = scale
+
 	local hidden = if scale < GLD.DeployHideBelow then 1 else 0
 	for _, entry in s.gliderParts do
 		-- Roblox refuses a zero dimension; the floor keeps the write legal
