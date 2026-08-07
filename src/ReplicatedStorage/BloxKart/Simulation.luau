@@ -546,89 +546,6 @@ local function corridorPush(self, dt: number): number
 	return -math.sign(side) * strength * GL.CorridorPull * dt
 end
 
--- HAVE WE GONE PAST THE PAD?
---
--- Every piece of guidance below has to stop when this is true, and the
--- heading clamp most of all: past the pad the direction TO it points
--- backwards, so a clamp that keeps the nose within 55 degrees of the
--- target obediently swings the kart round to face where it came from.
--- The camera follows the nose, so it whips — which looks like a camera
--- bug and is not one.
---
--- Guidance is for getting there. Once you are past it there is nothing
--- to guide toward, and the honest answer is to hand the kart back.
-local function glidePassed(self): boolean
-	local from, to = self.glideFrom, self.glideTo
-	if not from or not to then
-		return false
-	end
-	local line = to - from
-	local span = line.Magnitude
-	if span < 1 then
-		return false
-	end
-	return (self.pos - from):Dot(line / span) >= span
-end
-
--- WHERE THE ARC SAYS WE SHOULD BE, and how hard to insist on it.
---
--- Returns the ideal position at our current progress, and a 0..1 weight.
--- Weight 0 means fly it yourself; weight 1 means you are ON the ideal
--- point whatever you did. Nil when there is no landing zone to aim at.
-local function funnel(self): (Vector3?, number, number)
-	if not GL.Funnel or glidePassed(self) then
-		return nil, 0, 0
-	end
-	local from, to = self.glideFrom, self.glideTo
-	if not from or not to then
-		return nil, 0, 0
-	end
-	local line = to - from
-	local span = line.Magnitude
-	if span < 1 then
-		return nil, 0, 0
-	end
-	local dir = line / span
-
-	-- Progress is measured ALONG THE LINE, so flying sideways or
-	-- backwards does not advance it — you cannot escape the funnel by
-	-- refusing to make progress, you only stay in the free part longer.
-	-- THE ALONG-LINE TERM IS NEVER CLAMPED, AND THAT IS THE FREEZE FIX.
-	--
-	-- `p` used to be clamped to 1 before building the ideal point. At
-	-- p = 1 the arc lift is zero, so the ideal was EXACTLY the landing
-	-- point — and with the weight also at 1, position was snapped there
-	-- every frame: velocity moved the kart, the funnel dragged it back,
-	-- forever. A fixed point, indistinguishable from freezing in mid-air.
-	--
-	-- Releasing the funnel past the pad fixed the freeze and cost a stud
-	-- of accuracy, because the frame it let go was a frame of uncorrected
-	-- drift.
-	--
-	-- Passing the along-line component straight through fixes both. The
-	-- funnel then only ever corrects ACROSS the line and vertically, which
-	-- is all it was ever meant to do — it has no opinion about how far
-	-- along you are, so it cannot hold you there.
-	local p = (self.pos - from):Dot(dir) / span
-	local shape = math.clamp(p, 0, 1)
-
-	-- The shape it pulls toward: the straight line, lifted by a parabola
-	-- that is zero at both ends. Zero at the end is the whole point —
-	-- the ideal point AT the pad is the pad.
-	-- `shape` for the arc and the weight — those must not invert past the
-	-- ends. `p` raw for the along-line term, so it tracks the kart.
-	local lift = self.up * (span * GL.FunnelArc * 4 * shape * (1 - shape))
-	local ideal = from + dir * (span * p) + lift
-
-	-- Smoothstep from FunnelStart to 1, so it eases in rather than
-	-- switching on. A linear ramp here is felt as a tug.
-	local function ease(start: number): number
-		local t = math.clamp((shape - start) / math.max(GL.FunnelLock - start, 0.01), 0, 1)
-		return t * t * (3 - 2 * t)
-	end
-	return ideal, ease(GL.FunnelStart), ease(GL.HeightStart)
-end
-
 function Simulation:Step(dt: number, input): { [string]: any }
 	local events = {}
 	dt = math.min(dt, H.MaxTimestep) -- never integrate a huge frame
@@ -946,31 +863,6 @@ function Simulation:Step(dt: number, input): { [string]: any }
 		yawDelta += corridorPush(self, dt)
 	end
 
-	-- THE NOSE MAY NOT TURN AWAY FROM THE LANDING ZONE.
-	--
-	-- Applied as a clamp on the RESULT rather than on the input, because
-	-- what matters is where the kart ends up pointing, not how it got
-	-- there — a player alternating hard left and right would otherwise
-	-- walk the heading round in steps each of which was individually
-	-- legal.
-	if self.state == STATE_GLIDE and self.glideTo and not glidePassed(self) then
-		local want = self.glideTo - self.pos
-		want = want - self.up * want:Dot(self.up)
-		if want.Magnitude > 1 then
-			want = want.Unit
-			local nextFwd = Util.rotateAbout(self.forward, self.up, yawDelta)
-			local limit = math.rad(GL.FunnelMaxYaw)
-			if nextFwd:Dot(want) < math.cos(limit) then
-				-- Snap to the edge of the allowed cone, on the side we were
-				-- already heading. Not to the centre: being shoved to face
-				-- the pad exactly is the thing that reads as losing control.
-				local side = if self.up:Cross(want):Dot(nextFwd) >= 0 then 1 else -1
-				self.forward = Util.rotateAbout(want, self.up, limit * side)
-				yawDelta = 0
-			end
-		end
-	end
-
 	self.forward = Util.rotateAbout(self.forward, self.up, yawDelta)
 	self.forward, self.up = Util.orthonormal(self.forward, self.up)
 
@@ -1107,31 +999,22 @@ function Simulation:Step(dt: number, input): { [string]: any }
 			then GL.SinkNeutral + (GL.SinkDive - GL.SinkNeutral) * pitch
 			else GL.SinkNeutral + (GL.SinkNeutral - GL.SinkFloat) * pitch
 
-		-- THE GLIDE SLOPE. Not an error to correct — a descent rate that
-		-- ARRIVES, recomputed every frame from where we actually are, so a
-		-- disturbance becomes a slightly different slope instead of a fight.
-		local _ideal, _lateral, weight = funnel(self)
-		local pad = self.glideTo
-		if pad and weight > 0 then
-			local above = (self.pos - pad):Dot(self.up)
-			local flat = pad - self.pos
-			flat -= self.up * flat:Dot(self.up)
-
-			if above > 0 then
-				-- Floored, or the slope goes infinite as the gap closes.
-				local eta = flat.Magnitude / math.max(math.abs(self.speed), 1)
-				local wanted = math.min(above / math.max(eta, 0.25), GL.SlopeMaxSink)
-
-				-- FLARE. Eased out near the pad so the kart SETTLES onto it
-				-- rather than arriving at it. Without this the steepest part
-				-- of the descent is the last stretch, which is the one
-				-- moment it must not be.
-				if above < GL.FlareHeight then
-					local f = math.clamp(above / GL.FlareHeight, 0, 1)
-					wanted = GL.FlareSink + (wanted - GL.FlareSink) * f
-				end
-				sink = sink + (wanted - sink) * weight
-			end
+		-- THE FLARE, MEASURED OFF THE GROUND.
+		--
+		-- One ray straight down. Inside FlareHeight the descent eases to
+		-- FlareSink, so the kart levels out and settles instead of driving
+		-- into the floor at whatever rate it happened to be falling.
+		--
+		-- Off the GROUND rather than off a landing marker, deliberately:
+		-- it then works over any surface, with or without a pad, and it
+		-- cannot be aimed at the wrong thing. It is also the one piece of
+		-- the old forced approach that was actually about feel rather than
+		-- about hitting a target.
+		local look = workspace:Raycast(self.pos, -self.up * (GL.FlareHeight + 4), self.rayParams)
+		if look then
+			local f = math.clamp(look.Distance / GL.FlareHeight, 0, 1)
+			local flared = GL.FlareSink + (sink - GL.FlareSink) * f
+			sink = sink + (flared - sink) * math.min(GL.FlareRate * dt, 1)
 		end
 
 		-- GRAVITY STILL DOES THE ARC; the wings only set a FLOOR on how
@@ -1148,14 +1031,10 @@ function Simulation:Step(dt: number, input): { [string]: any }
 			self.vertVel = -sink
 		end
 
-		-- AND THE WINGS PULL TOWARD IT, once the funnel is engaged. A cap
-		-- alone can only stop you falling faster; it cannot make you fall
-		-- faster when you are riding too high, and gravity takes seconds
-		-- to do that on its own. Weighted, so the launch is pure ballistic
-		-- and only the approach is assisted.
-		if weight > 0 then
-			self.vertVel = Util.approach(self.vertVel, -sink, GL.SinkFollow * weight, dt)
-		end
+		-- No active pull is needed any more. `sink` is a CAP on descent,
+		-- and the flare LOWERS it — which the clamp above applies on the
+		-- very next frame. Slowing down is free; it was only speeding up
+		-- that ever needed help, and nothing asks for that now.
 
 		-- The trade. Sinking faster than neutral buys speed; floating
 		-- costs it. That exchange IS the glider minigame.
@@ -1334,42 +1213,6 @@ function Simulation:Step(dt: number, input): { [string]: any }
 		-- What's left, flattened onto the wall. Re-cast next pass.
 		local leftover = remaining - dir * reached
 		remaining = leftover - hit.Normal * leftover:Dot(hit.Normal)
-	end
-
-	----------------------------------------------------------------
-	-- 6c. THE FUNNEL — applied AFTER collision, before the ground pass.
-	--
-	-- After, deliberately: the sweep has already stopped us at any wall
-	-- in the way, and pulling toward the ideal arc must not shove us back
-	-- through one. Lerping a swept position is safe because the target is
-	-- a point on a path the level designer chose; the collision step gets
-	-- the next frame to object again if it disagrees.
-	----------------------------------------------------------------
-	if self.state == STATE_GLIDE then
-		local ideal, weight = funnel(self)
-		if ideal and weight > 0 then
-			-- Per-second, so the pull does not depend on framerate. At
-			-- weight 1 this converges hard enough that the last few studs
-			-- are effectively exact.
-			local blend = 1 - (1 - weight) ^ (dt * 60)
-
-			-- ACROSS THE LINE ONLY. The vertical part of the error is
-			-- deliberately dropped here and handled by the sink bias in
-			-- the gravity step, because moving the kart down to meet the
-			-- chord is what dragged it into the ground and stuck it.
-			local delta = ideal - self.pos
-			local lateral = delta - self.up * delta:Dot(self.up)
-			local step = lateral * blend
-			-- CAPPED. At full weight `blend` is 1, which erases the whole
-			-- sideways error in a single frame — a teleport, and it reads
-			-- as one. Capping the speed turns the same correction into a
-			-- few tenths of a second of flying back onto line.
-			local cap = GL.LateralMaxSpeed * dt
-			if step.Magnitude > cap then
-				step = step.Unit * cap
-			end
-			self.pos += step
-		end
 	end
 
 	----------------------------------------------------------------

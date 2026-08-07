@@ -457,6 +457,17 @@ local function ensureGliderFx(kart: Model, s)
 		return
 	end
 
+	-- One-shot, played on the rising edge of the glide. Separate from the
+	-- looping wind because they say different things: this is "the wings
+	-- are out", the wind is "and here is how fast you are going".
+	local deploy = Instance.new("Sound")
+	deploy.Name = "GlideDeploy"
+	deploy.SoundId = GLD.DeploySoundId
+	deploy.Volume = GLD.DeployVolume
+	deploy.RollOffMaxDistance = 200
+	deploy.Parent = hitbox
+	s.deploy = deploy
+
 	local sound = Instance.new("Sound")
 	sound.Name = "GlideWind"
 	sound.SoundId = GLD.WindSoundId
@@ -518,6 +529,17 @@ local function updateGliderFx(kart: Model, s, gliding: boolean, dt: number)
 	ensureGliderFx(kart, s)
 	if not s.wind then
 		return
+	end
+
+	-- THE MOMENT THE WINGS COME OUT. Edge-triggered, so it fires once per
+	-- glide rather than every frame of one.
+	if gliding and not s.deployed then
+		s.deployed = true
+		if s.deploy and s.deploy.SoundId ~= "" then
+			s.deploy:Play()
+		end
+	elseif not gliding then
+		s.deployed = false
 	end
 
 	-- Volume follows SPEED, not just the state. A glide that has bled off

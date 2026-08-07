@@ -175,145 +175,39 @@ return {
 	-- exactly what makes a correction feel like a wall.
 	CorridorRamp = 10,
 
-	--== THE FUNNEL: ARRIVAL BY CONSTRUCTION ==========================
-	-- A corridor makes straying HARD. This makes missing IMPOSSIBLE, and
-	-- it is the same trick that finally fixed the props: if the end state
-	-- is a pure function of progress, it cannot be wrong.
+	--== GUIDANCE, NOT CONTROL =======================================
+	-- WHERE YOU LAND IS YOURS. This used to force it: a position funnel
+	-- that lerped the kart onto an ideal line, a glide slope that dictated
+	-- the descent rate, and a heading clamp that would not let the nose
+	-- turn away. Each was added to fix the last one's side effects, and
+	-- together they were the reason it felt like being grabbed.
 	--
-	-- Progress along the ramp-to-landing line drives a blend between
-	-- where you actually are and where the ideal arc says you should be.
-	-- Early on the blend is zero and you fly the thing yourself. It rises
-	-- to 1 at the pad, so the last stretch converges no matter what you
-	-- did — including flying backwards into a wall.
+	-- Mario Kart does none of that. It gives you very little air authority
+	-- for a very short time and lets the LEVEL do the rest — the ramp is
+	-- aimed at the landing area, and the set of places you can reach is
+	-- small enough that you arrive somewhere sensible whatever you do. A
+	-- bad line costs you time, not the race.
 	--
-	-- YOU DO NOT FEEL IT, because it is a funnel and not a wall: the
-	-- correction is smallest exactly where you have the most freedom to
-	-- notice it, and largest where you are already pointed at the target
-	-- anyway.
-	Funnel = true,
+	-- All that survives is the corridor: a gentle nudge on the NOSE when
+	-- you stray wide of the line to the landing zone. It suggests. It
+	-- cannot make you do anything, and if you insist on flying somewhere
+	-- else, you get to.
+	--
+	-- The landing marker is now optional and purely a hint for that nudge.
+	-- With none, the glide is free flight, which is fine for any gap you
+	-- cannot really miss.
 
-	-- Fraction of the way across before the funnel starts to bite. Under
-	-- half the flight is genuinely free.
-	FunnelStart = 0.55,
-
-	-- And the point where it is FULLY committed. Full weight only exactly
-	-- at the pad left a player leaning on full lock 3.6 studs out — tiny,
-	-- and still not the "lands perfectly whatever happens" this is for.
-	-- Reaching 1 a little early makes the last stretch exact instead of
-	-- merely close.
-	FunnelLock = 0.92,
-
-	-- YOU CANNOT TURN AROUND. Degrees the nose may stray from the line to
-	-- the landing zone.
+	--== THE FLARE, OFF THE GROUND ITSELF =============================
+	-- A glider levelling out just before it touches down. Measured with
+	-- one downward ray rather than against a landing marker, so it works
+	-- over any surface, on any track, with or without a pad — and it
+	-- cannot be aimed at the wrong thing.
 	--
-	-- This is what makes arrival a guarantee rather than a strong
-	-- tendency. Progress is measured ALONG the line, so a player holding
-	-- full lock turns far enough that forward progress stops, the funnel
-	-- never reaches its lock point, and the glide times out in mid-air.
-	-- The blend was working perfectly; there was simply nothing advancing
-	-- it any more.
-	--
-	-- Clamping the heading keeps the along-line component positive at all
-	-- times, so progress only ever increases and the funnel always closes.
-	-- 55 degrees still allows a very wide line — it only forbids flying
-	-- backwards.
-	FunnelMaxYaw = 55,
-
-	-- Peak of the ideal arc, as a fraction of the gap length. Only used
-	-- as the shape the funnel pulls TOWARD, so it needs to look like the
-	-- path rather than be it.
-	-- Small. A big arc holds the ideal path high above the chord, which
-	-- for a pad well below the ramp is the funnel fighting the descent it
-	-- is supposed to be helping. 0.03 keeps the shape without the fight.
-	FunnelArc = 0.03,
-
-	--== HEIGHT IS FLOWN, NOT TELEPORTED ==============================
-	-- The funnel corrects ACROSS the line only. Height is corrected by
-	-- leaning on the SINK RATE instead — the wings working a little
-	-- harder or a little less.
-	--
-	-- Correcting height by moving the position was wrong twice over. It
-	-- yanked the kart down onto the chord whenever the pad sat below the
-	-- ramp, which is most ramps; and pulling it down into the terrain put
-	-- it in a fight with depenetration, which reads as the kart sticking.
-	--
-	-- A sink bias cannot do either. It cannot teleport, it cannot push
-	-- through geometry, and it is the same control the player has — so a
-	-- correction looks like flying rather than like being grabbed.
-	-- HEIGHT STARTS CORRECTING EARLY, LATERAL STARTS LATE, and they are
-	-- deliberately on different schedules.
-	--
-	-- Height has a long time constant: bleeding 90 studs of altitude takes
-	-- seconds, so it has to begin almost immediately. Lateral has a short
-	-- one and the heading clamp already bounds it, so it can wait —
-	-- which is what keeps the flight feeling like yours. Sharing one
-	-- schedule meant choosing between an accurate landing and a glider
-	-- worth flying.
-	HeightStart = 0.2,
-
-	--== THE APPROACH: A GLIDE SLOPE, NOT AN ERROR TO CHASE ===========
-	-- Every version before this corrected an ERROR — measure how far off
-	-- the ideal we are, shove toward it. That is why it always felt like
-	-- being grabbed: a correction proportional to error is largest exactly
-	-- when you are furthest out, which is exactly when you notice it.
-	--
-	-- An aircraft does not fly like that. It works out the descent rate
-	-- that ARRIVES:
-	--
-	--     sink = height above the pad / time left to reach it
-	--
-	-- and then just flies it. There is no error, because the target is
-	-- never missed in the first place — the rate is recomputed every
-	-- frame from where you actually are, so any disturbance is absorbed
-	-- into a slightly different slope rather than fought.
-	--
-	-- Smooth by construction, and it lands ON the pad rather than near it.
-	SlopeMaxSink = 60, -- however steep the slope wants to be, not steeper
-	SlopeFollow = 3.5, -- how briskly the wings take up a new slope
-
-	-- THE FLARE. The last stretch, where the slope is eased out so the
-	-- kart settles onto the pad instead of arriving at it.
-	FlareHeight = 22, -- studs above the pad where the flare begins
-	FlareSink = 9, -- descent rate it eases to for touchdown
-
-	-- Lateral correction is RATE LIMITED. At full funnel weight the old
-	-- blend was literally 1 — the whole sideways error erased in a single
-	-- frame, which is a teleport and reads as exactly that. Capping the
-	-- speed makes the same correction take a few tenths of a second and
-	-- look like the kart flying back onto line.
-	-- Just above the fastest a kart can move sideways at all: the heading
-	-- clamp allows 55 degrees off-line, which at 80 studs/s is 65 studs/s
-	-- across. At 40 the correction could not out-run the player and they
-	-- drifted 75 studs wide before being reeled in — inside the guarantee,
-	-- but visibly out over the scenery. 75 wins without being instant.
-	LateralMaxSpeed = 75, -- studs/s
-
-	-- GENTLE, because it no longer has to be exact.
-	--
-	-- These were 2.6 and 120, cranked up to force the kart to MATCH the
-	-- pad's height by the time it got there. That was solving the wrong
-	-- problem: the glide now simply continues until the wheels touch
-	-- something, so arriving high is not a failure — it is a descent.
-	-- Falling the last stretch with the wings still out is both safer and
-	-- smoother than being shoved onto a chord.
-	--
-	-- What is left is a nudge that keeps the flight looking aimed rather
-	-- than an autopilot that flies it.
-	HeightCorrect = 0.6,
-	HeightCorrectMax = 20,
-	HeightClimb = 6, -- how far the bias may push into a climb
-
-	-- How hard the wings pull the descent rate toward its target, per
-	-- second, and ONLY while the funnel is active.
-	--
-	-- Without this the height bias saturated and did nothing past a
-	-- point: the sink rate is only a CAP on how fast you may fall, and
-	-- gravity at 24 studs/s^2 is what actually accelerates you into it.
-	-- Raising a cap nothing is pushing against changes nothing.
-	--
-	-- Scaled by the funnel weight, so the launch arc is untouched — early
-	-- in the flight the weight is zero and this does not exist.
-	SinkFollow = 4.5,
+	-- This is the only part of the old approach worth keeping. It was the
+	-- bit that made touchdown feel like landing instead of arriving.
+	FlareHeight = 26, -- studs above the ground where it starts
+	FlareSink = 9, -- descent rate it eases to
+	FlareRate = 6, -- how briskly the wings take it up
 
 	--== LANDING ======================================================
 	-- Speed kept on touchdown. A glide should not be a free boost, but
@@ -324,6 +218,12 @@ return {
 	-- Lives here rather than in Config.Audio for the same reason the prop
 	-- knock does: it is played BY the glide system, at the kart, and it
 	-- starts and stops with a state nothing else knows about.
+	-- One-shot when the wings come out, ON TOP of the boost sound the
+	-- launch already fires. The boost says "you got fast"; this says
+	-- "and you are flying now" — two different facts, so two sounds.
+	DeploySoundId = "rbxassetid://9117235033",
+	DeployVolume = 0.7,
+
 	WindSoundId = "rbxassetid://96481249",
 	WindVolume = 0.55, -- at full speed
 	WindMinSpeed = 30, -- below this you hear nothing; a stall is quiet
