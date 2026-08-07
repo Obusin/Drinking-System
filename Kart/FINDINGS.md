@@ -1113,6 +1113,30 @@ corner, every deploy would have walked the wing sideways.
 
 ---
 
+### Measure which end is the outside; do not assume it.
+
+Wing-tip trails were placed at BOTH ends of each wing's long axis. That
+is correct for one mesh spanning the whole kart and wrong for separate
+left and right panels — on those, one end is INBOARD, so half the
+ribbons streamed out of the middle of the bodywork.
+
+Which case a rig is cannot be assumed, and the previous two attempts
+(positive end only, then both ends) were each right for exactly one rig.
+So it is measured: put a candidate at each end, see how far each lands
+from the kart's centreline, keep the far one. **A tie means both ends
+are outer edges** — which is precisely the full-width case.
+
+```
+left panel   (centre -5, half 4)    ends at 1.0 / 9.0   -> outer only
+full-width   (centre  0, half 9)    ends at 9.0 / 9.0   -> both
+```
+
+The general form, and this is the third time it has come up on this rig:
+**a rule that reads art must handle the shapes art actually takes.** Not
+the shape it takes today.
+
+---
+
 ### `Attachment.Position` is in local studs and does not follow `Size`.
 
 Scaling the wings open broke the wing-tip trails. The attachments stayed

@@ -566,22 +566,42 @@ local function ensureGliderFx(kart: Model, s)
 	s.trails = {}
 	for _, inst in kart:GetDescendants() do
 		if inst:IsA("BasePart") and table.find(RIG.WingNames, inst.Name) then
-			-- BOTH ENDS OF THE WING, NOT JUST THE POSITIVE ONE.
+			-- THE OUTER EDGE, WORKED OUT RATHER THAN ASSUMED.
 			--
-			-- The first version placed one attachment at +half along the
-			-- long axis, which is one wing TIP. On a combined mesh that
-			-- spans both sides — which is what this rig has — that is the
-			-- right tip only, and the left had no ribbon at all.
+			-- First version emitted from BOTH ends of the wing's long axis.
+			-- That is right for a single mesh spanning the whole kart, and
+			-- wrong for separate left and right panels — on those, one of
+			-- the two ends is INBOARD, so half the ribbons streamed out of
+			-- the middle of the bodywork.
 			--
-			-- Emitting at both ends covers the combined case AND the case
-			-- where the wings are separate parts whose meshes are mirrored,
-			-- since a mirrored part's "positive" end points inboard.
+			-- Which case a rig is cannot be assumed, so it is measured: put
+			-- a candidate at each end, see how far each lands from the
+			-- kart's centreline, and keep the far one. A panel has a clear
+			-- winner; a full-width mesh has two ends that tie, and a tie
+			-- means both are outer edges and both should trail.
 			local size = inst.Size
 			local wide = size.X >= size.Z
 			local axis = if wide then Vector3.xAxis else Vector3.zAxis
 			local half = (if wide then size.X else size.Z) * 0.5
 
+			local centre = kart.PrimaryPart and kart.PrimaryPart.Position or inst.Position
+			local reach = {}
 			for _, side in { 1, -1 } do
+				local world = inst.CFrame:PointToWorldSpace(axis * (half * side))
+				table.insert(reach, { side = side, dist = (world - centre).Magnitude })
+			end
+
+			local ends = {}
+			local spread = math.abs(reach[1].dist - reach[2].dist)
+			if spread < half * 0.5 then
+				-- A tie: one mesh spanning both sides. Both ends are tips.
+				ends = { 1, -1 }
+			else
+				-- A side panel. Only the end that reaches further out.
+				ends = { if reach[1].dist > reach[2].dist then reach[1].side else reach[2].side }
+			end
+
+			for _, side in ends do
 				local tip = axis * (half * side)
 				local a0 = Instance.new("Attachment")
 				a0.Name = "GlideTrailTop"
