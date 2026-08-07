@@ -67,6 +67,7 @@ local WorldFilter = require(BloxKart:WaitForChild("WorldFilter"))
 local H = Config.Handling
 local GL = Config.Glide
 local SW = Config.Swim
+local TR = Config.Trick
 local N = Config.Nitro
 local FX = Config.Effects
 local RS = Config.Respawn
@@ -634,6 +635,62 @@ function Simulation:_updateSwim(dt: number)
 		self.model:SetAttribute(Names.SEA_CLOCK, self.seaClock)
 	end
 
+end
+
+--=====================================================================
+--  TRICKS — flip ramps.
+--
+--  The kart flies an ordinary ballistic arc. Only the ART rotates, and
+--  it rotates a WHOLE NUMBER OF TURNS across the expected airtime, so
+--  the end pose is the start pose and it cannot land crooked. Same
+--  guarantee the props timeline gets, for the same reason.
+--=====================================================================
+function Simulation:StartTrick(rampCF: CFrame)
+	if not TR.Enabled or (self.trickUntil or 0) > os.clock() then
+		return false
+	end
+	if math.abs(self.speed) < TR.MinSpeed then
+		return false
+	end
+
+	local up = rampCF.UpVector
+	self.vertVel = TR.LaunchUp
+	-- A kick alone does not clear GroundSnap within a frame. The glide
+	-- ramp learned this by re-triggering every other frame.
+	self.grounded = false
+	self.up = up
+	self.forward, self.up = Util.orthonormal(self.forward, self.up)
+
+	-- AIRTIME FROM THE ARC, not a fixed duration. A tall ramp and a low
+	-- one need different pacing, and gravity already knows the answer:
+	-- up and back down is 2v/g.
+	local airtime = 2 * TR.LaunchUp / math.max(H.Gravity, 1)
+	self.trickStart = os.clock()
+	self.trickUntil = self.trickStart + airtime * TR.Window
+	self.trickAirtime = airtime * TR.Window
+
+	-- The ramp may name a trick; otherwise pick one. Authored where it
+	-- matters, varied where it does not.
+	local named = self.trickWanted
+	local pick = nil
+	if named then
+		for _, tr in TR.Tricks do
+			if tr.id == named then
+				pick = tr
+				break
+			end
+		end
+	end
+	pick = pick or TR.Tricks[math.random(1, #TR.Tricks)]
+
+	self.trickAxis = if pick.axis == "X"
+		then Vector3.xAxis
+		elseif pick.axis == "Z" then Vector3.zAxis
+		else Vector3.yAxis
+	self.trickTurns = pick.turns
+	self.trickId = pick.id
+	self.trickLanded = false
+	return true
 end
 
 function Simulation:Step(dt: number, input): { [string]: any }
@@ -1557,6 +1614,57 @@ function Simulation:Step(dt: number, input): { [string]: any }
 	--  cannot see them at all — which is what stops a ramp being a wall —
 	--  and that means the only way to know we crossed one is to ask.
 	--================================================================
+	--================================================================
+	--  TRICKS. Detected the same way glide ramps are — an explicit
+	--  include query, because ramps are in Triggers.TAGS and the
+	--  movement sweep cannot see them at all.
+	--================================================================
+	if TR.Enabled then
+		local spinning = (self.trickUntil or 0) > now
+		if spinning then
+			-- A WHOLE NUMBER OF TURNS ACROSS THE WINDOW, eased. At t=1 the
+			-- angle is turns*2pi, which is the pose it started in — so it
+			-- cannot finish crooked however it is interrupted.
+			local t = math.clamp((now - self.trickStart) / math.max(self.trickAirtime, 1e-3), 0, 1)
+			local swept = 1 - (1 - t) ^ TR.Ease
+			self.trickAngle = self.trickTurns * math.pi * 2 * swept
+		elseif (self.trickAngle or 0) ~= 0 then
+			-- Finished. Snapped to exactly zero rather than left at a
+			-- rounding error, since the whole point is that it ends level.
+			self.trickAngle = 0
+			self.trickAxis = nil
+			-- THE REWARD, and only if the flip actually completed. Landing
+			-- early costs it, or the ramp is a boost dispenser and the
+			-- trick is decoration.
+			if self.trickLanded == false and (not TR.RequireLanding or self.grounded) then
+				self.trickLanded = true
+				self:ApplyBoost(TR.BoostSpeed, TR.BoostTime)
+				events.boostFired = TR.BoostTier
+				events.trickLanded = self.trickId
+			end
+		end
+
+		if not spinning and self.grounded and (now - (self.trickStart or -99)) > TR.MinAirTime then
+			local ramps = CollectionService:GetTagged(TR.RampTag)
+			if #ramps > 0 then
+				local params = OverlapParams.new()
+				params.FilterType = Enum.RaycastFilterType.Include
+				params.FilterDescendantsInstances = ramps
+				local touching =
+					workspace:GetPartBoundsInBox(CFrame.new(self.pos, self.pos + self.forward), self.hitbox.Size, params)
+				local ramp = touching[1]
+				if ramp then
+					-- A ramp may name the trick it throws.
+					local named = ramp:GetAttribute("Trick")
+					self.trickWanted = if type(named) == "string" then named else nil
+					if self:StartTrick(ramp.CFrame) then
+						events.trickStarted = self.trickId
+					end
+				end
+			end
+		end
+	end
+
 	if GL.Enabled then
 		if self.state == STATE_GLIDE then
 			-- Touching down ends it, whatever the corridor thought. The
@@ -1752,7 +1860,28 @@ function Simulation:Step(dt: number, input): { [string]: any }
 	-- Bob and squash ride along up, not world-Y.
 	local visualPos = self.pos + up * (self.bob - self.squash)
 	local base = CFrame.fromMatrix(visualPos, right, up, -look)
-	self.hitbox.CFrame = base * CFrame.Angles(self.pitch, 0, self.lean)
+	-- THE FLIP GOES HERE, ON THE WHOLE ASSEMBLY.
+	--
+	-- One rotation on the render write turns the hitbox, the seat, the
+	-- driver, the bodywork and every wheel together — because they are
+	-- all jointed to it. The first attempt rotated individual Motor6Ds
+	-- instead, and missed a different part each time: the body when there
+	-- was no body root, then the seat and the player, because the seat
+	-- hung off its own weld.
+	--
+	-- Rotating a LIST of things means the list can be wrong. Rotating the
+	-- thing they are all attached to cannot be.
+	--
+	-- Safe here because this line is already the cosmetic write: pitch,
+	-- lean, bob and squash are all visual offsets on top of the true
+	-- pos/forward/up, and the simulation reads none of them back. The
+	-- sweep and the ground probe build their own frames, so collision is
+	-- untouched however far upside down the art is.
+	local render = base * CFrame.Angles(self.pitch, 0, self.lean)
+	if (self.trickAngle or 0) ~= 0 and self.trickAxis then
+		render *= CFrame.fromAxisAngle(self.trickAxis, self.trickAngle)
+	end
+	self.hitbox.CFrame = render
 	self.hitbox.AssemblyLinearVelocity = velocity
 	self.hitbox.AssemblyAngularVelocity = Vector3.zero
 

@@ -6,7 +6,115 @@ this is the live list of things that are currently wrong.
 **Read this before fixing anything.** Most of the bugs below were caused
 by a fix for the one above it.
 
-Last reviewed: 2026-08-06, after the kart-feel pass and the skinning chain.
+Last reviewed: 2026-08-08, after the glider, swim mode and the cosmetics pass.
+
+---
+
+# OPEN — 2026-08-08
+
+Three live items. The first two are the reason swim mode looks like
+nothing is happening; the third is why nothing is audible anywhere.
+
+---
+
+### #31 CONFIRMED — every custom sound is refused by Roblox
+
+```
+[Rider] glide deploy (rbxassetid://9117235033)      never loaded
+[Rider] water cruise (rbxassetid://123939612469793) never loaded
+[Rider] glide wind   (rbxassetid://96481249)        never loaded
+```
+
+**Not a code bug and not fixable in code.** Since the audio privacy
+change, Roblox will not play a `SoundId` the game does not own. A refused
+Sound is silent AND silent about being silent, which is why this went
+unnoticed through the entire glider build — the wind and deploy sounds
+have never once played.
+
+**Fix:** re-upload each file to the game's own account (Creator Dashboard
+→ Audio) and replace the ids in `Config.Glide` and `Config.Swim`.
+
+The diagnostic that found it lives in `Rider.checkSound` and
+`Audio:_checkSound`. Both wait five seconds and then report `IsLoaded`,
+rather than reading it once — it is always false at creation and proves
+nothing.
+
+---
+
+### #32 SUSPECTED — swim visuals are wired and running, but nothing is visible
+
+What is proven:
+
+- the zone is detected (speed drops, drift is blocked)
+- `Rider` runs on the kart — `Body motor: found`
+- the `Swimming` attribute reaches `Rider`
+
+What is NOT known: whether `swim` reaches 1.0, and whether the derived
+numbers are non-zero. **The first diagnostic printed at the instant
+`swim` crossed 0.05, so it always reported ~0.07 and told us nothing** —
+a diagnostic that fires at the least informative moment is worse than
+none, because it looks like an answer.
+
+It now prints every 2s with sustained values:
+
+```
+[Rider] Kart  swim=1.00  wheelLay=82 deg  bob=+0.43
+              pitch=+5.2  roll=-3.1  yaw=+1.8  burst=+0.31
+```
+
+**Next step, and it splits three ways:**
+
+| reading | meaning | fix |
+|---|---|---|
+| `swim` stays 0.1–0.3 | the zone overlap is flickering | widen the test or slow `BlendRate` |
+| `swim`≈1, others ≈0 | the maths is broken | trace `updateBody` |
+| `swim`≈1, numbers match | working, too subtle | scale the dials up |
+
+Expected at `swim=1`: `wheelLay` 82°, `bob` ±0.7, `pitch`/`roll` ±7,
+`yaw` ±2.6, `burst` 0→1.1.
+
+`Config.Swim.Debug` is currently **true**. Turn it off for release.
+
+---
+
+### #34 WATCH — flip ramps are new and untested in game
+
+`FlipRamp` tag, added 2026-08-08 and not yet driven over. The flip is
+visual only — the kart flies an ordinary arc and lands level, and the
+rotation is a whole number of turns across the expected airtime, so it
+cannot finish crooked.
+
+Built twice. The first version rotated each `Motor6D` individually and
+missed a different part each time — the bodywork when there was no body
+root, then the seat and the DRIVER, because the seat hung off a
+`WeldConstraint` and could not be animated at all.
+
+It now rotates the whole assembly at the render write, which is one line
+and cannot miss anything. See `SPEC-trick.md`.
+
+Worth watching specifically:
+
+- **the boost fires on landing, not on launch**, and only if the flip
+  completed. Landing early should cost it.
+- shares the re-trigger guard the glide ramp needed — `grounded = false`
+  at launch plus `MinAirTime`. If the ramp fires repeatedly, that is
+  where to look.
+- **items fired mid-flip** aim off the hitbox, which is now rotating.
+  Untested, and about 0.7s of exposure. Arguably correct behaviour.
+
+---
+
+### #33 WATCH — `Rider` fails completely and silently on a bad rig
+
+`updateKart` returns early unless `Seat` is a `VehicleSeat` **and**
+`SteeringWheel` is a `BasePart`. Everything Rider does is past that gate:
+wheel spin, body roll, the glider, the thrusters, the swim visuals and
+both water sounds.
+
+A kart whose `SteeringWheel` is a Model rather than a Part therefore
+looks exactly like "none of the visuals are wired up". It now warns once
+per kart naming both classes. Not currently firing — kept because the
+failure mode is so wide and so quiet.
 
 ---
 

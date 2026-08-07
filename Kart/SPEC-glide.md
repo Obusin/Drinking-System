@@ -1,5 +1,10 @@
 # SPEC — the glider
 
+> Flip ramps (`FlipRamp`) are a separate, much smaller feature in
+> `Config/Trick.luau`. Same launch pattern, but the rotation is purely
+> visual and the kart lands level.
+
+
 Ramp, wings, gap, landing. Modelled on Mario Kart's glider, including the
 part everyone gets wrong: **it does not steer you to the landing zone.**
 

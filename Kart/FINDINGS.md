@@ -1235,6 +1235,34 @@ happen to use the same function.
 
 ---
 
+### Rotate the thing they are attached to, not a list of the things.
+
+The flip was first built as "apply this rotation to every Motor6D" and
+missed a different part on each attempt: the bodywork, because the body
+updater returned early when there was no body root; then the seat and
+the DRIVER, because the seat hung off a WeldConstraint, which cannot be
+animated at all.
+
+Both were the same mistake. **A list of things to rotate can be wrong.
+The thing they are all jointed to cannot be.** One line on the render
+write turns the hitbox, the seat, the player, the bodywork and every
+wheel together, and anything added later is included without opting in.
+
+It is safe there specifically because that line is ALREADY the cosmetic
+write — `pitch`, `lean`, `bob` and `squash` are visual offsets on top of
+the true `pos`/`forward`/`up`, and the simulation reads none of them
+back. The sweep and the ground probe build their own frames, so
+collision is untouched however far upside down the art is.
+
+It also deleted the cross-kart plumbing: a rotated CFrame replicates by
+itself, so the attributes that existed to tell other clients about the
+flip were never needed.
+
+The general shape: **when a visual effect needs "all of X", look for the
+node they hang from before enumerating them.**
+
+---
+
 ### Never write a per-frame contribution into smoothed persistent state.
 
 The wave tilt was added straight onto `s.bodyRoll` — which is a

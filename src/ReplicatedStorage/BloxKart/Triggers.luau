@@ -62,6 +62,9 @@ local function tagList(): { string }
 		-- ordinary road as far as the controller is concerned.
 		Config.Swim.ZoneTag,
 
+		-- Flip ramps. A launcher, not a wall.
+		Config.Trick.RampTag,
+
 		-- PROPS. Scenery you can knock over, and the reason it belongs
 		-- HERE rather than being disarmed by the client module that
 		-- animates it:

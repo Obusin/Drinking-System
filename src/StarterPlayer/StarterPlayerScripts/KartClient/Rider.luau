@@ -368,6 +368,15 @@ local waveAt = Simulation.waveAt
 --  which means the ground is higher there and that side of the body
 --  should rise with it.
 --=====================================================================
+-- THE FLIP, READ ONCE PER FRAME AND APPLIED TO EVERYTHING.
+--
+-- A flip that turns only the bodywork leaves the wheels hanging level in
+-- mid-air while the shell rotates around them, which reads as the kart
+-- coming apart. The whole thing has to turn, so both the body motor and
+-- every wheel motor get the same rotation.
+--
+-- Nothing here touches the simulation: the kart flies an ordinary arc
+-- and lands level whatever the art did.
 local function updateBody(kart: Model, s, dt: number)
 	local motor = kart:FindFirstChild("BodyMotor", true)
 	if not (motor and motor:IsA("Motor6D")) then
@@ -548,6 +557,10 @@ local function updateBody(kart: Model, s, dt: number)
 
 	-- Yaw is applied about the kart's own up, between the lift and the
 	-- pitch/roll, so the hull slews without tipping the axis it slews on.
+	-- The flip goes OUTSIDE the hull's own lean, so a kart mid-barrel-roll
+	-- still carries whatever roll the suspension and the sea were giving
+	-- it. Inside, the lean would be spun around with the kart and end up
+	-- pointing sideways.
 	motor.Transform = CFrame.new(0, bob + (s.burstLift or 0) - s.bodyDip, 0)
 		* CFrame.Angles(0, math.rad(s.waveYaw or 0), 0)
 		* CFrame.Angles(math.rad(hullPitch), 0, math.rad(hullRoll))
@@ -1015,9 +1028,39 @@ local function updateRoadWheels(kart: Model, s, dt: number)
 	-- inside out.
 	-- PADDLES, NOT TYRES. A wheel turning at road speed while the kart is
 	-- clearly on water reads as the animation not knowing where it is.
-	local wet = kart:GetAttribute(Names.SWIMMING)
-	wet = if typeof(wet) == "number" then math.clamp(wet, 0, 1) else 0
+	local rawWet: any = kart:GetAttribute(Names.SWIMMING)
+	local wet = if type(rawWet) == "number" then math.clamp(rawWet, 0, 1) else 0
 	s.wet = wet
+
+	-- One line, once, the first time this kart touches water. Says which
+	-- link of the chain is live: the attribute arriving here proves the
+	-- zone was detected AND that Simulation published it AND that this is
+	-- the same Instance, which is three separate things that can fail.
+	-- REPORTS THE SUSTAINED VALUES, not the first frame.
+	--
+	-- The first version printed the moment `swim` crossed 0.05, which is
+	-- the very start of a two-second ramp — so it always said about 0.07
+	-- and told you nothing about what the visuals were actually doing. A
+	-- diagnostic that fires at the least informative instant is worse
+	-- than none, because it looks like an answer.
+	if SW.Debug and wet > 0.05 then
+		s.saidAt = s.saidAt or 0
+		if os.clock() - s.saidAt > 2 then
+			s.saidAt = os.clock()
+			print(
+				("[Rider] %s  swim=%.2f  wheelLay=%.0f deg  bob=%+.2f  pitch=%+.1f  roll=%+.1f  yaw=%+.1f  burst=%+.2f"):format(
+					kart.Name,
+					wet,
+					(s.wheelLay or 0) * SW.WheelTilt,
+					s.heave or 0,
+					(s.waveP or 0) + (s.burstPitch or 0),
+					s.waveR or 0,
+					s.waveYaw or 0,
+					s.burstLift or 0
+				)
+			)
+		end
+	end
 
 	local spin = -moved / math.max(RIG.RoadWheelRadius, 0.1)
 	spin *= 1 - (1 - SW.WheelSpinScale) * wet
@@ -1119,6 +1162,9 @@ local function updateRoadWheels(kart: Model, s, dt: number)
 				end
 			end
 
+			-- Same rotation as the body, applied first, so the wheels go
+			-- round WITH the kart instead of hanging level while the shell
+			-- turns around them.
 			motor.Transform = CFrame.new(steerAxis * travel)
 				* turn
 				* lay
@@ -1127,10 +1173,27 @@ local function updateRoadWheels(kart: Model, s, dt: number)
 	end
 end
 
+-- Reported once per kart, because this one gate silently disables
+-- EVERYTHING Rider does — wheel spin, body roll, the glider, the
+-- thrusters, the swim visuals and both water sounds all live past it.
+-- A kart whose SteeringWheel is a Model rather than a Part looks exactly
+-- like "none of the visuals are wired up".
+local scolded: { [Model]: boolean } = setmetatable({}, { __mode = "k" }) :: any
+
 local function updateKart(kart: Model, dt: number)
 	local seat = kart:FindFirstChild("Seat")
 	local hub = kart:FindFirstChild("SteeringWheel", true)
 	if not (seat and seat:IsA("VehicleSeat") and hub and hub:IsA("BasePart")) then
+		if not scolded[kart] then
+			scolded[kart] = true
+			warn(
+				("[Rider] %s is doing NOTHING — no wheels, no body roll, no glider, no thrusters, no water. Seat=%s SteeringWheel=%s. Both are required: the Seat must be a VehicleSeat and SteeringWheel must be a BasePart (a MeshPart is fine, a Model is not)."):format(
+					kart:GetFullName(),
+					if seat then seat.ClassName else "MISSING",
+					if hub then hub.ClassName else "MISSING"
+				)
+			)
+		end
 		return
 	end
 	local motor = hub:FindFirstChild("WheelMotor")

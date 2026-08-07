@@ -210,5 +210,5 @@ return {
 	SplashPitchMin = 0.9,
 	SplashPitchMax = 1.25,
 
-	Debug = false,
+	Debug = true, -- prints once per kart on entering water. Off for release.
 }

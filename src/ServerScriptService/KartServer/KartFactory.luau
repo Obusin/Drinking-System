@@ -390,6 +390,44 @@ function KartFactory.build(color: Color3?, visualName: string?): Model
 		end
 	end
 
+	-- FALLBACK: THE LARGEST NON-WHEEL PART.
+	--
+	-- There must always be a body root, because everything hanging off it
+	-- is the everything that can be ANIMATED — a kart without one welds
+	-- its bodywork straight to the hitbox, where it can neither lean nor
+	-- flip. "No body root" used to mean "this kart silently does not do
+	-- half the visuals", which is not a state worth supporting.
+	--
+	-- Largest by volume, so it is the shell rather than a mirror or a
+	-- badge. Wheels excluded or a big tyre could win and the kart would
+	-- lean about its own wheel.
+	if not bodyRoot then
+		local bestVolume = -1
+		for _, d in visual:GetDescendants() do
+			if d:IsA("BasePart") and not isShield(d) then
+				local inWheel = false
+				local up = d:FindFirstAncestorWhichIsA("Model")
+				while up and up ~= visual do
+					if wheelModels[up] then
+						inWheel = true
+						break
+					end
+					up = up:FindFirstAncestorWhichIsA("Model")
+				end
+				if not inWheel and wheelKind(d) == nil then
+					local v = d.Size.X * d.Size.Y * d.Size.Z
+					if v > bestVolume then
+						bodyRoot, bestVolume = d, v
+					end
+				end
+			end
+		end
+		if bodyRoot then
+			log("no named body root — using %s, the largest non-wheel part", bodyRoot.Name)
+		end
+	end
+
+
 	for _, desc in visual:GetDescendants() do
 		if desc:IsA("BasePart") then
 			desc.Anchored = false

@@ -62,6 +62,8 @@ Press Play. You spawn already seated; the match starts on its own.
 | [`SPEC-hop-drift.md`](SPEC-hop-drift.md) | the drift state machine |
 | [`SPEC-nitro.md`](SPEC-nitro.md) | tanks and burn stages |
 | [`SPEC-glide.md`](SPEC-glide.md) | the glider: ramps, wings, and why there is no landing guarantee |
+| [`SPEC-swim.md`](SPEC-swim.md) | swim mode: a floor at the waterline, and the sea drawn on top |
+| [`SPEC-trick.md`](SPEC-trick.md) | flip ramps: visual rotation, and why the root turns rather than a list |
 
 ---
 
