@@ -99,6 +99,7 @@ local cache = {
 	logs = nil :: any,
 	logsAt = 0,
 	dressing = nil :: any,
+	profile = nil :: any,
 	lastMessage = "",
 	lastOk = true,
 }
@@ -168,6 +169,18 @@ function DevConsoleClient.refreshDressing(userId: number)
 			cache.dressing = response.data
 		else
 			cache.dressing = nil
+			DevConsoleClient.note(response)
+		end
+	end)
+end
+
+function DevConsoleClient.refreshProfile(userId: number)
+	task.spawn(function()
+		local response = DevConsoleClient.call("inspect_profile", { targetUserId = userId })
+		if response.success then
+			cache.profile = response.data
+		else
+			cache.profile = nil
 			DevConsoleClient.note(response)
 		end
 	end)

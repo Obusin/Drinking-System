@@ -189,6 +189,32 @@ more persistent surface reachable (indirectly) from a remote.
 experience. The adapter reports `UNAVAILABLE` rather than swallowing the
 error, so a test cannot silently look successful.
 
+## Profile inspection
+
+Read-only, `VIEW_PROFILE` (**developer**, not viewer — currency, ownership and
+progression are the closest thing in this game to real player value, and a QA
+account that only watches races has no business reading balances).
+
+**Cost:** `DataService.get` returns the already-loaded in-memory table for a
+player in this server. No DataStore request, no yield, no quota. Reading an
+**offline** player would be a real request against a shared per-minute budget,
+which is why this only ever looks at people present.
+
+**Bounded output.** `parts` and `karts` are open-ended dictionaries; counts are
+exact but lists are capped at 40 and flagged when trimmed. Shipping a profile
+wholesale would put an unbounded table through a remote and into a UI that
+redraws every frame.
+
+**No write path, deliberately.** Editing persistent data from a console is how
+a debug tool becomes the reason someone's inventory vanished. If it is ever
+added it needs its own capability, confirmation, and an audit entry recording
+the before value — none of which exists today.
+
+The response always carries `mockStore`, and the UI prints it first and
+loudly. In Studio the store is mocked, so every value is a fresh default and a
+restart wipes it — without that line a reset profile reads as lost data, which
+this project has already misdiagnosed five times.
+
 ## Known limitations
 
 1. **Item slots are client-authoritative.** `give` reuses the real grant path

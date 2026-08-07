@@ -73,6 +73,11 @@ DevRoster.Permissions = table.freeze({
 	VIEW_PLAYERS = "viewer",
 	VIEW_LOGS = "viewer",
 
+	-- DEVELOPER, not viewer. Currency, ownership and progression are the
+	-- closest thing in this game to real player value, and a QA account
+	-- that only needs to watch a race has no business reading balances.
+	VIEW_PROFILE = "developer",
+
 	-- Write
 	GRANT_ITEM = "developer",
 	CLEAR_ITEMS = "developer",

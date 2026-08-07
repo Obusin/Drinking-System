@@ -307,6 +307,59 @@ local function drawPlayers()
 	end
 	Iris.End()
 
+	if Iris.Tree({ "Profile (read-only)" }).state.isUncollapsed.value then
+		if Iris.Button({ "Load profile" }).clicked() then
+			Client.refreshProfile(selected.userId)
+		end
+		local pr = Client.cache.profile
+		if pr and pr.loaded then
+			-- FIRST, and loudly. In Studio the store is mocked, so every
+			-- number below is a fresh default and a restart wipes it.
+			-- Without this line a reset profile reads as lost data.
+			if pr.mockStore then
+				Iris.Text({ "*** MOCK STORE — these values do NOT persist. Studio default. ***" })
+			end
+			Iris.Text({ ("bolt %s   crystals %s   xp %s"):format(
+				tostring(pr.currency and pr.currency.bolt),
+				tostring(pr.currency and pr.currency.crystals),
+				tostring(pr.progression and pr.progression.xp)
+			) })
+			local eq = pr.equipped or {}
+			Iris.Text({ ("equipped: Body=%s FWheel=%s RWheel=%s Paint=%s"):format(
+				tostring(eq.Body), tostring(eq.FWheel), tostring(eq.RWheel), tostring(eq.Paint)
+			) })
+			local own = pr.ownership or {}
+			Iris.Text({ ("parts %d%s   karts %d%s"):format(
+				own.partsCount or 0,
+				if own.partsTrimmed then " (list capped)" else "",
+				own.kartsCount or 0,
+				if own.kartsTrimmed then " (list capped)" else ""
+			) })
+			if #(own.parts or {}) > 0 then
+				Iris.Text({ ("  owned: %s"):format(table.concat(own.parts, ", ")) })
+			end
+			local q = pr.quests or {}
+			Iris.Text({ ("quests: day %s  week %s  month %s"):format(
+				tostring(q.day), tostring(q.week), tostring(q.month)
+			) })
+			local pa = pr.pass or {}
+			local dr = pr.drops or {}
+			Iris.Text({ ("pass s%s xp %s claimed %s   drops pity %s opened %s"):format(
+				tostring(pa.season), tostring(pa.xp), tostring(pa.claimed),
+				tostring(dr.pity), tostring(dr.opened)
+			) })
+			Iris.Text({ ("schema v%s"):format(tostring(pr.schema)) })
+		elseif pr then
+			Iris.Text({ ("Not loaded. persistence=%s  mock=%s"):format(
+				tostring(pr.persistenceEnabled), tostring(pr.mockStore)
+			) })
+		else
+			Iris.Text({ "Press Load profile." })
+		end
+		Iris.Text({ "Read-only. No editing from here, by design." })
+	end
+	Iris.End()
+
 	-- THE PANEL THAT WOULD HAVE ENDED THE SKINNING SAGA IN ONE RUN.
 	-- Asked-for names beside the parts that actually exist.
 	if Iris.Tree({ "Dressing (why is my kart not changing)" }).state.isUncollapsed.value then

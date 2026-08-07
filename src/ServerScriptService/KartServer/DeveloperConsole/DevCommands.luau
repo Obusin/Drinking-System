@@ -247,6 +247,23 @@ Commands.inspect_dressing = {
 	end,
 }
 
+Commands.inspect_profile = {
+	permission = "VIEW_PROFILE",
+	-- Cheap (an in-memory read), so the limit is about the UI polling
+	-- politely rather than about protecting the DataStore.
+	rate = { burst = 8, per = 5 },
+	validate = function(p)
+		return DevSchema.shape(p, { targetUserId = DevSchema.userId() })
+	end,
+	run = function(_, p)
+		local data = Inspect.profile(p.targetUserId)
+		if not data then
+			return false, Code.NOT_FOUND, "That player is not in this server."
+		end
+		return true, Code.OK, "ok", data
+	end,
+}
+
 -- TELEPORT. The server resolves WHERE — the part a client must not be
 -- trusted with — and pushes it to the target's own client, which applies
 -- it through Simulation:RespawnAt.

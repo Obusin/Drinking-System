@@ -266,4 +266,110 @@ function Inspect.dressing(userId: number): { [string]: any }?
 	}
 end
 
+-- THE PROFILE, READ-ONLY AND BOUNDED.
+--
+-- CHEAP, deliberately: DataService.get returns the ALREADY-LOADED
+-- in-memory table for a player who is here. No DataStore request, no
+-- yield, no quota. Reading an OFFLINE player would be a real request
+-- against a shared per-minute budget, which is why this only ever looks
+-- at people in the server.
+--
+-- BOUNDED, because a profile grows. `parts` and `karts` are open-ended
+-- dictionaries, and shipping one wholesale would put an unbounded table
+-- through a remote and into a UI that redraws every frame. Counts are
+-- always exact; lists are capped and say so.
+--
+-- READ-ONLY. There is no write path here and none should be added
+-- casually: editing persistent data from a console is how a debug tool
+-- becomes the reason somebody's inventory vanished.
+local LIST_CAP = 40
+
+local function keysOf(map: any): (number, { string }, boolean)
+	if type(map) ~= "table" then
+		return 0, {}, false
+	end
+	local all = {}
+	for k, v in map do
+		-- `parts` stores id -> true; a false value means "not owned" and
+		-- must not be listed as though it were.
+		if v then
+			table.insert(all, tostring(k))
+		end
+	end
+	table.sort(all)
+	local total = #all
+	if total <= LIST_CAP then
+		return total, all, false
+	end
+	local capped = {}
+	for i = 1, LIST_CAP do
+		capped[i] = all[i]
+	end
+	return total, capped, true
+end
+
+function Inspect.profile(userId: number): { [string]: any }?
+	local player = Players:GetPlayerByUserId(userId)
+	if not player then
+		return nil
+	end
+
+	local DataService = require(script.Parent.Parent.Parent.DataService)
+	local data = DataService.get(player)
+	if not data then
+		-- A real and common state, not an error: the profile may still be
+		-- loading, may have failed, or persistence may be off entirely.
+		return {
+			loaded = false,
+			persistenceEnabled = DataService.isEnabled(),
+			mockStore = DataService.isMock(),
+		}
+	end
+
+	local partsCount, partsList, partsTrimmed = keysOf(data.parts)
+	local kartsCount, kartsList, kartsTrimmed = keysOf(data.karts)
+
+	local quests = data.quests or {}
+	local pass = data.pass or {}
+	local drops = data.drops or {}
+
+	return {
+		loaded = true,
+		persistenceEnabled = DataService.isEnabled(),
+		-- THE FIELD THAT PREVENTS A SIXTH FALSE BUG REPORT. In Studio the
+		-- store is mocked, so every number below is a fresh default and a
+		-- restart wipes it. Stating it beside the data is the only way
+		-- that stops reading as "my currency reset".
+		mockStore = DataService.isMock(),
+		schema = data.schema,
+
+		currency = { bolt = data.bolt, crystals = data.crystals },
+		progression = { xp = data.xp, focus = data.focus },
+		equipped = data.equipped,
+
+		ownership = {
+			partsCount = partsCount,
+			parts = partsList,
+			partsTrimmed = partsTrimmed,
+			kartsCount = kartsCount,
+			karts = kartsList,
+			kartsTrimmed = kartsTrimmed,
+		},
+
+		-- Summarised rather than dumped: these are nested and none of it
+		-- is readable as raw tables in an immediate-mode list.
+		quests = {
+			day = quests.day,
+			daily = quests.d,
+			week = quests.week,
+			weekly = quests.w,
+			month = quests.month,
+			monthly = quests.m,
+			rerollUsed = quests.reroll,
+		},
+		pass = { season = pass.season, xp = pass.xp, claimed = select(1, keysOf(pass.claimed)) },
+		drops = { pity = drops.pity, opened = drops.opened },
+	}
+end
+
 return Inspect
