@@ -56,12 +56,15 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local BloxKart = ReplicatedStorage:WaitForChild("BloxKart")
 
+local CollectionService = game:GetService("CollectionService")
+
 local Config = require(BloxKart:WaitForChild("Config"))
 local Names = require(BloxKart:WaitForChild("Names"))
 local Util = require(BloxKart:WaitForChild("Util"))
 local WorldFilter = require(BloxKart:WaitForChild("WorldFilter"))
 
 local H = Config.Handling
+local GL = Config.Glide
 local N = Config.Nitro
 local FX = Config.Effects
 local RS = Config.Respawn
@@ -69,6 +72,10 @@ local RS = Config.Respawn
 local STATE_GRIP = "grip"
 local STATE_HOP = "hop"
 local STATE_DRIFT = "drift"
+-- Wings out. A state rather than a flag because it changes gravity,
+-- steering authority and what the throttle means all at once — three
+-- booleans that can never legally disagree are one state.
+local STATE_GLIDE = "glide"
 
 local Simulation = {}
 Simulation.__index = Simulation
@@ -221,6 +228,9 @@ function Simulation:RespawnAt(cf: CFrame)
 
 	-- Everything transient is cleared; anything earned is kept.
 	self.state = STATE_GRIP
+	self.glideFrom = nil
+	self.glideTo = nil
+	self.glideUntil = 0
 	self.bounceUntil = 0
 	self.driftDir, self.releaseDir = 0, 0
 	self.driftBlend, self.driftAngle = 0, 0
@@ -277,6 +287,9 @@ function Simulation:_endDrift(events)
 	events.driftTier = self.tier
 	self.tanksGained = 0
 	self.state = STATE_GRIP
+	self.glideFrom = nil
+	self.glideTo = nil
+	self.glideUntil = 0
 	self.tier = 0
 	-- Remember which way we were going so the rotation can unwind over
 	-- DriftExitTime instead of stopping dead.
@@ -393,6 +406,9 @@ function Simulation:Spinout(duration: number, keep: number, stun: number?): bool
 		end
 	end
 	self.state = STATE_GRIP
+	self.glideFrom = nil
+	self.glideTo = nil
+	self.glideUntil = 0
 	self.driftDir, self.driftBlend, self.tier = 0, 0, 0
 	self.burnStage = 0
 	self.burnRemaining = 0
@@ -411,6 +427,150 @@ end
 function Simulation:ApplyBoost(speed: number, duration: number)
 	self.boostSpeed = math.max(speed, self.boostSpeed)
 	self.boostUntil = math.max(os.clock() + duration, self.boostUntil)
+end
+
+--=====================================================================
+--  GLIDE
+--=====================================================================
+
+-- The landing zone this ramp is pointing at, or nil for free flight.
+--
+-- NEAREST ONE IN FRONT, not nearest overall: a track that loops back on
+-- itself can easily have a landing zone closer behind you than the one
+-- you are being thrown at, and aiming the corridor backwards would fly
+-- you into the wall you just left.
+local function landingFor(from: Vector3, heading: Vector3): Vector3?
+	local best, bestDist = nil, math.huge
+	for _, part in CollectionService:GetTagged(GL.LandTag) do
+		if part:IsA("BasePart") then
+			local to = part.Position - from
+			if to:Dot(heading) > 0 then
+				local d = to.Magnitude
+				if d < bestDist then
+					best, bestDist = part.Position, d
+				end
+			end
+		end
+	end
+	return best
+end
+
+-- Called when the kart crosses a ramp. Public so a power-up or the dev
+-- console can throw one too.
+function Simulation:StartGlide(launchCF: CFrame?)
+	if not GL.Enabled or self.state == STATE_GLIDE then
+		return false
+	end
+	if math.abs(self.speed) < GL.MinSpeed then
+		return false
+	end
+
+	-- The RAMP decides which way is up, not the world. A ramp on a banked
+	-- section throws you along the bank, which is the whole reason the
+	-- launch reads the part's own orientation.
+	local up = if launchCF then launchCF.UpVector else self.up
+
+	self.state = STATE_GLIDE
+	if self.model then
+		self.model:SetAttribute(Names.GLIDING, true)
+	end
+	self.glideUntil = os.clock() + GL.MaxTime
+	self.speed = math.abs(self.speed) * GL.LaunchSpeedScale
+	self.vertVel = GL.LaunchUp
+	self.up = up
+	self.forward, self.up = Util.orthonormal(self.forward, self.up)
+
+	-- The corridor is fixed AT LAUNCH and never recomputed. Re-aiming it
+	-- mid-flight would let a player who has drifted wide drag the target
+	-- with them, which is precisely the failure the corridor exists to
+	-- prevent.
+	self.glideFrom = self.pos
+	self.glideTo = landingFor(self.pos, self.forward)
+
+	-- Drift cannot survive a launch: the blend and the release direction
+	-- are ground concepts and would unwind into the glide as a phantom
+	-- steering input.
+	self.driftBlend = 0
+	self.releaseDir = 0
+	self.driftDir = 0
+	return true
+end
+
+function Simulation:EndGlide()
+	if self.state ~= STATE_GLIDE then
+		return
+	end
+	self.state = STATE_GRIP
+	self.glideFrom = nil
+	self.glideTo = nil
+	self.glideUntil = 0
+	self.glideFrom = nil
+	self.glideTo = nil
+	self.speed *= GL.LandSpeedKeep
+end
+
+-- How far off the ramp-to-landing line we are, signed, and the axis to
+-- correct about. Zero when there is no corridor.
+local function corridorPush(self, dt: number): number
+	local from, to = self.glideFrom, self.glideTo
+	if not from or not to then
+		return 0
+	end
+	local line = to - from
+	if line.Magnitude < 1 then
+		return 0
+	end
+	local dir = line.Unit
+	local offset = self.pos - from
+	-- Component across the line, in the plane we are flying in.
+	local across = offset - dir * offset:Dot(dir)
+	local side = across:Dot(self.up:Cross(dir))
+	local wide = math.abs(side) - GL.CorridorHalf
+	if wide <= 0 then
+		return 0
+	end
+
+	-- Ramped, not switched. A step change in yaw the instant you cross a
+	-- line is exactly what makes a correction feel like glass.
+	local strength = math.clamp(wide / math.max(GL.CorridorRamp, 0.01), 0, 1)
+	return -math.sign(side) * strength * GL.CorridorPull * dt
+end
+
+-- WHERE THE ARC SAYS WE SHOULD BE, and how hard to insist on it.
+--
+-- Returns the ideal position at our current progress, and a 0..1 weight.
+-- Weight 0 means fly it yourself; weight 1 means you are ON the ideal
+-- point whatever you did. Nil when there is no landing zone to aim at.
+local function funnel(self): (Vector3?, number)
+	if not GL.Funnel then
+		return nil, 0
+	end
+	local from, to = self.glideFrom, self.glideTo
+	if not from or not to then
+		return nil, 0
+	end
+	local line = to - from
+	local span = line.Magnitude
+	if span < 1 then
+		return nil, 0
+	end
+	local dir = line / span
+
+	-- Progress is measured ALONG THE LINE, so flying sideways or
+	-- backwards does not advance it — you cannot escape the funnel by
+	-- refusing to make progress, you only stay in the free part longer.
+	local p = math.clamp((self.pos - from):Dot(dir) / span, 0, 1)
+
+	-- The shape it pulls toward: the straight line, lifted by a parabola
+	-- that is zero at both ends. Zero at the end is the whole point —
+	-- the ideal point AT the pad is the pad.
+	local lift = self.up * (span * GL.FunnelArc * 4 * p * (1 - p))
+	local ideal = from + dir * (span * p) + lift
+
+	-- Smoothstep from FunnelStart to 1, so it eases in rather than
+	-- switching on. A linear ramp here is felt as a tug.
+	local t = math.clamp((p - GL.FunnelStart) / math.max(GL.FunnelLock - GL.FunnelStart, 0.01), 0, 1)
+	return ideal, t * t * (3 - 2 * t)
 end
 
 function Simulation:Step(dt: number, input): { [string]: any }
@@ -496,6 +656,13 @@ function Simulation:Step(dt: number, input): { [string]: any }
 
 	local drifting = self.state == STATE_DRIFT
 	local boosting = now < self.boostUntil
+	-- PUBLISHED, because Rider lights the thrusters for every kart in the
+	-- world and only the driver's own client has a Simulation to ask.
+	-- Same route STEER and DRIFT already take.
+	if self.model then
+		self.model:SetAttribute(Names.BOOSTING, boosting)
+		self.model:SetAttribute(Names.NITRO_ON, (self.burnStage or 0) > 0)
+	end
 	self.drifting, self.boosting = drifting, boosting
 
 	-- Fill AS YOU DRIFT, not on release. Watching a tank climb while you
@@ -709,6 +876,45 @@ function Simulation:Step(dt: number, input): { [string]: any }
 	-- current `up`. On a loop `up` is the track normal, so steering
 	-- stays correct sideways and upside-down without special cases.
 	local yawDelta = (steerTurn * (1 - eased) + driftTurn * eased) * authority * dt
+
+	-- IN THE AIR THE WHEELS ARE NOT DOING ANYTHING, so ground steering is
+	-- replaced outright rather than scaled. Wings turn a quarter as fast
+	-- as tyres — see the drift table in Config.Glide for why it cannot be
+	-- much more than that.
+	if self.state == STATE_GLIDE then
+		yawDelta = -self.steer * GL.TurnRate * dt
+		-- Added ON TOP of the player's input, never instead of it: you can
+		-- fight the corridor, you just cannot out-fly it forever. A
+		-- correction that seizes the controls is the thing that reads as
+		-- an invisible wall.
+		yawDelta += corridorPush(self, dt)
+	end
+
+	-- THE NOSE MAY NOT TURN AWAY FROM THE LANDING ZONE.
+	--
+	-- Applied as a clamp on the RESULT rather than on the input, because
+	-- what matters is where the kart ends up pointing, not how it got
+	-- there — a player alternating hard left and right would otherwise
+	-- walk the heading round in steps each of which was individually
+	-- legal.
+	if self.state == STATE_GLIDE and self.glideTo then
+		local want = self.glideTo - self.pos
+		want = want - self.up * want:Dot(self.up)
+		if want.Magnitude > 1 then
+			want = want.Unit
+			local nextFwd = Util.rotateAbout(self.forward, self.up, yawDelta)
+			local limit = math.rad(GL.FunnelMaxYaw)
+			if nextFwd:Dot(want) < math.cos(limit) then
+				-- Snap to the edge of the allowed cone, on the side we were
+				-- already heading. Not to the centre: being shoved to face
+				-- the pad exactly is the thing that reads as losing control.
+				local side = if self.up:Cross(want):Dot(nextFwd) >= 0 then 1 else -1
+				self.forward = Util.rotateAbout(want, self.up, limit * side)
+				yawDelta = 0
+			end
+		end
+	end
+
 	self.forward = Util.rotateAbout(self.forward, self.up, yawDelta)
 	self.forward, self.up = Util.orthonormal(self.forward, self.up)
 
@@ -826,7 +1032,49 @@ function Simulation:Step(dt: number, input): { [string]: any }
 	local velocity = self.travel * self.speed
 
 	-- Gravity pulls along -up, which on a loop means INTO the track.
-	self.vertVel -= H.Gravity * dt
+	--
+	-- GLIDING SUBSTITUTES ITS OWN, and then steers the sink rate with the
+	-- throttle rather than letting it free-fall: a glider's one real skill
+	-- is trading height for speed, so the pitch input has to beat gravity
+	-- rather than merely lean on it.
+	if self.state == STATE_GLIDE then
+		local pitch = math.clamp(throttle, -1, 1)
+		-- Published for Rider, which animates the flap for EVERY kart and
+		-- has no Simulation of its own to ask.
+		if self.model then
+			self.model:SetAttribute(Names.GLIDE_PITCH, pitch)
+		end
+		-- Forward dives, back floats. Two half-ranges around neutral so
+		-- hands-off is a defined sink rather than the midpoint of two
+		-- numbers that happen to bracket it.
+		local sink = if pitch >= 0
+			then GL.SinkNeutral + (GL.SinkDive - GL.SinkNeutral) * pitch
+			else GL.SinkNeutral + (GL.SinkNeutral - GL.SinkFloat) * pitch
+
+		-- GRAVITY STILL DOES THE ARC; the wings only set a FLOOR on how
+		-- fast you may fall.
+		--
+		-- Chasing vertVel straight to -sink was wrong and measurably so:
+		-- it erased the launch kick within about half a second, so the
+		-- kart barely rose at all and a "glide" was a 0.5s hop. Letting
+		-- reduced gravity decelerate the launch gives the rise, the arc
+		-- over the top, and then the long steady descent — which is the
+		-- shape of an actual glide.
+		self.vertVel -= GL.Gravity * dt
+		if self.vertVel < -sink then
+			self.vertVel = -sink
+		end
+
+		-- The trade. Sinking faster than neutral buys speed; floating
+		-- costs it. That exchange IS the glider minigame.
+		local extraSink = sink - GL.SinkNeutral
+		self.speed = math.min(self.speed + extraSink * GL.DiveToSpeed * dt, GL.DiveSpeedCap)
+		self.speed *= GL.SpeedKeep ^ dt
+		-- The floor. Floating is a trade, never a way to arrive stopped.
+		self.speed = math.max(self.speed, GL.MinFlightSpeed)
+	else
+		self.vertVel -= H.Gravity * dt
+	end
 	velocity += self.up * self.vertVel
 
 	----------------------------------------------------------------
@@ -994,6 +1242,26 @@ function Simulation:Step(dt: number, input): { [string]: any }
 		-- What's left, flattened onto the wall. Re-cast next pass.
 		local leftover = remaining - dir * reached
 		remaining = leftover - hit.Normal * leftover:Dot(hit.Normal)
+	end
+
+	----------------------------------------------------------------
+	-- 6c. THE FUNNEL — applied AFTER collision, before the ground pass.
+	--
+	-- After, deliberately: the sweep has already stopped us at any wall
+	-- in the way, and pulling toward the ideal arc must not shove us back
+	-- through one. Lerping a swept position is safe because the target is
+	-- a point on a path the level designer chose; the collision step gets
+	-- the next frame to object again if it disagrees.
+	----------------------------------------------------------------
+	if self.state == STATE_GLIDE then
+		local ideal, weight = funnel(self)
+		if ideal and weight > 0 then
+			-- Per-second, so the pull does not depend on framerate. At
+			-- weight 1 this converges hard enough that the last few studs
+			-- are effectively exact.
+			local blend = 1 - (1 - weight) ^ (dt * 60)
+			self.pos = self.pos:Lerp(ideal, blend)
+		end
 	end
 
 	----------------------------------------------------------------
@@ -1214,6 +1482,45 @@ function Simulation:Step(dt: number, input): { [string]: any }
 	----------------------------------------------------------------
 	-- 6b. SURFACE GRAVITY — rotate our idea of "down" onto the track.
 	----------------------------------------------------------------
+	--================================================================
+	--  GLIDE: STARTING AND ENDING
+	--
+	--  Detection is an explicit INCLUDE query against ramp parts, not a
+	--  sweep result. Ramps are in Triggers.TAGS so the movement sweep
+	--  cannot see them at all — which is what stops a ramp being a wall —
+	--  and that means the only way to know we crossed one is to ask.
+	--================================================================
+	if GL.Enabled then
+		if self.state == STATE_GLIDE then
+			-- Touching down ends it, whatever the corridor thought. The
+			-- ground is the authority here: a landing zone is where we
+			-- AIMED, not a promise about where the road actually is.
+			if self.grounded or os.clock() > (self.glideUntil or 0) then
+				if not self.grounded then
+					warn("[Simulation] glide timed out in mid-air — a GlideRamp is aimed at nothing.")
+				end
+				self:EndGlide()
+				events.glideEnded = true
+			end
+		elseif self.grounded then
+			local ramps = CollectionService:GetTagged(GL.RampTag)
+			if #ramps > 0 then
+				local params = OverlapParams.new()
+				params.FilterType = Enum.RaycastFilterType.Include
+				params.FilterDescendantsInstances = ramps
+				local touching = workspace:GetPartBoundsInBox(
+					CFrame.new(self.pos, self.pos + self.forward) ,
+					self.hitbox.Size,
+					params
+				)
+				local ramp = touching[1]
+				if ramp and self:StartGlide(ramp.CFrame) then
+					events.glideStarted = true
+				end
+			end
+		end
+	end
+
 	if self.grounded then
 		self.airTime = 0
 		-- Chase the surface briskly; a slow chase sheds the kart on a

@@ -313,6 +313,20 @@ function KartFactory.build(color: Color3?, visualName: string?): Model
 		return nil
 	end
 
+	-- GLIDER PARTS. Same problem as a wheel: a welded part cannot move, so
+	-- anything that has to animate needs a Motor6D instead of a weld.
+	--
+	-- Returns the joint name, or nil for "this is ordinary bodywork".
+	local function gliderKind(inst: Instance): string?
+		if CollectionService:HasTag(inst, RIG.AeroTag) or inst.Name == RIG.AeroName then
+			return "AeroMotor"
+		end
+		if CollectionService:HasTag(inst, RIG.WingTag) or table.find(RIG.WingNames, inst.Name) then
+			return "WingMotor"
+		end
+		return nil
+	end
+
 	-- The part a wheel Model actually turns on.
 	--
 	-- PrimaryPart if the artist set one, otherwise the biggest part —
@@ -429,6 +443,25 @@ function KartFactory.build(color: Color3?, visualName: string?): Model
 				motor:SetAttribute(Names.STEER_AXIS, motor.C0.Rotation:VectorToObjectSpace(Vector3.yAxis))
 				motor.Parent = desc
 				log("%s -> %s road wheel", desc.Name, if isFront then "front" else "rear")
+			elseif gliderKind(desc) then
+				-- HINGED ABOUT ITS OWN PIVOT, which is why the setup note
+				-- says to put the pivot on the hinge line. Anchored to the
+				-- part's centre instead, a flap scissors through the wing
+				-- rather than swinging off it.
+				local joint = gliderKind(desc) :: string
+				local motor = Instance.new("Motor6D")
+				motor.Name = joint
+				motor.Part0, motor.Part1 = hitbox, desc
+				motor.C0, motor.C1 = Util.pivotJoint(hitbox, desc)
+
+				-- The hinge is the KART's lateral axis, converted into the
+				-- joint's frame — the same reasoning as the wheel axle. A
+				-- flap pitches up and down, and that is true however the
+				-- mesh happened to be modelled, so it must not depend on
+				-- the art's orientation.
+				motor:SetAttribute(Names.ROLL_AXIS, motor.C0.Rotation:VectorToObjectSpace(Vector3.xAxis))
+				motor.Parent = desc
+				log("%s -> %s", desc.Name, joint)
 			elseif desc ~= suppliedWheel then
 				-- WELDED TO THE HUB IF IT BELONGS TO A WHEEL.
 				--

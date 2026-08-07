@@ -46,6 +46,17 @@ local function tagList(): { string }
 		Config.Race.CheckpointTag,
 		Config.Respawn.VoidTag,
 
+		-- GLIDE RAMPS AND LANDING ZONES. Both are markers, not geometry:
+		-- a ramp says "launch here" and a landing zone says "aim there".
+		-- Neither should ever be something the kart can hit, so they go in
+		-- the same exclusion list as every other trigger.
+		--
+		-- They stay QUERYABLE, which matters — the glide check below finds
+		-- ramps with an explicit include-filter query. This list excludes
+		-- them from the movement SWEEP, which is a different thing.
+		Config.Glide.RampTag,
+		Config.Glide.LandTag,
+
 		-- PROPS. Scenery you can knock over, and the reason it belongs
 		-- HERE rather than being disarmed by the client module that
 		-- animates it:

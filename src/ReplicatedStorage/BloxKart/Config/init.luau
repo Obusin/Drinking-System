@@ -39,6 +39,7 @@ Props = require(script.Props),
 	Minimap = require(script.Minimap), -- the track, drawn from Route
 	Skins = require(script.Skins), -- what a kart can look like
 	Garage = require(script.Garage), -- the customisation catalogue (keys -> meshes/paint)
+	Glide = require(script.Glide), -- wings out, ramp to landing zone
 	Suspension = require(script.Suspension), -- visual wheel travel. Cosmetic by construction.
 	Hud = require(script.Hud), -- shared on-screen styling
 	Places = require(script.Places), -- lobby vs race place, and the track list

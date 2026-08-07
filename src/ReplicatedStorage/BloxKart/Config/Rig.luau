@@ -193,6 +193,83 @@ return {
 	RimNames = { "Rim", "Rims", "Hub" },
 	TireNames = { "Tire", "Tires", "Tyre", "Tyres" },
 	RimTag = "KartRim",
+
+	--== THE GLIDER ====================================================
+	-- The flap. One part, hinged, and the ONLY thing on the glider that
+	-- moves — the wings are combined meshes and stay put.
+	--
+	-- SET ITS PIVOT TO THE HINGE LINE IN STUDIO. The motor rotates about
+	-- the part's own pivot, so the hinge is aimed in the viewport rather
+	-- than typed in here. Leave the pivot at the mesh centre and the flap
+	-- will scissor through the wing instead of hinging off it.
+	--== THRUSTERS =====================================================
+	-- TWO PARTS, TWO DIFFERENT JOBS, and they are not variations of one
+	-- idea:
+	--
+	--   CENTRE  reads SPEED. Black at a standstill, brighter the faster
+	--           you go, and it takes the nitro colour while nitro burns.
+	--           It is the tachometer.
+	--   SIDES   read BOOST, and nothing else. Dark the entire time you
+	--           are merely driving fast, then hard on. They are the
+	--           afterburners.
+	--
+	-- That split is the whole reason a boost reads as an event: if
+	-- everything glowed with speed there would be nothing left to change
+	-- when you actually boosted.
+	--
+	-- The two *Mesh parts are housings and are deliberately not touched.
+	-- THE MESHES ARE THE GLOW; Thruster/Thruster2 are the housings.
+	--
+	-- Named the other way round first, which lit the housing and left the
+	-- part you actually see dark. Lists rather than single names so a rig
+	-- that names them differently is one word here, not a code change.
+	ThrusterCenterNames = { "CenterMesh" },
+	ThrusterSideNames = { "SideThrustMesh" },
+	ThrusterCenterTag = "KartThrusterCenter",
+	ThrusterSideTag = "KartThrusterSide",
+
+	-- Not pure black. A Neon part at 0,0,0 still catches a little bloom
+	-- and reads as "off but present"; true black reads as a hole.
+	ThrusterOff = Color3.fromRGB(8, 9, 14),
+
+	-- The centre at full speed with no nitro.
+	ThrusterCentre = Color3.fromRGB(96, 178, 255),
+	-- And while nitro is burning.
+	ThrusterNitro = Color3.fromRGB(255, 214, 92),
+	-- The sides, which only ever show this or nothing.
+	ThrusterBoost = Color3.fromRGB(255, 138, 48),
+
+	-- Fraction of top speed before the centre starts to light. Without a
+	-- floor it glows faintly while you roll around the lobby, which
+	-- spends the effect before the race starts.
+	ThrusterFloor = 0.18,
+
+	-- How fast the colour chases, per second. Fast enough that a boost
+	-- feels instant, slow enough that it is a fade rather than a switch.
+	ThrusterRate = 12,
+
+	AeroName = "Aero",
+	AeroTag = "KartAero",
+
+	-- Degrees the flap travels at full pitch input. A flap that swings far
+	-- reads as a barn door; this is a control surface.
+	AeroThrow = 24,
+	AeroRate = 7, -- how fast it follows the input, per second
+
+	-- The wings themselves. Fixed, but they still get motors: a welded
+	-- part cannot move at all, and the flutter below needs somewhere to
+	-- put a degree of movement.
+	WingNames = { "Wing", "Wing_1" },
+	WingTag = "KartWing",
+
+	-- FLUTTER. Barely there on the ground, alive in the air.
+	--
+	-- The point is not realism, it is that a wing which never moves reads
+	-- as a decal stuck to the side of the kart. One degree of wobble is
+	-- enough to stop that, and more than about three looks broken.
+	WingFlutter = 1.6, -- degrees of travel while gliding
+	WingFlutterGround = 0.3, -- and while merely driving
+	WingFlutterRate = 9, -- oscillations per second
 	TireTag = "KartTire",
 
 	RoadWheelSteer = 26, -- degrees of lock at full steer. Real karts turn

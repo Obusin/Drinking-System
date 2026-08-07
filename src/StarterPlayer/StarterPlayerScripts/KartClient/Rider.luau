@@ -39,6 +39,8 @@ local Util = require(BloxKart:WaitForChild("Util"))
 local WorldFilter = require(BloxKart:WaitForChild("WorldFilter"))
 
 local R = Config.Rider
+local H = Config.Handling
+local GLD = Config.Glide
 local RIG = Config.Rig
 local SUS = Config.Suspension
 local KART_TAG = "Kart"
@@ -328,6 +330,259 @@ local function suspensionFor(kart: Model, motor: Motor6D, hitbox: BasePart, s, d
 	return current
 end
 
+--=====================================================================
+--  THRUSTERS
+--
+--  Centre reads SPEED, sides read BOOST, and that split is the point:
+--  if everything glowed with speed there would be nothing left to change
+--  when you actually boosted.
+--
+--  SPEED IS MEASURED, NOT ASKED FOR. updateRoadWheels already works out
+--  how far the kart moved this frame to roll the wheels, so the same
+--  number lights the thrusters — no attribute, and it works for every
+--  kart including bots and other players for free.
+--=====================================================================
+local function updateThrusters(kart: Model, s, dt: number)
+	local boosting = kart:GetAttribute(Names.BOOSTING) == true
+	local nitro = kart:GetAttribute(Names.NITRO_ON) == true
+
+	-- Above the floor, ramped to full. Below it the centre stays dark, so
+	-- rolling around the lobby does not spend the effect before the race.
+	local frac = math.clamp((s.speedNow or 0) / math.max(H.MaxSpeed, 1), 0, 1)
+	local lit = math.clamp((frac - RIG.ThrusterFloor) / math.max(1 - RIG.ThrusterFloor, 0.01), 0, 1)
+
+	-- Boost pins the centre on regardless of speed — you boost hardest
+	-- from slow, and a thruster that stayed dark through the shove would
+	-- be reading the wrong thing.
+	if boosting then
+		lit = 1
+	end
+
+	local base = if nitro then RIG.ThrusterNitro else RIG.ThrusterCentre
+	local centre = RIG.ThrusterOff:Lerp(base, lit)
+	local side = if boosting then RIG.ThrusterBoost else RIG.ThrusterOff
+
+	-- Chased rather than assigned, so a boost fades up instead of
+	-- snapping. One shared blend for both, since they never need to
+	-- disagree about how fast they react.
+	local blend = math.min(RIG.ThrusterRate * dt, 1)
+	s.centreLit = (s.centreLit or RIG.ThrusterOff):Lerp(centre, blend)
+	s.sideLit = (s.sideLit or RIG.ThrusterOff):Lerp(side, blend)
+
+	-- MATCHES A PART **OR** A CONTAINER, for the same reason the wheels
+	-- had to. `Thruster2` may be a bare MeshPart today and a Model or
+	-- Folder holding two meshes tomorrow — art gets reorganised, and a
+	-- lighting rig that silently stops working when somebody groups two
+	-- meshes is a rig nobody trusts.
+	local function named(inst: Instance, tag: string, names: { string }): boolean
+		return CollectionService:HasTag(inst, tag) or table.find(names, inst.Name) ~= nil
+	end
+
+	local litCentre, litSide = 0, 0
+	local function paint(inst: Instance, colour: Color3): number
+		local n = 0
+		if inst:IsA("BasePart") then
+			inst.Color = colour
+			n += 1
+		end
+		for _, d in inst:GetDescendants() do
+			if d:IsA("BasePart") then
+				d.Color = colour
+				n += 1
+			end
+		end
+		return n
+	end
+
+	for _, inst in kart:GetDescendants() do
+		if named(inst, RIG.ThrusterCenterTag, RIG.ThrusterCenterNames) then
+			litCentre += paint(inst, s.centreLit)
+		elseif named(inst, RIG.ThrusterSideTag, RIG.ThrusterSideNames) then
+			litSide += paint(inst, s.sideLit)
+		end
+	end
+
+	-- SAYS SO WHEN IT FINDS NOTHING, once per kart.
+	--
+	-- "The thruster is not lighting up" has at least four causes that look
+	-- identical from the driver's seat: the part is named something else,
+	-- it is not a BasePart, the attribute never arrived, or the mesh has a
+	-- SurfaceAppearance — which makes Roblox ignore Color entirely, and is
+	-- invisible in the Explorer unless you go looking.
+	--
+	-- This separates the first two from the rest in one line of Output.
+	if not s.thrusterChecked then
+		s.thrusterChecked = true
+		if litCentre == 0 or litSide == 0 then
+			warn(("[Rider] %s: lit %d centre part(s) named %q and %d side part(s) named %q. A zero means the name does not match. If both are non-zero and it still does not glow, the mesh has a SurfaceAppearance — that overrides Color, and it has to be removed or the glow has to be a separate untextured part."):format(
+				kart:GetFullName(),
+				litCentre,
+				table.concat(RIG.ThrusterCenterNames, "/"),
+				litSide,
+				table.concat(RIG.ThrusterSideNames, "/")
+			))
+		end
+	end
+end
+
+--=====================================================================
+--  THE GLIDER
+--
+--  One flap and two fixed wings. The flap is the control surface and
+--  follows the pitch input; the wings only flutter, because a wing that
+--  never moves reads as a decal stuck to the side of the kart.
+--
+--  READS AN ATTRIBUTE, NOT THE SIM. Rider runs for EVERY kart in the
+--  world, and only the driver's own client has a Simulation for its own
+--  kart. The glide state is published as an attribute so other people's
+--  gliders animate too — the same route STEER and DRIFT already take.
+--=====================================================================
+local function named2(inst: Instance, tag: string, name: string): boolean
+	return CollectionService:HasTag(inst, tag) or inst.Name == name
+end
+
+-- WIND AND WING RIBBONS.
+--
+-- Built once per kart, on the first glide rather than at spawn: most
+-- karts never touch a ramp, and a Trail plus a Sound on every kart in
+-- the field is a cost paid by everybody for something few of them use.
+local function ensureGliderFx(kart: Model, s)
+	if s.gliderFx then
+		return
+	end
+	s.gliderFx = true
+	local hitbox = kart.PrimaryPart
+	if not hitbox then
+		s.gliderFx = nil -- try again next frame; the kart is still assembling
+		return
+	end
+
+	local sound = Instance.new("Sound")
+	sound.Name = "GlideWind"
+	sound.SoundId = GLD.WindSoundId
+	sound.Looped = true
+	sound.Volume = 0
+	sound.RollOffMaxDistance = 220
+	sound.Parent = hitbox
+	s.wind = sound
+
+	s.trails = {}
+	for _, inst in kart:GetDescendants() do
+		if inst:IsA("BasePart") and table.find(RIG.WingNames, inst.Name) then
+			-- Along the wing's LONGEST axis, so a ribbon leaves the tip
+			-- rather than the middle, whichever way the mesh was modelled.
+			local size = inst.Size
+			local axis = if size.X >= size.Z then Vector3.xAxis else Vector3.zAxis
+			local half = (if size.X >= size.Z then size.X else size.Z) * 0.5
+
+			local a0 = Instance.new("Attachment")
+			a0.Position = axis * half + Vector3.new(0, 0.15, 0)
+			a0.Parent = inst
+			local a1 = Instance.new("Attachment")
+			a1.Position = axis * half - Vector3.new(0, 0.15, 0)
+			a1.Parent = inst
+
+			local trail = Instance.new("Trail")
+			trail.Attachment0, trail.Attachment1 = a0, a1
+			trail.Lifetime = GLD.TrailLife
+			trail.WidthScale = NumberSequence.new(GLD.TrailWidth)
+			trail.Color = ColorSequence.new(GLD.TrailColor)
+			-- Fades out along its own length, so the ribbon has an end
+			-- rather than being chopped off.
+			trail.Transparency = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, GLD.TrailTransparency),
+				NumberSequenceKeypoint.new(1, 1),
+			})
+			trail.Enabled = false
+			trail.Parent = inst
+			table.insert(s.trails, trail)
+		end
+	end
+end
+
+local function updateGliderFx(kart: Model, s, gliding: boolean, dt: number)
+	ensureGliderFx(kart, s)
+	if not s.wind then
+		return
+	end
+
+	-- Volume follows SPEED, not just the state. A glide that has bled off
+	-- most of its speed should sound like it — the wind is the readout
+	-- for how much energy is left, which is the thing the pitch input is
+	-- actually trading.
+	local frac = math.clamp(((s.speedNow or 0) - GLD.WindMinSpeed) / math.max(H.MaxSpeed - GLD.WindMinSpeed, 1), 0, 1)
+	local want = if gliding then GLD.WindVolume * frac else 0
+	s.wind.Volume = Util.approach(s.wind.Volume, want, GLD.WindFade, dt)
+	s.wind.PlaybackSpeed = GLD.WindPitchMin + (GLD.WindPitchMax - GLD.WindPitchMin) * frac
+
+	-- Stopped rather than left looping at zero: a silent Sound still costs
+	-- a voice, and there are eight karts.
+	if s.wind.Volume > 0.005 then
+		if not s.wind.IsPlaying then
+			s.wind:Play()
+		end
+	elseif s.wind.IsPlaying then
+		s.wind:Stop()
+	end
+
+	for _, trail in s.trails or {} do
+		trail.Enabled = gliding
+	end
+end
+
+local function updateGlider(kart: Model, s, dt: number)
+	local gliding = kart:GetAttribute(Names.GLIDING) == true
+	local pitch = kart:GetAttribute(Names.GLIDE_PITCH)
+	pitch = if typeof(pitch) == "number" then math.clamp(pitch, -1, 1) else 0
+
+	-- Eased so the flap does not snap on a stick flick. A control surface
+	-- has mass.
+	s.flap = Util.approach(s.flap or 0, if gliding then pitch else 0, RIG.AeroRate, dt)
+
+	-- One phase for both wings, so they beat together rather than looking
+	-- like two independent broken things.
+	s.flutter = (s.flutter or 0) + dt * RIG.WingFlutterRate
+	local amount = if gliding then RIG.WingFlutter else RIG.WingFlutterGround
+	local wobble = math.sin(s.flutter * math.pi * 2) * math.rad(amount)
+
+	-- WINGS OUT ONLY IN THE AIR. LocalTransparencyModifier is render-only
+	-- and client-local, so this never touches the real Transparency the
+	-- server replicates — the same tool the kart already uses to fade
+	-- itself in on spawn. A glider parked on the start line reads as a
+	-- modelling mistake.
+	if s.gliderShown ~= gliding then
+		s.gliderShown = gliding
+		local hidden = if gliding then 0 else 1
+		for _, inst in kart:GetDescendants() do
+			if
+				inst:IsA("BasePart")
+				and (
+					named2(inst, RIG.AeroTag, RIG.AeroName)
+					or CollectionService:HasTag(inst, RIG.WingTag)
+					or table.find(RIG.WingNames, inst.Name) ~= nil
+					or (inst.Parent and inst.Parent.Name == "Glider")
+				)
+			then
+				inst.LocalTransparencyModifier = hidden
+			end
+		end
+	end
+
+	updateGliderFx(kart, s, gliding, dt)
+
+	local throw = math.rad(RIG.AeroThrow)
+	for _, motor in kart:GetDescendants() do
+		if motor:IsA("Motor6D") then
+			local axis = motor:GetAttribute(Names.ROLL_AXIS) or Vector3.xAxis
+			if motor.Name == "AeroMotor" then
+				motor.Transform = CFrame.fromAxisAngle(axis, s.flap * throw)
+			elseif motor.Name == "WingMotor" then
+				motor.Transform = CFrame.fromAxisAngle(axis, wobble)
+			end
+		end
+	end
+end
+
 local function updateRoadWheels(kart: Model, s, dt: number)
 	local hitbox = kart.PrimaryPart
 	if not hitbox then
@@ -352,6 +607,8 @@ local function updateRoadWheels(kart: Model, s, dt: number)
 		moved = delta.Magnitude * math.sign(delta:Dot(hitbox.CFrame.LookVector))
 	end
 	s.lastPos = pos
+	-- Shared with the thrusters, which want the same number.
+	s.speedNow = if dt > 0 then math.abs(moved) / dt else 0
 	-- Capped, not just scaled. Past a couple of revolutions per frame the
 	-- spin aliases into a strobe and any steering angle disappears inside
 	-- it; real footage sells that speed with motion blur, which we don't
@@ -493,6 +750,8 @@ local function updateKart(kart: Model, dt: number)
 	motor.Transform = CFrame.Angles(0, 0, if R.InvertWheel then -spin else spin)
 
 	updateRoadWheels(kart, s, dt)
+	updateGlider(kart, s, dt)
+	updateThrusters(kart, s, dt)
 
 	----------------------------------------------------------------
 	-- Hands
