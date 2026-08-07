@@ -1543,25 +1543,20 @@ function Simulation:Step(dt: number, input): { [string]: any }
 			-- Touching down ends it, whatever the corridor thought. The
 			-- ground is the authority here: a landing zone is where we
 			-- AIMED, not a promise about where the road actually is.
-			-- REACHING THE PAD COUNTS AS LANDING, whether or not there is
-			-- anything solid under it.
+			-- THE WHEELS DECIDE WHEN THE GLIDE IS OVER, not the pad.
 			--
-			-- The end condition used to be `grounded` alone, and GlideLand
-			-- is in Triggers.TAGS — so the marker is invisible to the
-			-- ground probe by design. A pad floating a little above the
-			-- road meant nothing ever ended the glide and the kart hung
-			-- there until the timeout. The marker says where to arrive; it
-			-- was never meant to be the floor.
-			local arrived = false
-			if self.glideFrom and self.glideTo then
-				local line = self.glideTo - self.glideFrom
-				local span = line.Magnitude
-				arrived = span > 1 and (self.pos - self.glideFrom):Dot(line / span) >= span
-			end
-
+			-- Reaching the pad used to end it, which meant a kart that
+			-- arrived above a lower landing area dropped the rest of the
+			-- way under FULL gravity with its wings already gone. Landing
+			-- and falling are the same thing here: keep gliding, keep the
+			-- wings out, and touch down on whatever is actually there.
+			--
+			-- The marker says where to AIM. It was never the floor, and it
+			-- is not the finish line either — GlideLand is in Triggers.TAGS
+			-- and invisible to the ground probe by design.
 			local timedOut = os.clock() > (self.glideUntil or 0)
-			if self.grounded or arrived or timedOut then
-				if timedOut and not self.grounded and not arrived then
+			if self.grounded or timedOut then
+				if timedOut and not self.grounded then
 					warn("[Simulation] glide timed out in mid-air — a GlideRamp is aimed at nothing.")
 				end
 				self:EndGlide()

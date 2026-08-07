@@ -114,7 +114,10 @@ return {
 
 	-- A glide cannot go on forever. Backstop only — if this ever fires
 	-- the ramp is aimed at nothing and that is a level bug worth seeing.
-	MaxTime = 8,
+	-- Longer than the flight itself, because the glide now continues
+	-- while the kart descends onto whatever is actually below the pad.
+	-- Backstop only — if this fires, a ramp is aimed at nothing.
+	MaxTime = 14,
 
 	--== THE CORRIDOR =================================================
 	-- Studs either side of the ramp-to-landing line where you are free.
@@ -225,8 +228,19 @@ return {
 	-- worth flying.
 	HeightStart = 0.2,
 
-	HeightCorrect = 2.6, -- studs/s of sink change per stud of error
-	HeightCorrectMax = 120, -- and the most it may ever contribute
+	-- GENTLE, because it no longer has to be exact.
+	--
+	-- These were 2.6 and 120, cranked up to force the kart to MATCH the
+	-- pad's height by the time it got there. That was solving the wrong
+	-- problem: the glide now simply continues until the wheels touch
+	-- something, so arriving high is not a failure — it is a descent.
+	-- Falling the last stretch with the wings still out is both safer and
+	-- smoother than being shoved onto a chord.
+	--
+	-- What is left is a nudge that keeps the flight looking aimed rather
+	-- than an autopilot that flies it.
+	HeightCorrect = 0.6,
+	HeightCorrectMax = 20,
 	HeightClimb = 6, -- how far the bias may push into a climb
 
 	-- How hard the wings pull the descent rate toward its target, per
