@@ -400,15 +400,32 @@ return {
 	--     with floor    58 -> 32   (up from a natural 29)
 	--     without       58 -> settles
 	--
-	-- The threshold does the floor's job instead. At 62, the smallest
-	-- bounce that can happen is 31 studs/s — which just clears GroundSnap
-	-- and is therefore visible by construction, with nothing to clamp.
+	-- THE THRESHOLD MUST CLEAR GroundSnap WITH MARGIN, not just clear it.
 	--
-	-- One bounce that scales with the drop, and then it settles. Trying
-	-- for more is fighting the engine: anything under 30 studs/s is
-	-- swallowed by the ground probe, so the second bounce was never going
-	-- to be seen properly whatever it was set to.
-	LandBounceMinDrop = 62, -- studs/s of impact before it bounces at all
+	-- At 62 the smallest bounce is 31 studs/s, which rises 3.20 studs
+	-- against a 3.0 snap — a 1.07x margin. It clears by two hundredths of
+	-- a stud, so the probe half-catches it: high drops bounce hard and
+	-- sail past, low ones sit exactly on the boundary and stutter. That
+	-- was the low-altitude snap, and it is why big falls always felt
+	-- fine.
+	--
+	--    bounce   rises   margin
+	--       31     3.20    1.07x   fought by the probe
+	--       35     4.08    1.36x   still marginal
+	--       42     5.88    1.96x   <- clean
+	--       58    11.21    3.74x
+	--
+	-- 85 is the impact whose bounce is 42 — two clear snap-distances of
+	-- air. Below it the kart simply lands, which is also the honest
+	-- answer: a small drop should not bounce.
+	--
+	-- It also removes the marginal SECOND bounce for free. The biggest
+	-- fall returns 62, and 62 is under this threshold, so it settles
+	-- rather than producing another 31 sitting on the same boundary.
+	--
+	-- The general rule: a threshold near a hard engine limit has to be
+	-- set by MARGIN, not by whether it technically passes.
+	LandBounceMinDrop = 85, -- studs/s of impact before it bounces at all
 	LandBounceKeep = 0.5, -- fraction of the impact returned upward
 	LandBounceMax = 62, -- ceiling, or a long fall pogos
 

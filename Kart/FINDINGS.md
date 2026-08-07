@@ -1235,6 +1235,33 @@ happen to use the same function.
 
 ---
 
+### A threshold near a hard engine limit must be set by MARGIN.
+
+The landing bounce threshold was set so the smallest bounce "clears
+GroundSnap". It did — by 0.20 studs out of 3.0, a 1.07x margin. High
+drops bounced hard and sailed past; low ones sat exactly on the boundary
+and were half-caught by the ground probe every frame.
+
+The symptom was precise and easy to dismiss: **it only snapped on low
+falls.** Anything technically-passing-but-marginal behaves like this —
+correct in the test that motivated it, wrong across the range.
+
+```
+bounce   rises   margin
+   31     3.20    1.07x   fought by the probe
+   35     4.08    1.36x   still marginal
+   42     5.88    1.96x   clean
+```
+
+Set by margin (2x the snap distance) it also removed the marginal SECOND
+bounce for free, because the biggest fall's return now lands under the
+threshold instead of producing another boundary case.
+
+**"Does it pass" is the wrong question near a hard limit. "By how much"
+is the question.**
+
+---
+
 ### Assigning to a value that IS a position teleports.
 
 The landing dip was written straight onto `squash`, and `squash` is
