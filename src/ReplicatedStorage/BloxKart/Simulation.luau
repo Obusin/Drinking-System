@@ -1662,10 +1662,14 @@ function Simulation:Step(dt: number, input): { [string]: any }
 			-- reversing the velocity on the contact frame is a direction
 			-- change, not a bounce. The kart squats here and leaves below.
 			if not self.wasGrounded and impact >= H.LandBounceMinDrop then
-				-- No floor: see LandBounceMinDrop. The threshold guarantees
-				-- the result clears GroundSnap on its own, and clamping it
-				-- up is what made the second bounce step instead of decay.
-				self.bouncePending = math.min(impact * H.LandBounceKeep, H.LandBounceMax)
+				-- Floored, because a gentle landing cannot produce enough
+				-- speed to escape GroundSnap on its own and would otherwise
+				-- be eaten by the probe. Safe to floor only because the
+				-- floor sits BELOW the threshold — see the config note.
+				self.bouncePending = math.min(
+					math.max(impact * H.LandBounceKeep, H.LandBounceMin),
+					H.LandBounceMax
+				)
 				self.bounceAt = now + H.LandBounceDelay
 				events.bouncedLanding = impact
 			end

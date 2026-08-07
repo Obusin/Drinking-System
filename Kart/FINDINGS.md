@@ -1235,6 +1235,30 @@ happen to use the same function.
 
 ---
 
+### A floor must sit BELOW its own threshold, or it never terminates.
+
+The landing bounce is floored so a gentle drop still clears GroundSnap —
+a soft landing cannot produce enough speed on its own, so it has to be
+given it.
+
+That floor is only safe because it sits under the threshold that decides
+whether to bounce at all. At floor 45 against threshold 45, a floored
+bounce returns at exactly the speed that qualifies for another, and the
+kart bounces at a fixed height **forever**. Floor under threshold
+guarantees a floored bounce cannot re-trigger.
+
+```
+floor 42, threshold 45
+  from  45  ->  42, settles
+  from 116  ->  58 -> 42, settles
+  from 164  ->  62 -> 42, settles
+```
+
+The same shape as any self-feeding loop with a minimum: **the minimum
+output must be below the minimum input, or it sustains itself.**
+
+---
+
 ### A threshold near a hard engine limit must be set by MARGIN.
 
 The landing bounce threshold was set so the smallest bounce "clears

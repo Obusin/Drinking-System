@@ -390,42 +390,35 @@ return {
 	--
 	-- So a drift hop and a kerb are dead flat, and only a real drop
 	-- bounces — which is also the right feel.
-	-- NO FLOOR. It was the second bounce snapping.
+	-- THE FLOOR IS BACK, AND SET WHERE IT ACTUALLY CLEARS THE PROBE.
 	--
-	-- A floor guarantees the FIRST bounce is visible, and then ruins
-	-- every one after it: a 58 studs/s return earns 29 naturally and was
-	-- being floored back up to 32 — so the sequence stopped decaying and
-	-- started STEPPING, which is what the eye caught.
+	-- Three attempts, and the middle one was right for the wrong reason:
 	--
-	--     with floor    58 -> 32   (up from a natural 29)
-	--     without       58 -> settles
+	--   floor 32   marginal — rises 3.4 against a 3.0 snap, 1.13x. The
+	--              probe half-catches it, which reads as a snap.
+	--   no floor   clean, but then small drops cannot bounce at all,
+	--              because a gentle landing simply cannot produce enough
+	--              speed to escape GroundSnap on its own.
+	--   floor 42   rises 5.9 studs, 1.96x. Clean AND low drops bounce.
 	--
-	-- THE THRESHOLD MUST CLEAR GroundSnap WITH MARGIN, not just clear it.
+	-- The real constraint was never "should there be a floor". It is that
+	-- ANY bounce which happens must clear GroundSnap with margin, whatever
+	-- the drop was. A gentle landing cannot earn that speed, so it has to
+	-- be given it — and the floor is how.
 	--
-	-- At 62 the smallest bounce is 31 studs/s, which rises 3.20 studs
-	-- against a 3.0 snap — a 1.07x margin. It clears by two hundredths of
-	-- a stud, so the probe half-catches it: high drops bounce hard and
-	-- sail past, low ones sit exactly on the boundary and stutter. That
-	-- was the low-altitude snap, and it is why big falls always felt
-	-- fine.
+	-- THE FLOOR MUST SIT BELOW THE THRESHOLD, and that is not a style
+	-- point. At floor 45 against a threshold of 45 the bounce returns at
+	-- exactly the speed that qualifies for another, and the kart bounces
+	-- at a fixed height forever. Floor under threshold guarantees a
+	-- floored bounce cannot re-trigger, which is what makes it terminate:
 	--
-	--    bounce   rises   margin
-	--       31     3.20    1.07x   fought by the probe
-	--       35     4.08    1.36x   still marginal
-	--       42     5.88    1.96x   <- clean
-	--       58    11.21    3.74x
+	--     from  45  ->  42, settles
+	--     from 116  ->  58 -> 42, settles
+	--     from 164  ->  62 -> 42, settles
 	--
-	-- 85 is the impact whose bounce is 42 — two clear snap-distances of
-	-- air. Below it the kart simply lands, which is also the honest
-	-- answer: a small drop should not bounce.
-	--
-	-- It also removes the marginal SECOND bounce for free. The biggest
-	-- fall returns 62, and 62 is under this threshold, so it settles
-	-- rather than producing another 31 sitting on the same boundary.
-	--
-	-- The general rule: a threshold near a hard engine limit has to be
-	-- set by MARGIN, not by whether it technically passes.
-	LandBounceMinDrop = 85, -- studs/s of impact before it bounces at all
+	-- Decreasing every time, every bounce at 1.96x margin or better.
+	LandBounceMinDrop = 45, -- studs/s of impact before it bounces at all
+	LandBounceMin = 42, -- and never less than this, or the probe eats it
 	LandBounceKeep = 0.5, -- fraction of the impact returned upward
 	LandBounceMax = 62, -- ceiling, or a long fall pogos
 
