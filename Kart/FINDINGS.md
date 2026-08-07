@@ -1202,6 +1202,34 @@ sharing a name list with `KartDress`.)
 
 ---
 
+### An impulse smaller than the snap distance is a wasted impulse.
+
+Wave launches were tuned to feel plausible and produced kicks of 1.8-3.0
+studs/s. `GroundSnap` is 3.0 STUDS, which needs 30 studs/s to clear —
+so the ground probe pulled the kart straight back on the next frame and
+nothing happened at all.
+
+**Any vertical impulse has to clear the snap distance or it does not
+exist.** Either it is a real hop or it is not one; there is no small
+version. The middle ground has to be done visually instead, which is
+what the sprung heave is for.
+
+So the launch became rare and real rather than constant and invisible:
+0.5/sec cruising, 2.2/sec flat out, 2.6 studs high, 0.37s of air, with
+the visual heave carrying the ride in between.
+
+---
+
+### A threshold with no proportional term above it is a cliff.
+
+`rise > threshold` and then a fixed kick makes every launch identical,
+so a wave that only just qualifies throws you exactly as hard as the
+biggest one. Measuring the kick from the EXCESS above the threshold —
+`(rise - min) * scale` — keeps the variety the threshold was filtering
+for.
+
+---
+
 ### A ceiling the system sits at is not a ceiling, it is the value.
 
 The wave tilt was 26 degrees per stud against an 11-degree clamp, so

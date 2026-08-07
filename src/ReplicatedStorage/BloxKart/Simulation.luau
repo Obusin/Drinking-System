@@ -576,6 +576,20 @@ end
 --=====================================================================
 local swimZones: any = nil
 
+-- The same field Rider draws the hull's motion from. Exported so the two
+-- CANNOT disagree about where the water is — a kart pitching over a
+-- crest the simulation does not believe in is the whole failure this
+-- avoids.
+function Simulation.waveAt(pos: Vector3, t: number): number
+	local h = 0
+	for _, w in SW.Waves do
+		local rad = math.rad(w.heading)
+		local along = pos.X * math.cos(rad) + pos.Z * math.sin(rad)
+		h += math.sin(along / w.length * math.pi * 2 + t * w.speed) * w.amp
+	end
+	return h
+end
+
 function Simulation:_updateSwim(dt: number)
 	if not SW.Enabled then
 		self.swim = 0
@@ -588,6 +602,58 @@ function Simulation:_updateSwim(dt: number)
 	self.swim = Util.approach(self.swim or 0, if wet then 1 else 0, SW.BlendRate, dt)
 	if self.model then
 		self.model:SetAttribute(Names.SWIMMING, self.swim)
+	end
+
+	--=================================================================
+	--  JUMPING THE WAVES — real impulses, not the visual bob.
+	--
+	--  Driven off the field's RATE OF CHANGE under the kart: a crest
+	--  rising beneath you throws you up, and crossing it faster means it
+	--  arrives faster, so a moving kart skips and a moored one wallows.
+	--  That falls out of the maths rather than being a second rule.
+	--
+	--  Only ever ADDS lift, never pulls down. Gravity already owns the
+	--  way down and a second thing pulling would fight it.
+	--=================================================================
+	-- AN EXISTING DRIFT ENDS ON ENTRY. Blocking new drifts is not enough:
+	-- carrying one in off the tarmac would leave the kart in a state the
+	-- water has no answer for, sliding on a surface that cannot grip.
+	if not SW.AllowDrift and self.swim > 0.5 and self.state == STATE_DRIFT then
+		self.state = STATE_GRIP
+		self.driftBlend = 0
+		self.releaseDir = 0
+		self.driftDir = 0
+	end
+
+	if self.swim <= 0.01 then
+		self.seaClock = 0
+		return
+	end
+	self.seaClock = (self.seaClock or 0) + dt
+
+	local now = Simulation.waveAt(self.pos, self.seaClock)
+	local rise = (now - (self.lastWave or now)) / math.max(dt, 1e-3)
+	self.lastWave = now
+
+	if self.grounded and rise > SW.LaunchMinRise and math.abs(self.speed) >= SW.LaunchMinSpeed then
+		-- Measured ABOVE the threshold, not from zero, so a wave that only
+		-- just qualifies gives a nudge rather than the full kick. Without
+		-- that the threshold becomes a cliff and every launch is identical.
+		local over = rise - SW.LaunchMinRise
+		local kick = math.min(over * SW.LaunchPerRise, SW.LaunchMax) * self.swim
+		if kick > self.vertVel then
+			self.vertVel = kick
+			-- Said out loud, exactly like the glide launch: a kick alone
+			-- does not clear GroundSnap within a frame, so the next probe
+			-- would still report contact and swallow it.
+			self.grounded = false
+		end
+	end
+
+	-- A moored boat is never still. Small enough to be felt rather than
+	-- seen, and it stops the water appearing to switch off when you stop.
+	if math.abs(self.speed) < SW.LaunchMinSpeed and self.grounded then
+		self.vertVel += math.sin(self.seaClock * 3.1) * SW.IdleShake * self.swim * dt * 60
 	end
 end
 
@@ -634,6 +700,12 @@ function Simulation:Step(dt: number, input): { [string]: any }
 	-- counts as loading, because that's work.
 	local unwinding = math.abs(steerIn) < math.abs(self.steer)
 	local steerRate = if unwinding then H.SteerReturn else H.SteerSmoothing
+	-- A HULL LEANS ON THE RUDDER AND COMES ROUND A MOMENT LATER. This lag
+	-- is the single biggest cue that the vehicle has changed — your hands
+	-- read it long before any visual does.
+	if (self.swim or 0) > 0 then
+		steerRate *= 1 - (1 - SW.SteerRateScale) * self.swim
+	end
 	self.steer = Util.approach(self.steer, steerIn, steerRate, dt)
 
 	----------------------------------------------------------------
@@ -648,7 +720,16 @@ function Simulation:Step(dt: number, input): { [string]: any }
 		end
 	elseif self.state == STATE_HOP then
 		if self.grounded and now >= self.hopUntil then
-			if input.driftHeld and math.abs(steerIn) >= H.DriftEngageSteer and self.speed > H.DriftMinSpeed then
+			-- NOTHING TO BREAK TRACTION AGAINST. A hull is already sliding,
+			-- so a drift on water should do nothing rather than something
+			-- odd.
+			local mayDrift = SW.AllowDrift or (self.swim or 0) < 0.5
+			if
+				mayDrift
+				and input.driftHeld
+				and math.abs(steerIn) >= H.DriftEngageSteer
+				and self.speed > H.DriftMinSpeed
+			then
 				self.state = STATE_DRIFT
 				self.driftDir = math.sign(steerIn)
 				self.driftStart = now
@@ -890,6 +971,10 @@ function Simulation:Step(dt: number, input): { [string]: any }
 	-- Normal steering. Heading DECREASES to turn right, hence the minus.
 	local ratio = math.clamp(speedAbs / maxSpeed, 0, 1)
 	local turn = H.TurnRate + (H.TurnRateTop - H.TurnRate) * ratio
+	-- Boats come round wide. Same scalar shape as everything else here.
+	if (self.swim or 0) > 0 then
+		turn *= 1 - (1 - SW.TurnScale) * self.swim
+	end
 	local reversing = if self.speed < 0 then -1 else 1
 	local steerTurn = -self.steer * turn * reversing
 

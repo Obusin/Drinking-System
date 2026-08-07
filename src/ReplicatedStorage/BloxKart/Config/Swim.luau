@@ -45,6 +45,67 @@ return {
 	-- speed and reads as hitting something.
 	BlendRate = 2.2,
 
+	--== IT HANDLES LIKE A BOAT =======================================
+	-- A HULL HAS NO TYRES, so it does not bite — it pushes water and
+	-- waits. Everything here is a scalar on something that already
+	-- exists, so retuning the kart retunes the boat.
+	--
+	-- The steering DELAY is the single biggest cue. A kart answers the
+	-- stick instantly; a boat leans on the rudder and comes round a
+	-- moment later, and that lag is what your hands read as "this is a
+	-- different vehicle" long before any visual does.
+	SteerRateScale = 0.35, -- how fast the input reaches full lock
+	TurnScale = 0.62, -- and how tightly it comes round at all
+
+	-- NO DRIFTING. There is nothing to break traction against — a hull
+	-- is already sliding. Attempting a drift on water should do nothing
+	-- rather than something odd, and an existing drift ends the moment
+	-- you enter the water.
+	AllowDrift = false,
+
+	--== JUMPING THE WAVES ============================================
+	-- REAL vertical impulses, not the visual bob. The kart genuinely
+	-- leaves the floor over a crest and lands again, so the ride is
+	-- something the controller does rather than something painted on.
+	--
+	-- Driven off the wave field's RATE OF CHANGE at the kart's position:
+	-- a crest rising underneath you throws you up, and how hard depends
+	-- on how fast you are crossing it. Parked, the field still moves but
+	-- slowly, so a moored kart wallows and a moving one skips.
+	--
+	-- The rise has to clear GroundSnap (3.0) to actually leave the floor,
+	-- which is why this is in studs/s and not a fraction.
+	-- ONLY REAL CRESTS THROW YOU. `rise > 0` is true for half of every
+	-- wave cycle, which at 60fps launched the kart roughly every other
+	-- frame — a trampoline, not a boat. The rise rate runs:
+	--
+	--            median   80th   peak
+	--    55/s     3.6     6.1     8.8
+	--    95/s     5.3     8.3    13.1
+	--
+	-- so a threshold near the 80th percentile means the big ones throw
+	-- you and the rest are just the hull riding the swell.
+	-- RARE, BUT REAL. A launch has to clear GroundSnap (3.0 studs) or the
+	-- ground probe pulls the kart straight back down and the whole thing
+	-- is a wasted impulse — which takes 30 studs/s. So this is not a
+	-- constant chop; it is the occasional crest that genuinely throws you,
+	-- with the visual heave carrying the ride in between.
+	--
+	-- Tuned against how often it fires and whether it clears the snap:
+	--
+	--    minRise / per / max     lifts/sec @55 / @95    apex
+	--       6.5   1.8   13         1.40    3.33         0.3   never clears
+	--       8.0   7.0   30         0.50    2.23         2.6   <- here
+	--       9.5  11.0   36         0.00    1.27         2.6   too rare at speed
+	LaunchMinRise = 8, -- studs/s the wave must be rising to launch at all
+	LaunchPerRise = 7, -- studs/s of lift per stud/s of rise ABOVE that
+	LaunchMax = 30, -- ceiling. A wave is not a ramp.
+	LaunchMinSpeed = 18, -- below this you wallow instead of skipping
+
+	-- Idle life. A moored boat is never still, and a kart that goes dead
+	-- flat the instant you stop reads as the water switching off.
+	IdleShake = 1.4, -- studs/s of gentle vertical noise at rest
+
 	--== THE WHEELS GO SIDEWAYS =======================================
 	-- Rolled flat so they read as paddles rather than tyres. This is the
 	-- single clearest signal that the kart has changed mode — clearer

@@ -35,6 +35,7 @@ local RunService = game:GetService("RunService")
 
 local Config = require(BloxKart:WaitForChild("Config"))
 local Names = require(BloxKart:WaitForChild("Names"))
+local Simulation = require(BloxKart:WaitForChild("Simulation"))
 local Util = require(BloxKart:WaitForChild("Util"))
 local WorldFilter = require(BloxKart:WaitForChild("WorldFilter"))
 
@@ -343,17 +344,10 @@ end
 --  the world, so you drive through it, you take it at an angle, and two
 --  karts side by side are on different parts of the same wave.
 --=====================================================================
-local function waveAt(pos: Vector3, t: number): number
-	local h = 0
-	for _, w in SW.Waves do
-		local rad = math.rad(w.heading)
-		-- Distance along the wave's direction of travel. Everything
-		-- follows from this one projection.
-		local along = pos.X * math.cos(rad) + pos.Z * math.sin(rad)
-		h += math.sin(along / w.length * math.pi * 2 + t * w.speed) * w.amp
-	end
-	return h
-end
+-- ONE FIELD, SHARED WITH THE SIMULATION. The hull's motion and the
+-- impulses that actually throw the kart must agree about where the water
+-- is, and the only way to guarantee that is for there to be one copy.
+local waveAt = Simulation.waveAt
 
 --=====================================================================
 --  BODY ROLL — the payoff for four separate wheels.
