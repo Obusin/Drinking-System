@@ -360,7 +360,7 @@ end
 --
 -- Returns false if a shield absorbed it, so the caller can play
 -- "blocked" feedback rather than "hit".
-function Simulation:Spinout(duration: number, keep: number, stun: number?): boolean
+function Simulation:Spinout(duration: number, keep: number, stun: number?, revs: number?): boolean
 	-- One hit, one shield. Consumed whether or not another was incoming.
 	if self:HasShield() then
 		self.shieldUntil = 0
@@ -370,6 +370,10 @@ function Simulation:Spinout(duration: number, keep: number, stun: number?): bool
 	self.speed *= math.clamp(keep, 0, 1)
 	self.spinUntil = os.clock() + duration
 	self.spinFrom = os.clock()
+	-- Nil means the item spinout's full count. A wall passes a smaller
+	-- one: shortening the duration alone would spin the SAME distance in
+	-- less time, which is faster rather than gentler.
+	self.spinRevs = revs
 
 	-- KNOCKED OFF LINE, not just slowed.
 	--
@@ -1385,7 +1389,7 @@ function Simulation:Step(dt: number, input): { [string]: any }
 			-- every other hit in the game. A player holding one should not
 			-- discover that walls are the exception.
 			if hitSpeed >= H.WallStunSpeed then
-				if self:Spinout(H.WallStunTime, H.WallStunKeep, H.WallStunFreeze) then
+				if self:Spinout(H.WallStunTime, H.WallStunKeep, H.WallStunFreeze, H.WallStunRevs) then
 					events.wallStunned = hitSpeed
 				end
 			end
@@ -1619,14 +1623,16 @@ function Simulation:Step(dt: number, input): { [string]: any }
 			-- Each bounce is a fresh landing next time round, so they
 			-- decay on their own: 34% of a smaller impact is smaller
 			-- still, and it drops under the threshold within two or three.
+			-- ABSORBED NOW, RELEASED IN A MOMENT. See LandBounceDelay:
+			-- reversing the velocity on the contact frame is a direction
+			-- change, not a bounce. The kart squats here and leaves below.
 			if not self.wasGrounded and impact >= H.LandBounceMinDrop then
-				local up = math.clamp(
+				self.bouncePending = math.clamp(
 					math.max(impact * H.LandBounceKeep, H.LandBounceMin),
 					0,
 					H.LandBounceMax
 				)
-				self.vertVel = up
-				self.grounded = false
+				self.bounceAt = now + H.LandBounceDelay
 				events.bouncedLanding = impact
 			end
 
@@ -1644,6 +1650,17 @@ function Simulation:Step(dt: number, input): { [string]: any }
 				end
 			end
 		end
+	end
+
+	-- THE REBOUND. Fired a beat after touchdown, and only if we are still
+	-- on the ground — driving off a ledge inside the window should not
+	-- launch the kart out of thin air.
+	if self.bouncePending and now >= (self.bounceAt or 0) then
+		if self.grounded then
+			self.vertVel = self.bouncePending
+			self.grounded = false
+		end
+		self.bouncePending = nil
 	end
 
 	----------------------------------------------------------------
@@ -1831,7 +1848,7 @@ function Simulation:Step(dt: number, input): { [string]: any }
 		local span = math.max(self.spinUntil - self.spinFrom, 1e-3)
 		local t = math.clamp((now - self.spinFrom) / span, 0, 1)
 		local spun = 1 - (1 - t) ^ FX.SpinEase
-		self.driftAngle = math.pi * 2 * FX.SpinRevolutions * spun
+		self.driftAngle = math.pi * 2 * (self.spinRevs or FX.SpinRevolutions) * spun
 
 		-- Thrash decays with the spin, so it settles rather than stopping.
 		local fade = 1 - t

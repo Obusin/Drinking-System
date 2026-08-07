@@ -1235,6 +1235,41 @@ happen to use the same function.
 
 ---
 
+### A reversal is not a bounce. Something has to absorb first.
+
+The landing bounce set `vertVel` from -116 to +58 on the contact frame:
+16ms from falling to rising. Nothing reads as weight in 16ms — it simply
+changes direction, and that is what "it snaps" means.
+
+A real spring **absorbs, then gives it back**, and the beat in between IS
+the bounce. Four or five frames of squat before the kart leaves, lined up
+with the suspension compression that was already visible and previously
+had nothing to do.
+
+The general form: **an instantaneous change cannot express mass.** If
+something is meant to feel heavy, it needs a window in which it is
+visibly resisting.
+
+---
+
+### Shortening a fixed-rotation stun makes it faster, not gentler.
+
+A wall hit reused the item spinout, which is 2.75 revolutions. Halving
+the duration to soften it spun the same 2.75 turns in less time — 3.24
+turns/sec against a missile's 2.29, so scraping a barrier whipped the
+kart round HARDER than being shelled did.
+
+Duration and magnitude are different dials and a fixed magnitude does
+not care about duration. The revolution count had to become a parameter.
+
+```
+item spinout      2.75 turns / 1.20s = 2.29 turns/sec
+wall stun before  2.75 turns / 0.85s = 3.24   <- harder than a missile
+wall stun now     0.80 turns / 0.55s = 1.45
+```
+
+---
+
 ### A threshold has to sit where the scaled value clears its own floor.
 
 The landing bounce returns a fraction of the impact, floored so it

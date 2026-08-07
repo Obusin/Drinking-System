@@ -395,6 +395,18 @@ return {
 	LandBounceMin = 32, -- and never less than this, or it is invisible
 	LandBounceMax = 62, -- ceiling, or a long fall pogos
 
+	-- IT COMPRESSES BEFORE IT RELEASES, and this is what stops it
+	-- snapping.
+	--
+	-- Reversing the velocity on the contact frame takes the kart from
+	-- falling at 116 to rising at 58 inside 16ms. Nothing reads as weight
+	-- in 16ms — it just changes direction. A real spring absorbs first
+	-- and gives it back a beat later, and that beat IS the bounce.
+	--
+	-- The suspension is already visibly compressing through this window,
+	-- so the two line up: the kart squats, then leaves.
+	LandBounceDelay = 0.075, -- seconds held down before the rebound
+
 	--== HITTING A WALL HARD ===========================================
 	-- Below this a wall is the recoil that already exists. Above it, you
 	-- are stunned — the Mario Kart rule, where a real mistake costs
@@ -403,10 +415,18 @@ return {
 	-- Well above BounceMinSpeed on purpose: clipping a barrier at speed
 	-- while racing should be survivable, and only a genuinely square,
 	-- fast hit should take the kart off you.
-	WallStunSpeed = 62, -- impact speed at which a bump becomes a stun
-	WallStunTime = 0.85, -- how long the spinout lasts
-	WallStunKeep = 0.25, -- fraction of speed kept through it
-	WallStunFreeze = 0.2, -- of that, how long is a dead stop
+	-- A WALL IS NOT A MISSILE. The item spinout does 2.75 revolutions,
+	-- which is right for being shelled and far too much for scraping a
+	-- barrier — and shortening the stun without lowering the revolutions
+	-- only spins the same distance FASTER.
+	--
+	-- So a wall gets its own, and it is closer to a stumble than a
+	-- spinout: most of one turn, over half a second.
+	WallStunSpeed = 70, -- impact speed at which a bump becomes a stun
+	WallStunTime = 0.55, -- how long it lasts
+	WallStunRevs = 0.8, -- turns, against the item spinout's 2.75
+	WallStunKeep = 0.4, -- fraction of speed kept through it
+	WallStunFreeze = 0.1, -- of that, how long is a dead stop
 
 	BounceMinDot = 0.45, -- squarer than this and it bounces
 	-- Fraction of speed that comes back as REVERSE. The kart keeps
@@ -421,8 +441,8 @@ return {
 	--
 	-- Interpolated on speed as a fraction of top, then floored by
 	-- BounceMinPush above.
-	BounceKeepSlow = 0.35, -- at a crawl
-	BounceKeepFast = 0.55, -- at top speed — 52 studs/s straight back
+	BounceKeepSlow = 0.45, -- at a crawl
+	BounceKeepFast = 0.72, -- at top speed — 68 studs/s straight back
 	-- STILL BOUNCES WHEN SLOW, and that is the point.
 	--
 	-- This was 18, which meant anything under a fifth of top speed just
