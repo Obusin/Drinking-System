@@ -541,36 +541,58 @@ end
 -- Returns the ideal position at our current progress, and a 0..1 weight.
 -- Weight 0 means fly it yourself; weight 1 means you are ON the ideal
 -- point whatever you did. Nil when there is no landing zone to aim at.
-local function funnel(self): (Vector3?, number)
+local function funnel(self): (Vector3?, number, number)
 	if not GL.Funnel then
-		return nil, 0
+		return nil, 0, 0
 	end
 	local from, to = self.glideFrom, self.glideTo
 	if not from or not to then
-		return nil, 0
+		return nil, 0, 0
 	end
 	local line = to - from
 	local span = line.Magnitude
 	if span < 1 then
-		return nil, 0
+		return nil, 0, 0
 	end
 	local dir = line / span
 
 	-- Progress is measured ALONG THE LINE, so flying sideways or
 	-- backwards does not advance it — you cannot escape the funnel by
 	-- refusing to make progress, you only stay in the free part longer.
-	local p = math.clamp((self.pos - from):Dot(dir) / span, 0, 1)
+	-- THE ALONG-LINE TERM IS NEVER CLAMPED, AND THAT IS THE FREEZE FIX.
+	--
+	-- `p` used to be clamped to 1 before building the ideal point. At
+	-- p = 1 the arc lift is zero, so the ideal was EXACTLY the landing
+	-- point — and with the weight also at 1, position was snapped there
+	-- every frame: velocity moved the kart, the funnel dragged it back,
+	-- forever. A fixed point, indistinguishable from freezing in mid-air.
+	--
+	-- Releasing the funnel past the pad fixed the freeze and cost a stud
+	-- of accuracy, because the frame it let go was a frame of uncorrected
+	-- drift.
+	--
+	-- Passing the along-line component straight through fixes both. The
+	-- funnel then only ever corrects ACROSS the line and vertically, which
+	-- is all it was ever meant to do — it has no opinion about how far
+	-- along you are, so it cannot hold you there.
+	local p = (self.pos - from):Dot(dir) / span
+	local shape = math.clamp(p, 0, 1)
 
 	-- The shape it pulls toward: the straight line, lifted by a parabola
 	-- that is zero at both ends. Zero at the end is the whole point —
 	-- the ideal point AT the pad is the pad.
-	local lift = self.up * (span * GL.FunnelArc * 4 * p * (1 - p))
+	-- `shape` for the arc and the weight — those must not invert past the
+	-- ends. `p` raw for the along-line term, so it tracks the kart.
+	local lift = self.up * (span * GL.FunnelArc * 4 * shape * (1 - shape))
 	local ideal = from + dir * (span * p) + lift
 
 	-- Smoothstep from FunnelStart to 1, so it eases in rather than
 	-- switching on. A linear ramp here is felt as a tug.
-	local t = math.clamp((p - GL.FunnelStart) / math.max(GL.FunnelLock - GL.FunnelStart, 0.01), 0, 1)
-	return ideal, t * t * (3 - 2 * t)
+	local function ease(start: number): number
+		local t = math.clamp((shape - start) / math.max(GL.FunnelLock - start, 0.01), 0, 1)
+		return t * t * (3 - 2 * t)
+	end
+	return ideal, ease(GL.FunnelStart), ease(GL.HeightStart)
 end
 
 function Simulation:Step(dt: number, input): { [string]: any }
@@ -1051,6 +1073,16 @@ function Simulation:Step(dt: number, input): { [string]: any }
 			then GL.SinkNeutral + (GL.SinkDive - GL.SinkNeutral) * pitch
 			else GL.SinkNeutral + (GL.SinkNeutral - GL.SinkFloat) * pitch
 
+		-- HEIGHT CORRECTION, AS A SINK BIAS. Below the ideal arc the wings
+		-- hold on a little longer; above it they let go sooner. Bounded
+		-- both ways, so it can nudge the flight but never fly it.
+		local ideal, _lateral, weight = funnel(self)
+		if ideal and weight > 0 then
+			local err = (ideal - self.pos):Dot(self.up) -- + means we are low
+			local bias = math.clamp(err * GL.HeightCorrect, -GL.HeightCorrectMax, GL.HeightCorrectMax)
+			sink = math.max(sink - bias * weight, -GL.HeightClimb)
+		end
+
 		-- GRAVITY STILL DOES THE ARC; the wings only set a FLOOR on how
 		-- fast you may fall.
 		--
@@ -1063,6 +1095,15 @@ function Simulation:Step(dt: number, input): { [string]: any }
 		self.vertVel -= GL.Gravity * dt
 		if self.vertVel < -sink then
 			self.vertVel = -sink
+		end
+
+		-- AND THE WINGS PULL TOWARD IT, once the funnel is engaged. A cap
+		-- alone can only stop you falling faster; it cannot make you fall
+		-- faster when you are riding too high, and gravity takes seconds
+		-- to do that on its own. Weighted, so the launch is pure ballistic
+		-- and only the approach is assisted.
+		if weight > 0 then
+			self.vertVel = Util.approach(self.vertVel, -sink, GL.SinkFollow * weight, dt)
 		end
 
 		-- The trade. Sinking faster than neutral buys speed; floating
@@ -1260,7 +1301,14 @@ function Simulation:Step(dt: number, input): { [string]: any }
 			-- weight 1 this converges hard enough that the last few studs
 			-- are effectively exact.
 			local blend = 1 - (1 - weight) ^ (dt * 60)
-			self.pos = self.pos:Lerp(ideal, blend)
+
+			-- ACROSS THE LINE ONLY. The vertical part of the error is
+			-- deliberately dropped here and handled by the sink bias in
+			-- the gravity step, because moving the kart down to meet the
+			-- chord is what dragged it into the ground and stuck it.
+			local delta = ideal - self.pos
+			local lateral = delta - self.up * delta:Dot(self.up)
+			self.pos += lateral * blend
 		end
 	end
 
@@ -1495,8 +1543,25 @@ function Simulation:Step(dt: number, input): { [string]: any }
 			-- Touching down ends it, whatever the corridor thought. The
 			-- ground is the authority here: a landing zone is where we
 			-- AIMED, not a promise about where the road actually is.
-			if self.grounded or os.clock() > (self.glideUntil or 0) then
-				if not self.grounded then
+			-- REACHING THE PAD COUNTS AS LANDING, whether or not there is
+			-- anything solid under it.
+			--
+			-- The end condition used to be `grounded` alone, and GlideLand
+			-- is in Triggers.TAGS — so the marker is invisible to the
+			-- ground probe by design. A pad floating a little above the
+			-- road meant nothing ever ended the glide and the kart hung
+			-- there until the timeout. The marker says where to arrive; it
+			-- was never meant to be the floor.
+			local arrived = false
+			if self.glideFrom and self.glideTo then
+				local line = self.glideTo - self.glideFrom
+				local span = line.Magnitude
+				arrived = span > 1 and (self.pos - self.glideFrom):Dot(line / span) >= span
+			end
+
+			local timedOut = os.clock() > (self.glideUntil or 0)
+			if self.grounded or arrived or timedOut then
+				if timedOut and not self.grounded and not arrived then
 					warn("[Simulation] glide timed out in mid-air — a GlideRamp is aimed at nothing.")
 				end
 				self:EndGlide()

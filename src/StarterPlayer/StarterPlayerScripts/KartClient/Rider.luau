@@ -469,33 +469,47 @@ local function ensureGliderFx(kart: Model, s)
 	s.trails = {}
 	for _, inst in kart:GetDescendants() do
 		if inst:IsA("BasePart") and table.find(RIG.WingNames, inst.Name) then
-			-- Along the wing's LONGEST axis, so a ribbon leaves the tip
-			-- rather than the middle, whichever way the mesh was modelled.
+			-- BOTH ENDS OF THE WING, NOT JUST THE POSITIVE ONE.
+			--
+			-- The first version placed one attachment at +half along the
+			-- long axis, which is one wing TIP. On a combined mesh that
+			-- spans both sides — which is what this rig has — that is the
+			-- right tip only, and the left had no ribbon at all.
+			--
+			-- Emitting at both ends covers the combined case AND the case
+			-- where the wings are separate parts whose meshes are mirrored,
+			-- since a mirrored part's "positive" end points inboard.
 			local size = inst.Size
-			local axis = if size.X >= size.Z then Vector3.xAxis else Vector3.zAxis
-			local half = (if size.X >= size.Z then size.X else size.Z) * 0.5
+			local wide = size.X >= size.Z
+			local axis = if wide then Vector3.xAxis else Vector3.zAxis
+			local half = (if wide then size.X else size.Z) * 0.5
 
-			local a0 = Instance.new("Attachment")
-			a0.Position = axis * half + Vector3.new(0, 0.15, 0)
-			a0.Parent = inst
-			local a1 = Instance.new("Attachment")
-			a1.Position = axis * half - Vector3.new(0, 0.15, 0)
-			a1.Parent = inst
+			for _, side in { 1, -1 } do
+				local tip = axis * (half * side)
+				local a0 = Instance.new("Attachment")
+				a0.Name = "GlideTrailTop"
+				a0.Position = tip + Vector3.new(0, 0.15, 0)
+				a0.Parent = inst
+				local a1 = Instance.new("Attachment")
+				a1.Name = "GlideTrailBottom"
+				a1.Position = tip - Vector3.new(0, 0.15, 0)
+				a1.Parent = inst
 
-			local trail = Instance.new("Trail")
-			trail.Attachment0, trail.Attachment1 = a0, a1
-			trail.Lifetime = GLD.TrailLife
-			trail.WidthScale = NumberSequence.new(GLD.TrailWidth)
-			trail.Color = ColorSequence.new(GLD.TrailColor)
-			-- Fades out along its own length, so the ribbon has an end
-			-- rather than being chopped off.
-			trail.Transparency = NumberSequence.new({
-				NumberSequenceKeypoint.new(0, GLD.TrailTransparency),
-				NumberSequenceKeypoint.new(1, 1),
-			})
-			trail.Enabled = false
-			trail.Parent = inst
-			table.insert(s.trails, trail)
+				local trail = Instance.new("Trail")
+				trail.Attachment0, trail.Attachment1 = a0, a1
+				trail.Lifetime = GLD.TrailLife
+				trail.WidthScale = NumberSequence.new(GLD.TrailWidth)
+				trail.Color = ColorSequence.new(GLD.TrailColor)
+				-- Fades out along its own length, so the ribbon has an end
+				-- rather than being chopped off.
+				trail.Transparency = NumberSequence.new({
+					NumberSequenceKeypoint.new(0, GLD.TrailTransparency),
+					NumberSequenceKeypoint.new(1, 1),
+				})
+				trail.Enabled = false
+				trail.Parent = inst
+				table.insert(s.trails, trail)
+			end
 		end
 	end
 end

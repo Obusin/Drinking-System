@@ -196,7 +196,50 @@ return {
 	-- Peak of the ideal arc, as a fraction of the gap length. Only used
 	-- as the shape the funnel pulls TOWARD, so it needs to look like the
 	-- path rather than be it.
-	FunnelArc = 0.12,
+	-- Small. A big arc holds the ideal path high above the chord, which
+	-- for a pad well below the ramp is the funnel fighting the descent it
+	-- is supposed to be helping. 0.03 keeps the shape without the fight.
+	FunnelArc = 0.03,
+
+	--== HEIGHT IS FLOWN, NOT TELEPORTED ==============================
+	-- The funnel corrects ACROSS the line only. Height is corrected by
+	-- leaning on the SINK RATE instead — the wings working a little
+	-- harder or a little less.
+	--
+	-- Correcting height by moving the position was wrong twice over. It
+	-- yanked the kart down onto the chord whenever the pad sat below the
+	-- ramp, which is most ramps; and pulling it down into the terrain put
+	-- it in a fight with depenetration, which reads as the kart sticking.
+	--
+	-- A sink bias cannot do either. It cannot teleport, it cannot push
+	-- through geometry, and it is the same control the player has — so a
+	-- correction looks like flying rather than like being grabbed.
+	-- HEIGHT STARTS CORRECTING EARLY, LATERAL STARTS LATE, and they are
+	-- deliberately on different schedules.
+	--
+	-- Height has a long time constant: bleeding 90 studs of altitude takes
+	-- seconds, so it has to begin almost immediately. Lateral has a short
+	-- one and the heading clamp already bounds it, so it can wait —
+	-- which is what keeps the flight feeling like yours. Sharing one
+	-- schedule meant choosing between an accurate landing and a glider
+	-- worth flying.
+	HeightStart = 0.2,
+
+	HeightCorrect = 2.6, -- studs/s of sink change per stud of error
+	HeightCorrectMax = 120, -- and the most it may ever contribute
+	HeightClimb = 6, -- how far the bias may push into a climb
+
+	-- How hard the wings pull the descent rate toward its target, per
+	-- second, and ONLY while the funnel is active.
+	--
+	-- Without this the height bias saturated and did nothing past a
+	-- point: the sink rate is only a CAP on how fast you may fall, and
+	-- gravity at 24 studs/s^2 is what actually accelerates you into it.
+	-- Raising a cap nothing is pushing against changes nothing.
+	--
+	-- Scaled by the funnel weight, so the launch arc is untouched — early
+	-- in the flight the weight is zero and this does not exist.
+	SinkFollow = 4.5,
 
 	--== LANDING ======================================================
 	-- Speed kept on touchdown. A glide should not be a free boost, but
