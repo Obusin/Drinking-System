@@ -643,6 +643,7 @@ function Simulation:_updateSwim(dt: number)
 		local kick = math.min(over * SW.LaunchPerRise, SW.LaunchMax) * self.swim
 		if kick > self.vertVel then
 			self.vertVel = kick
+			self.wasLaunched = true
 			-- Said out loud, exactly like the glide launch: a kick alone
 			-- does not clear GroundSnap within a frame, so the next probe
 			-- would still report contact and swallow it.

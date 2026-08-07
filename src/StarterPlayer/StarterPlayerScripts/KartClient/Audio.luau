@@ -12,6 +12,7 @@ local Config = require(BloxKart:WaitForChild("Config"))
 local Util = require(BloxKart:WaitForChild("Util"))
 
 local A = Config.Audio
+local SW = Config.Swim
 
 local Audio = {}
 Audio.__index = Audio
@@ -27,6 +28,12 @@ function Audio.new(hitbox: BasePart)
 		table.insert(created, inst)
 		return inst
 	end
+
+	local splash = make({
+		SoundId = SW.SplashSoundId,
+		Volume = SW.SplashVolume,
+		RollOffMaxDistance = 220,
+	})
 
 	local boost = make({
 		Name = "_BoostSound",
@@ -122,6 +129,7 @@ function Audio.new(hitbox: BasePart)
 		created = created,
 		bump = bump,
 		boost = boost,
+		splash = splash,
 		engine = engine,
 		screech = screech,
 		tick = tick,
@@ -192,6 +200,18 @@ function Audio:PlayTierNote(tier: number)
 	voice.PlaybackSpeed = A.TierNotePitches[math.clamp(tier + 1, 1, #A.TierNotePitches)]
 	voice.TimePosition = 0
 	voice:Play() -- Play() rewinds, so this is always from scratch
+end
+
+-- Scaled by how hard the landing was, so a gentle touchdown is a lap
+-- and a real drop is a crash. One sound, two readings.
+function Audio:Splash(impact: number)
+	if not self.splash or self.splash.SoundId == "" then
+		return
+	end
+	local hard = math.clamp(impact / 40, 0, 1)
+	self.splash.Volume = SW.SplashVolume * (0.45 + 0.55 * hard)
+	self.splash.PlaybackSpeed = SW.SplashPitchMax - (SW.SplashPitchMax - SW.SplashPitchMin) * hard
+	self.splash:Play()
 end
 
 function Audio:Boost(tier: number)

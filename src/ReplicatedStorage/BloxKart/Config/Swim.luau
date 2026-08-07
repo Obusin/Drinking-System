@@ -176,7 +176,12 @@ return {
 	-- Folding SlamAtSpeed into the tilt as well was what kept it pinned
 	-- at maximum however low the coefficient went.
 	WaveTilt = 9, -- degrees of tilt per stud of height difference
-	WaveTiltMax = 11, -- and a ceiling, because a wave is not a ramp
+	WaveTiltMax = 11,
+
+	-- How fast the hull takes up a new angle. The wave field itself is
+	-- already smooth; this is the hull's own inertia against it, and it
+	-- is what stops a short chop being followed exactly.
+	WaveTiltRate = 5, -- and a ceiling, because a wave is not a ramp
 
 	--== THE BOUNCE ===================================================
 	-- The hull does NOT rigidly follow the surface — it is sprung against
@@ -198,9 +203,25 @@ return {
 	-- a chassis does.
 	RollScale = 1.6,
 
-	--== SPRAY ========================================================
-	SpraySoundId = "",
-	SprayVolume = 0.5,
+	--== AUDIO ========================================================
+	-- The hull moving through water. Looped, and its VOLUME follows
+	-- speed rather than the state — a moored boat is nearly silent and a
+	-- moving one is not, which is the same reasoning as the glider's
+	-- wind: the sound is a readout for how fast you are going, not a flag
+	-- that says "you are in water".
+	CruiseSoundId = "rbxassetid://123939612469793",
+	CruiseVolume = 0.6,
+	CruisePitchMin = 0.85,
+	CruisePitchMax = 1.2,
+	CruiseFade = 2.5,
+
+	-- SPLASH, on the landing after a wave launch — not on the launch.
+	-- The impact is the noise; going up is silent, which is also what
+	-- actually happens.
+	SplashSoundId = "rbxassetid://128701355933535",
+	SplashVolume = 0.7,
+	SplashPitchMin = 0.9,
+	SplashPitchMax = 1.25,
 
 	Debug = false,
 }

@@ -1202,6 +1202,30 @@ sharing a name list with `KartDress`.)
 
 ---
 
+### Never write a per-frame contribution into smoothed persistent state.
+
+The wave tilt was added straight onto `s.bodyRoll` — which is a
+PERSISTENT smoothed value — and then multiplied by `RollScale` on top:
+
+```
+bodyRoll = (bodyRoll + wave) * 1.6      every frame
+```
+
+So each frame added the wave to a number that already contained the
+previous frame's wave, and scaled the lot. One degree became sixty in ten
+frames, the smoothing yanked it back, and it climbed again. That
+oscillation was the "snapping" — the wave field itself was fine.
+
+**A contribution and a state are different things.** Give each its own
+variable and its own rate, and combine them only at the point of use. A
+multiplier belongs on the OUTPUT for the same reason: applied to the
+state it compounds, applied to the output it scales.
+
+The tell for this class of bug: a value that grows without any input
+growing, and smoothing that makes it worse rather than better.
+
+---
+
 ### An impulse smaller than the snap distance is a wasted impulse.
 
 Wave launches were tuned to feel plausible and produced kicks of 1.8-3.0

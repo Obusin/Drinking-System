@@ -698,6 +698,14 @@ local function step(dt: number)
 	end
 	-- Touching down. Distinct from itemEvents.landed further below, which
 	-- is the item roulette settling — same word, unrelated event.
+	-- SPLASH ON A WAVE LANDING, and only that. Simulation reports it
+	-- rather than the client inferring it, because "did that landing
+	-- happen on water after being thrown by a wave" is three pieces of
+	-- state the client would have to reconstruct and could get wrong.
+	if events.splashed then
+		audio:Splash(events.splashed)
+	end
+
 	if events.landed then
 		haptics:Punch(HAP.LandPunch)
 	end

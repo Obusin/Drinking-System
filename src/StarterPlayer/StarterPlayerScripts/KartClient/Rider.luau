@@ -477,14 +477,38 @@ local function updateBody(kart: Model, s, dt: number)
 		local wavePitch = math.clamp((fore - aft) * SW.WaveTilt, -SW.WaveTiltMax, SW.WaveTiltMax)
 		local waveRoll = math.clamp((right - left) * SW.WaveTilt, -SW.WaveTiltMax, SW.WaveTiltMax)
 
-		s.bodyPitch += wavePitch * wet
-		s.bodyRoll += waveRoll * wet
-		-- A hull rolls more than a chassis does.
-		s.bodyRoll *= 1 + (SW.RollScale - 1) * wet
+		-- SMOOTHED SEPARATELY, AND NEVER WRITTEN BACK INTO THE BODY STATE.
+		--
+		-- These used to be added straight onto s.bodyPitch / s.bodyRoll —
+		-- which are PERSISTENT smoothed values. So every frame the wave
+		-- was added to a number that already contained last frame's wave,
+		-- and then multiplied by RollScale on top:
+		--
+		--     bodyRoll = (bodyRoll + wave) * 1.6     every frame
+		--
+		-- which compounds. One degree became sixty inside ten frames, the
+		-- blend yanked it back, and it climbed again. That oscillation was
+		-- the snapping — not the wave field, which was fine.
+		--
+		-- Own state, own rate, combined only at the point of use.
+		local wRate = math.min(SW.WaveTiltRate * dt, 1)
+		s.waveP = (s.waveP or 0) + (wavePitch * wet - (s.waveP or 0)) * wRate
+		s.waveR = (s.waveR or 0) + (waveRoll * wet - (s.waveR or 0)) * wRate
+	elseif (s.waveP or 0) ~= 0 or (s.waveR or 0) ~= 0 then
+		-- Eased out on leaving the water rather than dropped, or the hull
+		-- levels with a jolt the moment you touch land.
+		local wRate = math.min(SW.WaveTiltRate * dt, 1)
+		s.waveP = (s.waveP or 0) * (1 - wRate)
+		s.waveR = (s.waveR or 0) * (1 - wRate)
 	end
 
+	-- A hull rolls more than a chassis does. Applied to the OUTPUT, not
+	-- to the stored state, so it scales the roll instead of compounding it.
+	local hullRoll = s.bodyRoll * (1 + (SW.RollScale - 1) * wet) + (s.waveR or 0)
+	local hullPitch = s.bodyPitch + (s.waveP or 0)
+
 	motor.Transform = CFrame.new(0, bob - s.bodyDip, 0)
-		* CFrame.Angles(math.rad(s.bodyPitch), 0, math.rad(s.bodyRoll))
+		* CFrame.Angles(math.rad(hullPitch), 0, math.rad(hullRoll))
 end
 
 --=====================================================================
@@ -624,6 +648,19 @@ local function ensureGliderFx(kart: Model, s)
 	deploy.RollOffMaxDistance = 200
 	deploy.Parent = hitbox
 	s.deploy = deploy
+
+	-- The hull through the water. Volume follows SPEED, not the state:
+	-- a moored boat is nearly silent and a moving one is not, so the
+	-- sound is a readout for how fast you are going rather than a flag
+	-- saying "you are in water". Same reasoning as the glide wind.
+	local cruise = Instance.new("Sound")
+	cruise.Name = "SwimCruise"
+	cruise.SoundId = SW.CruiseSoundId
+	cruise.Looped = true
+	cruise.Volume = 0
+	cruise.RollOffMaxDistance = 200
+	cruise.Parent = hitbox
+	s.cruise = cruise
 
 	local sound = Instance.new("Sound")
 	sound.Name = "GlideWind"
