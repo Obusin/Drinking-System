@@ -136,6 +136,7 @@ function Simulation.new(model: Model, hitbox: BasePart, seat: VehicleSeat, _char
 		gripNow = H.Grip,
 		state = STATE_GRIP,
 		hopUntil = 0,
+		bounceUntil = 0,
 		driftDir = 0,
 		driftStart = 0,
 		driftAngle = 0,
@@ -220,6 +221,7 @@ function Simulation:RespawnAt(cf: CFrame)
 
 	-- Everything transient is cleared; anything earned is kept.
 	self.state = STATE_GRIP
+	self.bounceUntil = 0
 	self.driftDir, self.releaseDir = 0, 0
 	self.driftBlend, self.driftAngle = 0, 0
 	self.tier, self.tanksGained = 0, 0
@@ -665,6 +667,13 @@ function Simulation:Step(dt: number, input): { [string]: any }
 	local speedAbs = math.abs(self.speed)
 	local authority = math.clamp(speedAbs / H.TurnRampSpeed, 0, 1)
 
+	-- BRIEFLY A PASSENGER after a square impact. This is what makes a
+	-- bounce read as being HIT rather than as the kart deciding to go the
+	-- other way. Short by design — see BounceLockout.
+	if now < (self.bounceUntil or 0) then
+		authority *= H.BounceLockSteer
+	end
+
 	-- Ramp the blend linearly, then smoothstep it. Smoothstep has zero
 	-- slope at 0 and 1, so the kart eases in and out of the drift
 	-- instead of stepping into it.
@@ -929,7 +938,40 @@ function Simulation:Step(dt: number, input): { [string]: any }
 		local dir = remaining.Unit
 		local reached = math.clamp(hit.Distance, 0, travel)
 		self.pos += dir * math.max(reached - H.SkinWidth, 0)
-		self.speed *= 1 - H.WallScrub * math.abs(dir:Dot(hit.Normal))
+
+		-- HOW SQUARE WAS THE HIT? 1 is dead-on, 0 is a graze.
+		local square = math.abs(dir:Dot(hit.Normal))
+
+		if square >= H.BounceMinDot and math.abs(self.speed) >= H.BounceMinSpeed then
+			-- BOUNCE. Reflect travel about the surface normal and keep a
+			-- fraction of the speed. Authored, not simulated: there is no
+			-- constraint and physics is not consulted.
+			local reflected = self.travel - hit.Normal * (2 * self.travel:Dot(hit.Normal))
+			-- Flattened back onto our own up so a bounce off a wall
+			-- cannot launch the kart at the sky, and so this still
+			-- behaves on a loop where "up" is not world up.
+			self.travel = (Util.orthonormal(reflected, self.up))
+			-- The NOSE comes with it. Leaving forward pointing into the
+			-- wall would have the kart reverse away from it while still
+			-- facing it, then immediately drive back in — a wall you get
+			-- stuck against rather than bounce off.
+			self.forward = self.travel
+			self.forward, self.up = Util.orthonormal(self.forward, self.up)
+
+			self.speed = math.abs(self.speed) * H.BounceKeep
+			self.bounceUntil = now + H.BounceLockout
+			events.bounced = square
+
+			-- Nothing left to slide with: the frame's movement was spent
+			-- on the impact, and continuing to sweep would carry the old
+			-- direction into the wall we just left.
+			break
+		end
+
+		-- GRAZE: the original slide. Wall-riding a corner has to stay
+		-- smooth, so anything short of a square hit keeps the old
+		-- behaviour exactly.
+		self.speed *= 1 - H.WallScrub * square
 
 		-- What's left, flattened onto the wall. Re-cast next pass.
 		local leftover = remaining - dir * reached

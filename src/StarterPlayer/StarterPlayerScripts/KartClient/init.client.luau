@@ -75,6 +75,7 @@ local ItemRegistry = require(ReplicatedStorage.BloxKart.Items)
 local Respawn = require(script.Respawn)
 local Projectiles = require(script.Projectiles)
 local TouchHud = require(script.TouchHud)
+local Props = require(script.Props)
 local Rider = require(script.Rider)
 local RemoteKarts = require(script.RemoteKarts)
 local RemoteAudio = require(script.RemoteAudio)
@@ -176,6 +177,10 @@ else
 	warn("[KartClient] no transition remote — cross-place teleports will not get a hold-cover wipe.")
 end
 local questHud = QuestHud.new(tally)
+-- Knockable scenery. Built once and kept for the session: props are
+-- world geometry, not per-kart, and they must keep flying through a
+-- respawn rather than freezing mid-arc.
+local props = Props.new()
 local minimap = Minimap.new()
 -- Bound directly rather than through Input: this is UI, it must work
 -- while spectating and out of a kart, and Input's bindings are released
@@ -637,6 +642,11 @@ local function step(dt: number)
 	if matchEvents.finished then
 		audio:Boost(3)
 	end
+
+	-- Stepped with the sim so a knocked cone travels with the same frame
+	-- the kart moved on. Tolerates a nil sim — the arc must continue
+	-- while you are on foot or spectating.
+	props:Update(sim, dt)
 
 	Input.update(dt)
 	local events = stepSim(sim, dt)

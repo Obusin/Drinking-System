@@ -353,6 +353,37 @@ return {
 
 	--== COLLISION =====================================================
 	WallScrub = 0.55, -- speed lost on a head-on wall hit (0..1)
+
+	--== BOUNCING OFF A WALL ===========================================
+	-- Hitting a wall used to be a full stop plus a slide: the kart lost
+	-- WallScrub of its speed and the rest was flattened along the
+	-- surface. Correct, and it reads as the kart being switched off
+	-- rather than as an impact.
+	--
+	-- A bounce is AUTHORED, like every other reaction here — the travel
+	-- direction is reflected about the surface normal and speed is scaled.
+	-- No constraint, no restitution solver, nothing handed to physics.
+	--
+	-- ONLY HEAD-ON HITS BOUNCE. `dir . normal` is how square the impact
+	-- is: 1 is dead-on, 0 is a graze. Below BounceMinDot the old slide is
+	-- kept, and that matters — wall-riding a corner has to stay smooth,
+	-- and a kart that pinballs off every kerb it brushes is unusable.
+	BounceMinDot = 0.45, -- squarer than this and it bounces
+	BounceKeep = 0.45, -- fraction of speed surviving the bounce. Below
+	-- half on purpose: a bounce that returns most of your speed reads as
+	-- a trampoline, and makes walls faster than the racing line.
+	BounceMinSpeed = 18, -- below this it just stops. A crawl that pings
+	-- backwards off a wall looks broken rather than physical.
+
+	-- How long steering authority is reduced after a bounce, and by how
+	-- much. This is what makes it read as an IMPACT rather than a
+	-- redirect — you are briefly a passenger.
+	--
+	-- Keep it short. Taking control away is the least fun thing a game
+	-- can do, and past about a fifth of a second it stops being an impact
+	-- and starts being a punishment.
+	BounceLockout = 0.18,
+	BounceLockSteer = 0.35, -- steering multiplier while locked out
 	SkinWidth = 0.1, -- gap kept from surfaces
 	CollisionPasses = 3, -- slide iterations per frame, each re-cast.
 	-- 1 = shoots through corners, because the slide itself would never
