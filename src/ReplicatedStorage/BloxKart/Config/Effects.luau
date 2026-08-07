@@ -101,6 +101,42 @@ ShieldName = "Shield",
 	-- Doubled, because a spring that has to travel loses half its
 	-- amplitude to damping on the way — the old assignment cheated by
 	-- starting AT the target.
+	-- HOW MUCH OF THE DEPENETRATION IS HIDDEN IN THE SUSPENSION.
+	--
+	-- Collision is discrete, so on the frame contact is detected the kart
+	-- is already up to impact/60 studs UNDER the surface — 2.7 studs at
+	-- 164 studs/s. `pos` is corrected upward in one step, and that step
+	-- is a position teleport that scales with how hard you landed.
+	--
+	-- It survived every previous fix because all of them were aimed at
+	-- the rebound, and this happens on ARRIVAL.
+	--
+	-- `squash` is subtracted from the visual position, so adding the
+	-- correction to it cancels the jump exactly: the true position is
+	-- fixed immediately, the drawn one does not move at all, and the
+	-- spring rings the difference out over the next few frames. The
+	-- suspension absorbs the collision error, which is precisely what
+	-- suspension is for.
+	--
+	-- 1 is a perfect cancel. Slightly under, because a perfect cancel
+	-- means a deep landing takes noticeably longer to return to ride
+	-- height, and the eye reads that as sinking.
+	LandCatchCorrection = 0.85,
+
+	-- HELD SEPARATELY FROM `squash`, and not because it is tidier.
+	--
+	-- `squash` is clamped to LandSquashMax (0.9) so the cosmetic dip
+	-- cannot get silly. A hard landing needs to absorb up to 2.7 studs of
+	-- collision error, so folding the two together meant the clamp ate
+	-- most of the catch and the teleport came back at speed — halved
+	-- rather than removed.
+	--
+	-- They are different quantities: one is how much the suspension is
+	-- COMPRESSING, the other is how much of the engine's discrete-step
+	-- error is still being hidden. Sharing a variable forced one clamp to
+	-- serve both.
+	LandCatchRecover = 9, -- per second, back to true position
+
 	LandSquashImpulse = 2, -- multiplier on the velocity needed to reach the dip
 
 	LandSquash = 0.22, -- dip on the gentlest landing

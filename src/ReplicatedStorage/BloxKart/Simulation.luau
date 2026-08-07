@@ -228,6 +228,7 @@ function Simulation:RespawnAt(cf: CFrame)
 	-- Full grip, not whatever the drift or hop we died in had left it on.
 	self.gripNow = H.Grip
 	self.squash, self.squashVel = 0, 0
+	self.catch = 0
 
 	-- Everything transient is cleared; anything earned is kept.
 	self.state = STATE_GRIP
@@ -1637,6 +1638,22 @@ function Simulation:Step(dt: number, input): { [string]: any }
 			-- bridge producing the same cosmetic dip.
 			local impact = math.max(-self.vertVel, 0)
 
+			-- THE VISUAL DOES NOT FOLLOW THE CORRECTION.
+			--
+			-- `correction` un-buries the kart from however far it sank
+			-- into the ground between frames, and applying it moves the
+			-- kart. `squash` is subtracted from the drawn position, so
+			-- adding the correction there cancels the jump: the true
+			-- position is right immediately, the drawn one does not move,
+			-- and the spring resolves the difference over a few frames.
+			--
+			-- Only on a real landing — mid-drive the ground probe is
+			-- correcting by fractions every frame and feeding those into
+			-- the suspension would make the kart hum along the road.
+			if not self.wasGrounded and correction > 0 then
+				self.catch = (self.catch or 0) + correction * FX.LandCatchCorrection
+			end
+
 			self.pos += self.up * correction
 			self.vertVel = 0
 			self.grounded = true
@@ -1948,6 +1965,11 @@ function Simulation:Step(dt: number, input): { [string]: any }
 	self.squashVel += (-FX.SquashSpring * self.squash - FX.SquashDamp * self.squashVel) * dt
 	self.squash += self.squashVel * dt
 	self.squash = math.clamp(self.squash, -FX.LandSquashMax, FX.LandSquashMax)
+
+	-- The collision error still being hidden, easing back to zero. Kept
+	-- out of `squash` because that is clamped to a cosmetic range and a
+	-- hard landing needs to absorb several studs.
+	self.catch = Util.approach(self.catch or 0, 0, FX.LandCatchRecover, dt)
 	self.speedFrac = math.clamp(speedAbs / maxSpeed, 0, 1)
 	self.bob = if self.grounded
 		then math.sin(now * FX.BobSpeed) * FX.BobAmount * self.speedFrac
@@ -1964,7 +1986,7 @@ function Simulation:Step(dt: number, input): { [string]: any }
 	look = up:Cross(right).Unit
 
 	-- Bob and squash ride along up, not world-Y.
-	local visualPos = self.pos + up * (self.bob - self.squash)
+	local visualPos = self.pos + up * (self.bob - self.squash - (self.catch or 0))
 	local base = CFrame.fromMatrix(visualPos, right, up, -look)
 	-- THE FLIP GOES HERE, ON THE WHOLE ASSEMBLY.
 	--

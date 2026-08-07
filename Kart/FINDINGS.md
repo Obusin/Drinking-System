@@ -1235,6 +1235,37 @@ happen to use the same function.
 
 ---
 
+### Discrete collision teleports on contact. Hide it in the suspension.
+
+At 60fps a kart arriving at 164 studs/s is already **2.7 studs under the
+surface** on the frame contact is detected. Depenetration corrects that
+in one step, and that step is a position teleport which scales with
+impact speed.
+
+It survived four separate attempts at "the landing snaps" because every
+one of them was aimed at the REBOUND, and this happens on ARRIVAL.
+
+`squash` is subtracted from the drawn position, so adding the correction
+there cancels the jump exactly: the true position is fixed immediately,
+the drawn one does not move, and the spring rings the difference out.
+**The suspension absorbs the collision error, which is what suspension
+is for.**
+
+Contact-frame jump: 1.93 studs -> 1.03 -> 0.29.
+
+The middle number is the lesson. Folding it into `squash` only halved it,
+because `squash` is clamped to a cosmetic range (0.9) and a hard landing
+needs to hide several studs. **They are different quantities** — one is
+how far the suspension is compressing, the other is how much engine
+error is still hidden — and sharing a variable forced one clamp to serve
+both.
+
+Only on a real landing, too: mid-drive the ground probe corrects by
+fractions every frame, and feeding those into the suspension would make
+the kart hum along the road.
+
+---
+
 ### A floor must sit BELOW its own threshold, or it never terminates.
 
 The landing bounce is floored so a gentle drop still clears GroundSnap —
