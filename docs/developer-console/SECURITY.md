@@ -205,10 +205,40 @@ exact but lists are capped at 40 and flagged when trimmed. Shipping a profile
 wholesale would put an unbounded table through a remote and into a UI that
 redraws every frame.
 
-**No write path, deliberately.** Editing persistent data from a console is how
-a debug tool becomes the reason someone's inventory vanished. If it is ever
-added it needs its own capability, confirmation, and an audit entry recording
-the before value — none of which exists today.
+### Currency editing (added 2026-08-07)
+
+Owner-only (`EDIT_CURRENCY`), confirmation-gated, rate limited to 3 per 30s,
+and bounded to +/-100,000 per call. Grouped with ban because it is the other
+action with **no undo** — a ban has `UnbanAsync`; deleted currency has nothing.
+
+**It goes through `Progress.grant` / `Progress.spend`, never `data.bolt`.**
+DataService's header is explicit that *"Progress owns balances and is the only
+thing that changes one... two modules that both write a balance is the dupe
+this whole design exists to avoid."* A console writing the field directly
+would be exactly that second writer, and it would skip the **Ledger** — making
+a developer-granted balance the one transaction in the game with no row behind
+it, invisible in an audit precisely where an audit matters most.
+
+Routing through the front door inherits three guarantees for free:
+
+- `spend` **refuses to go below zero** and returns false, rather than clamping.
+  Silently taking "as much as they had" is a different action from the one
+  requested, and the caller is told which happened.
+- the ledger row, the cap and the on-screen award toast all keep working
+- every console change carries a `dev:<name>` reason, so it stays
+  distinguishable from an earned amount forever
+
+**No "set to N".** Only add and remove. A set would have to write the field
+directly to force a value down — the second writer again. Add/remove composes
+to the same outcome through the front door, and it is the honest shape because
+the ledger records a delta, not a decree.
+
+Audit records the **before and after** value, which is what a mistaken edit
+needs to be recoverable.
+
+**Still no editing of anything else** — parts, karts, quests, pass and drops
+remain read-only. Those have no `Progress`-equivalent single owner, so a
+console write would be the second-writer problem all over again.
 
 The response always carries `mockStore`, and the UI prints it first and
 loudly. In Studio the store is mocked, so every value is a fresh default and a

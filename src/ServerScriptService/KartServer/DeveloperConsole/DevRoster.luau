@@ -101,6 +101,11 @@ DevRoster.Permissions = table.freeze({
 	-- accounts that are not present, and cannot be undone by the person
 	-- it happened to. A compromised developer account should be able to
 	-- waste your afternoon, not your player base.
+	-- CURRENCY. Owner-only and grouped with ban for a reason: it is the
+	-- other action here with no undo. A ban has UnbanAsync; spent or
+	-- deleted currency has nothing.
+	EDIT_CURRENCY = "owner",
+
 	BAN_PLAYER = "owner",
 	UNBAN_PLAYER = "owner",
 })

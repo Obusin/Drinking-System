@@ -29,6 +29,7 @@ local World = require(script.Parent.adapters.World)
 local AI = require(script.Parent.adapters.AI)
 local Moderation = require(script.Parent.adapters.Moderation)
 local Tuning = require(script.Parent.adapters.Tuning)
+local Economy = require(script.Parent.adapters.Economy)
 
 local Code = Protocol.Code
 local Commands = {}
@@ -337,6 +338,39 @@ Commands.reset_tunable = {
 	end,
 	run = function(_, p)
 		return Tuning.reset(p.targetUserId, p.key)
+	end,
+}
+
+--=====================================================================
+--  ECONOMY
+--=====================================================================
+
+Commands.adjust_currency = {
+	permission = "EDIT_CURRENCY",
+	-- Harsh, like ban. Each press is a separate ledger row, so a slow
+	-- limit costs a developer a few seconds and costs a runaway script
+	-- or a stolen session almost everything it wanted.
+	rate = { burst = 3, per = 30 },
+	destructive = true,
+	validate = function(p)
+		return DevSchema.shape(p, {
+			targetUserId = DevSchema.userId(),
+			kind = DevSchema.oneOf(Economy.KINDS),
+			-- Signed: positive grants, negative takes. Bounded both ways
+			-- so a typo cannot be a million, and zero is rejected because
+			-- an adjustment of nothing is a mistake, not a no-op.
+			amount = DevSchema.intRange(-Economy.MAX_PER_CALL, Economy.MAX_PER_CALL),
+			confirm = DevSchema.boolean(),
+		})
+	end,
+	run = function(ctx, p)
+		if p.confirm ~= true then
+			return false, Code.BAD_PAYLOAD, "Currency changes require confirm = true."
+		end
+		if p.amount == 0 then
+			return false, Code.BAD_PAYLOAD, "Amount must not be zero."
+		end
+		return Economy.adjust(ctx.player.Name, p.targetUserId, p.kind, p.amount)
 	end,
 }
 

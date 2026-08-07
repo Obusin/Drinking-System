@@ -114,6 +114,8 @@ local tuneValue: { [string]: number } = {}
 -- request that skips the arming step fails validation on the server.
 local armed = { action = nil :: string?, forUserId = nil :: number? }
 local banDays = 0 -- 0 = permanent
+local currencyKind = "bolt"
+local currencyAmount = 100
 local banReason = "Breaking the rules"
 
 local function disarm()
@@ -356,7 +358,46 @@ local function drawPlayers()
 		else
 			Iris.Text({ "Press Load profile." })
 		end
-		Iris.Text({ "Read-only. No editing from here, by design." })
+		-- CURRENCY, owner only, armed like a ban.
+		if may("owner") then
+			Iris.Separator()
+			Iris.Text({ ("Adjust %s"):format(currencyKind) })
+			Iris.SameLine()
+			for _, k in { "bolt", "crystals" } do
+				if Iris.Button({ (if currencyKind == k then "[" .. k .. "]" else k) }).clicked() then
+					currencyKind = k
+					disarm()
+				end
+			end
+			Iris.End()
+
+			Iris.SameLine()
+			for _, amt in { -1000, -100, 100, 1000, 10000 } do
+				if Iris.Button({ ("%+d"):format(amt) }).clicked() then
+					currencyAmount = amt
+					disarm() -- changing the amount invalidates an arm
+				end
+			end
+			Iris.End()
+
+			local key = "currency"
+			local isArmed = armed.action == key and armed.forUserId == selected.userId
+			Iris.Text({ ("Pending: %+d %s"):format(currencyAmount, currencyKind) })
+			if Iris.Button({ if isArmed then "CONFIRM — THIS IS PERMANENT" else "Apply" }).clicked() then
+				armOrFire(key, selected.userId, function()
+					Client.send("adjust_currency", {
+						targetUserId = selected.userId,
+						kind = currencyKind,
+						amount = currencyAmount,
+						confirm = true,
+					})
+					Client.refreshProfile(selected.userId)
+				end)
+			end
+			Iris.Text({ "Goes through Progress, so it lands in the Ledger like any earned amount." })
+		else
+			Iris.Text({ "Read-only. Currency editing is owner-only." })
+		end
 	end
 	Iris.End()
 
