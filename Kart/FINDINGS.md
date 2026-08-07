@@ -1061,6 +1061,41 @@ from the property.** The same rule the transparency baseline follows in
 
 ---
 
+### Derive a visual from the same source as the thing it describes.
+
+Body roll is read entirely off the suspension the wheels already use.
+Authoring it separately — from steering, from velocity — is the obvious
+version and produces the uncanny one: a kart leaning left while its left
+wheels are extended.
+
+Deriving both from one source makes disagreement **impossible** rather
+than merely unlikely. The same reason `lookFor` and `KartDress` had to
+share a name list, and the same reason GapFill's preview and its commit
+call one builder.
+
+---
+
+### The body moves against the wheels, not the wheels against the body.
+
+The bodywork hangs off the hitbox on its own `Motor6D` and everything
+non-wheel welds to THAT; the wheels keep their own motors on the hitbox
+and never inherit the lean. Get that order backwards and the wheels
+swing with the shell, which is the one thing real suspension never does.
+
+Sign conventions, worked out once:
+
+```
+CFrame.Angles(0, 0, r)   about +Z (BACKWARD, since LookVector is -Z)
+                         +X -> +Y, so positive roll lifts the RIGHT side
+CFrame.Angles(p, 0, 0)   about +X (right)
+                         +Y -> +Z, so positive pitch lifts the NOSE
+```
+
+Compression is positive — the wheel has been pushed UP into the arch,
+so the ground is higher there and that side of the body rises with it.
+
+---
+
 ### Scaling reads as deploying. Fading reads as a rendering bug.
 
 A part that fades in looks like it was always there and the engine was

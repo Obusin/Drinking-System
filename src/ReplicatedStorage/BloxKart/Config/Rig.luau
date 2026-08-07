@@ -194,6 +194,50 @@ return {
 	TireNames = { "Tire", "Tires", "Tyre", "Tyres" },
 	RimTag = "KartRim",
 
+	--== BODY ROLL =====================================================
+	-- THE PAYOFF FOR FOUR SEPARATE WHEELS.
+	--
+	-- The bodywork hangs off the hitbox on its own Motor6D, so it can lean
+	-- and dip while the WHEELS stay where the road put them. That order
+	-- matters and is the whole illusion: real suspension moves the body
+	-- against the wheels, not the wheels against the body. Wheels keep
+	-- their own motors on the hitbox and never inherit the lean.
+	--
+	-- All of it is read from the suspension that already exists, so the
+	-- body cannot disagree with what the wheels are doing — a kart leaning
+	-- left while its left wheels are extended is the uncanny version of
+	-- this effect, and deriving both from one source makes it impossible.
+	BodyRootNames = { "Chassis", "Body", "Shell", "Hull" },
+	BodyRootTag = "KartBodyRoot",
+
+	-- Degrees of lean per stud of difference between the left and right
+	-- wheels. The suspension only travels ~1 stud, so this multiplies a
+	-- small number.
+	BodyRollPerStud = 9,
+	BodyPitchPerStud = 7,
+
+	-- Authored lean ON TOP, from steering and drift. Suspension alone
+	-- gives you bumps; this gives you cornering, which is the part players
+	-- actually read as weight.
+	--
+	-- OUTWARD, away from the turn — that is what weight transfer looks
+	-- like. Leaning into the corner reads as a motorbike.
+	BodyRollPerSteer = 3.5, -- degrees at full lock
+	BodyRollPerDrift = 6, -- and more again mid-drift
+
+	-- Squash. The body drops toward the wheels as they compress, which is
+	-- what makes a landing land.
+	BodySquash = 0.7, -- studs of dip per stud of average compression
+
+	-- Chased, not assigned. The suspension is already sprung; this is the
+	-- bodywork's own softness on top.
+	BodyRate = 9,
+
+	-- Ceilings, because a wheel dropping into a hole should not put the
+	-- kart on its side.
+	BodyRollMax = 14, -- degrees
+	BodyPitchMax = 10,
+
 	--== THE GLIDER ====================================================
 	-- The flap. One part, hinged, and the ONLY thing on the glider that
 	-- moves — the wings are combined meshes and stay put.

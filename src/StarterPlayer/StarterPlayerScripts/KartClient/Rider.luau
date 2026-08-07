@@ -331,6 +331,92 @@ local function suspensionFor(kart: Model, motor: Motor6D, hitbox: BasePart, s, d
 end
 
 --=====================================================================
+--  BODY ROLL — the payoff for four separate wheels.
+--
+--  Read entirely off the suspension that already exists, so the body
+--  cannot disagree with what the wheels are doing. A kart leaning left
+--  while its left wheels are extended is the uncanny version of this,
+--  and deriving both from one source makes it impossible rather than
+--  merely unlikely.
+--
+--  SIGNS, worked out once so nobody has to do it again:
+--    CFrame.Angles(0, 0, r) turns about +Z, which is BACKWARD (LookVector
+--    is -Z), so +X goes to +Y — positive roll lifts the RIGHT side.
+--    CFrame.Angles(p, 0, 0) turns about +X (right), so +Y goes to +Z —
+--    positive pitch lifts the NOSE.
+--
+--  Compression is positive: the wheel has been pushed UP into the arch,
+--  which means the ground is higher there and that side of the body
+--  should rise with it.
+--=====================================================================
+local function updateBody(kart: Model, s, dt: number)
+	local motor = kart:FindFirstChild("BodyMotor", true)
+	if not (motor and motor:IsA("Motor6D")) then
+		return
+	end
+
+	-- Gather the four corners. Front/rear comes off the attribute the
+	-- factory set; left/right off the sign of the joint's own X, which is
+	-- already in the hitbox's frame and therefore already means "left".
+	local fl, fr, rl, rr, n = 0, 0, 0, 0, 0
+	for _, m in kart:GetDescendants() do
+		if m:IsA("Motor6D") and m.Name == "RoadWheelMotor" then
+			local ride = (s.ride and s.ride[m]) or 0
+			local front = m:GetAttribute(Names.WHEEL_FRONT) == true
+			local left = m.C0.Position.X < 0
+			if front and left then
+				fl = ride
+			elseif front then
+				fr = ride
+			elseif left then
+				rl = ride
+			else
+				rr = ride
+			end
+			n += 1
+		end
+	end
+	if n == 0 then
+		return
+	end
+
+	local leftSide, rightSide = (fl + rl) * 0.5, (fr + rr) * 0.5
+	local frontAxle, rearAxle = (fl + fr) * 0.5, (rl + rr) * 0.5
+
+	-- Right side compressed -> right side rises -> positive roll.
+	local roll = (rightSide - leftSide) * RIG.BodyRollPerStud
+	-- Front compressed -> nose rises -> positive pitch.
+	local pitch = (frontAxle - rearAxle) * RIG.BodyPitchPerStud
+
+	-- AUTHORED LEAN ON TOP. Suspension alone gives you bumps; this gives
+	-- you cornering, which is the part players actually read as weight.
+	-- Outward, away from the turn — leaning into it reads as a motorbike.
+	local steer = kart:GetAttribute(Names.STEER)
+	steer = if typeof(steer) == "number" then math.clamp(steer, -1, 1) else 0
+	local drift = kart:GetAttribute(Names.DRIFT)
+	drift = if typeof(drift) == "number" then math.clamp(drift / 40, -1, 1) else 0
+	roll += steer * RIG.BodyRollPerSteer + drift * RIG.BodyRollPerDrift
+
+	roll = math.clamp(roll, -RIG.BodyRollMax, RIG.BodyRollMax)
+	pitch = math.clamp(pitch, -RIG.BodyPitchMax, RIG.BodyPitchMax)
+
+	-- SQUASH. The body drops toward the wheels as they compress, which is
+	-- what makes a landing land rather than merely stop.
+	local dip = (leftSide + rightSide) * 0.5 * RIG.BodySquash
+
+	-- Chased. The suspension is already sprung; this is the bodywork's own
+	-- softness on top of it, and it is what stops a sharp bump snapping
+	-- the whole shell sideways.
+	local blend = math.min(RIG.BodyRate * dt, 1)
+	s.bodyRoll = (s.bodyRoll or 0) + (roll - (s.bodyRoll or 0)) * blend
+	s.bodyPitch = (s.bodyPitch or 0) + (pitch - (s.bodyPitch or 0)) * blend
+	s.bodyDip = (s.bodyDip or 0) + (dip - (s.bodyDip or 0)) * blend
+
+	motor.Transform = CFrame.new(0, -s.bodyDip, 0)
+		* CFrame.Angles(math.rad(s.bodyPitch), 0, math.rad(s.bodyRoll))
+end
+
+--=====================================================================
 --  THRUSTERS
 --
 --  Centre reads SPEED, sides read BOOST, and that split is the point:
@@ -824,6 +910,7 @@ local function updateKart(kart: Model, dt: number)
 	updateRoadWheels(kart, s, dt)
 	updateGlider(kart, s, dt)
 	updateThrusters(kart, s, dt)
+	updateBody(kart, s, dt)
 
 	----------------------------------------------------------------
 	-- Hands

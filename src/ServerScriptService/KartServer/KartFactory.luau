@@ -317,6 +317,11 @@ function KartFactory.build(color: Color3?, visualName: string?): Model
 	-- anything that has to animate needs a Motor6D instead of a weld.
 	--
 	-- Returns the joint name, or nil for "this is ordinary bodywork".
+	local function isShield(inst: Instance): boolean
+		local shield = visual:FindFirstChild(Config.Effects.ShieldName, true)
+		return shield ~= nil and (inst == shield or inst:IsDescendantOf(shield))
+	end
+
 	local function gliderKind(inst: Instance): string?
 		if CollectionService:HasTag(inst, RIG.AeroTag) or inst.Name == RIG.AeroName then
 			return "AeroMotor"
@@ -348,6 +353,21 @@ function KartFactory.build(color: Color3?, visualName: string?): Model
 			end
 		end
 		return best
+	end
+
+	-- THE BODY ROOT. Everything that is not a wheel, not the glider and
+	-- not the shield hangs off THIS, and this hangs off the hitbox on a
+	-- Motor6D — so the bodywork can lean while the wheels stay put.
+	--
+	-- Named first, largest-non-wheel second. Never "the first child":
+	-- Explorer order is not a design decision, and treating it as one is
+	-- how a rig silently changes behaviour when somebody tidies it.
+	local bodyRoot: BasePart? = nil
+	for _, d in visual:GetDescendants() do
+		if d:IsA("BasePart") and (CollectionService:HasTag(d, RIG.BodyRootTag) or table.find(RIG.BodyRootNames, d.Name)) then
+			bodyRoot = d
+			break
+		end
 	end
 
 	-- Wheel Models, resolved once so the loop below can ask "is this part
@@ -475,6 +495,14 @@ function KartFactory.build(color: Color3?, visualName: string?): Model
 					anchorTo = wheelModels[owner].hub
 				elseif suppliedWheel and desc:IsDescendantOf(suppliedWheel) then
 					anchorTo = suppliedWheel
+				elseif bodyRoot and desc ~= bodyRoot and not isShield(desc) then
+					-- BODYWORK RIDES THE BODY ROOT, so it leans with it.
+					--
+					-- The shield is excluded deliberately: it is a bubble
+					-- around the WHOLE kart, and a bubble that tilts with
+					-- the bodywork reads as the shield being broken rather
+					-- than as the kart leaning.
+					anchorTo = bodyRoot
 				else
 					anchorTo = hitbox
 				end
@@ -485,6 +513,22 @@ function KartFactory.build(color: Color3?, visualName: string?): Model
 				end
 			end
 		end
+	end
+
+	-- The joint the bodywork leans on. Built AFTER the weld pass, so
+	-- everything that had to attach to the root is already attached.
+	if bodyRoot then
+		local motor = Instance.new("Motor6D")
+		motor.Name = "BodyMotor"
+		motor.Part0, motor.Part1 = hitbox, bodyRoot
+		motor.C0, motor.C1 = Util.pivotJoint(hitbox, bodyRoot)
+		motor.Parent = bodyRoot
+		log("%s -> body root", bodyRoot.Name)
+	else
+		warn("[KartFactory] no body root found — the kart will not lean. Name a part "
+			.. table.concat(RIG.BodyRootNames, "/")
+			.. " or tag one "
+			.. RIG.BodyRootTag)
 	end
 
 	if suppliedWheel then
