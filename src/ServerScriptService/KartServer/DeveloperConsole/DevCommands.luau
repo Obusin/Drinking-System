@@ -232,6 +232,55 @@ Commands.respawn_player = {
 	end,
 }
 
+Commands.inspect_dressing = {
+	permission = "VIEW_PLAYERS",
+	rate = { burst = 8, per = 5 },
+	validate = function(p)
+		return DevSchema.shape(p, { targetUserId = DevSchema.userId() })
+	end,
+	run = function(_, p)
+		local data = Inspect.dressing(p.targetUserId)
+		if not data then
+			return false, Code.NOT_FOUND, "That player is not in this server."
+		end
+		return true, Code.OK, "ok", data
+	end,
+}
+
+-- TELEPORT. The server resolves WHERE — the part a client must not be
+-- trusted with — and pushes it to the target's own client, which applies
+-- it through Simulation:RespawnAt.
+--
+-- It does not move the kart itself. A driven kart's position is owned by
+-- its player's client, and FINDINGS is explicit that a second writer
+-- produces the "sinks then teleports" bug.
+Commands.teleport = {
+	permission = "MODIFY_PLAYER",
+	rate = { burst = 6, per = 10 },
+	validate = function(p)
+		return DevSchema.shape(p, {
+			targetUserId = DevSchema.userId(),
+			kind = DevSchema.oneOf({ "player", "checkpoint" }),
+			index = DevSchema.optional(DevSchema.intRange(1, 200)),
+			toUserId = DevSchema.optional(DevSchema.userId()),
+		})
+	end,
+	run = function(_, p)
+		local Players = game:GetService("Players")
+		local target = Players:GetPlayerByUserId(p.targetUserId)
+		if not target then
+			return false, Code.NOT_FOUND, "That player is not in this server."
+		end
+		local cf, err = Tuning.resolveDestination(p.kind, p.index, p.toUserId)
+		if not cf then
+			return false, Code.NOT_FOUND, err or "Could not resolve a destination."
+		end
+		local Service = require(script.Parent.DevConsoleService)
+		Service.push(target, "teleport", { cf = cf })
+		return true, Code.OK, ("Sent %s to that %s."):format(target.Name, p.kind)
+	end,
+}
+
 --=====================================================================
 --  TUNING — registered keys only, never arbitrary attributes
 --=====================================================================

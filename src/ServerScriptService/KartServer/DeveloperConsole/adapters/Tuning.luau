@@ -63,7 +63,61 @@ function Tuning.list(): { any }
 end
 
 function Tuning.isKey(key: string): boolean
-	return Tuning.TUNABLES[key] ~= nil
+	--=====================================================================
+--  TELEPORT
+--
+--  ASKS THE TARGET'S CLIENT, it does not move the kart.
+--
+--  FINDINGS is explicit: exactly one thing may own a part's position,
+--  and writing the CFrame of a part you do not own creates a freeze
+--  loop. A driven kart is owned by its player's client, so a server
+--  PivotTo would be two owners fighting — the exact bug that produced
+--  "it sinks then teleports".
+--
+--  So the server resolves the destination (which is the part a client
+--  must not be trusted with) and pushes it. The client applies it
+--  through Simulation:RespawnAt, the same call the existing respawn and
+--  grid placement use.
+--=====================================================================
+
+local CollectionService = game:GetService("CollectionService")
+
+function Tuning.resolveDestination(kind: string, index: number?, toUserId: number?): (CFrame?, string?)
+	if kind == "player" then
+		local other = toUserId and Players:GetPlayerByUserId(toUserId)
+		local kart = other and KartService.kartFor(other)
+		local hitbox = kart and kart.PrimaryPart
+		if not hitbox then
+			return nil, "That player has no kart to teleport to."
+		end
+		-- Beside and behind, so arriving does not put two karts in the
+		-- same volume.
+		return hitbox.CFrame * CFrame.new(8, 3, 6), nil
+	end
+
+	if kind == "checkpoint" then
+		local Config = require(ReplicatedStorage.BloxKart.Config)
+		local tagged = CollectionService:GetTagged(Config.Race.CheckpointTag)
+		if #tagged == 0 then
+			return nil, "This place has no tagged checkpoints."
+		end
+		-- Sorted by name so the order matches the one the race uses,
+		-- rather than CollectionService's arbitrary ordering.
+		table.sort(tagged, function(a, b)
+			return a.Name < b.Name
+		end)
+		local n = math.clamp(index or 1, 1, #tagged)
+		local cp = tagged[n]
+        if not cp:IsA("BasePart") then
+			return nil, "Checkpoint is not a part."
+		end
+		return cp.CFrame * CFrame.new(0, 4, 0), nil
+	end
+
+	return nil, "Unknown destination."
+end
+
+return Tuning.TUNABLES[key] ~= nil
 end
 
 function Tuning.set(targetUserId: number, key: string, value: number): (boolean, string, string, any?)

@@ -54,7 +54,18 @@ local TABS = { "Server", "Players", "Power-Ups", "AI", "World", "Tune", "Moderat
 -- simulating with.
 local SAMPLES = 120
 local speedHistory: { number } = {}
+local frameHistory: { number } = {} -- ms
+local overBudget = 0 -- frames past MaxTimestep since the console opened
 local lastSampleAt = 0
+local lastFrameAt = 0
+
+-- THE LINE THAT MATTERS. Simulation clamps dt to Handling.MaxTimestep,
+-- so a frame longer than this is time the kart never integrates: it
+-- moves slower than real time, smoothly, with the speedometer agreeing.
+-- That cost a full round of debugging once (BUGS #26) because it reads
+-- as nerfed handling rather than as frame rate. A graph with the budget
+-- drawn on it makes it self-evident.
+local BUDGET_MS = 1000 / 20
 
 local function sampleSpeed()
 	if not localHooks.getSpeed then
@@ -69,6 +80,23 @@ local function sampleSpeed()
 	while #speedHistory > SAMPLES do
 		table.remove(speedHistory, 1)
 	end
+end
+
+-- EVERY FRAME, unthrottled — a throttled frame-time graph would miss
+-- exactly the spikes it exists to show.
+local function sampleFrame()
+	local now = os.clock()
+	if lastFrameAt > 0 then
+		local ms = (now - lastFrameAt) * 1000
+		table.insert(frameHistory, ms)
+		if ms > BUDGET_MS then
+			overBudget += 1
+		end
+		while #frameHistory > SAMPLES do
+			table.remove(frameHistory, 1)
+		end
+	end
+	lastFrameAt = now
 end
 
 -- Local slider value per tunable, so dragging is smooth and only the
@@ -216,7 +244,36 @@ local function drawPlayers()
 	if may("developer") and Iris.Button({ "Respawn" }).clicked() then
 		Client.send("respawn_player", { targetUserId = selected.userId })
 	end
+	if may("developer") and Iris.Button({ "Bring to me" }).clicked() then
+		Client.send("teleport", {
+			targetUserId = selected.userId,
+			kind = "player",
+			toUserId = Client.localUserId(),
+		})
+	end
+	if may("developer") and Iris.Button({ "Go to them" }).clicked() then
+		Client.send("teleport", {
+			targetUserId = Client.localUserId(),
+			kind = "player",
+			toUserId = selected.userId,
+		})
+	end
 	Iris.End()
+
+	if may("developer") then
+		Iris.Text({ "Teleport me to checkpoint" })
+		Iris.SameLine()
+		for _, n in { 1, 2, 3, 4, 5, 6 } do
+			if Iris.Button({ tostring(n) }).clicked() then
+				Client.send("teleport", {
+					targetUserId = Client.localUserId(),
+					kind = "checkpoint",
+					index = n,
+				})
+			end
+		end
+		Iris.End()
+	end
 
 	local info = Client.cache.player
 	if not info then
@@ -247,6 +304,33 @@ local function drawPlayers()
 		field("place", r.place)
 		field("field", r.fieldSize)
 		field("lap", r.lap)
+	end
+	Iris.End()
+
+	-- THE PANEL THAT WOULD HAVE ENDED THE SKINNING SAGA IN ONE RUN.
+	-- Asked-for names beside the parts that actually exist.
+	if Iris.Tree({ "Dressing (why is my kart not changing)" }).state.isUncollapsed.value then
+		if Iris.Button({ "Check dressing" }).clicked() then
+			Client.refreshDressing(selected.userId)
+		end
+		local d = Client.cache.dressing
+		if d and d.hasKart then
+			Iris.Text({ ("asked for : %s"):format(table.concat(d.asked or {}, ", ")) })
+			Iris.Text({ ("matched   : %s"):format(table.concat(d.matched or {}, ", ")) })
+			Iris.Text({
+				("MISSING   : %s"):format(
+					if #(d.missing or {}) > 0 then table.concat(d.missing, ", ") else "none"
+				),
+			})
+			Iris.Separator()
+			Iris.Text({ ("kart has  : %s"):format(table.concat(d.meshParts or {}, ", ")) })
+			Iris.Text({ ("paint want: %s"):format(tostring(d.paintWanted)) })
+			Iris.Text({ ("paint is  : %s"):format(table.concat(d.paintActual or {}, "  ")) })
+		elseif d then
+			Iris.Text({ "No kart spawned." })
+		else
+			Iris.Text({ "Press Check dressing." })
+		end
 	end
 	Iris.End()
 
@@ -441,6 +525,25 @@ local function drawTune()
 	else
 		Iris.Text({ "Speed graph: get in a kart." })
 	end
+
+	-- FRAME TIME, with the simulation budget called out.
+	if #frameHistory > 1 then
+		local last = frameHistory[#frameHistory]
+		local peak = 0
+		for _, v in frameHistory do
+			peak = math.max(peak, v)
+		end
+		local overlay = ("%.1fms   budget %.0fms   over: %d"):format(last, BUDGET_MS, overBudget)
+		local fValues = Iris.State(frameHistory)
+		fValues:set(frameHistory, true)
+		Iris.PlotLines(
+			{ "Frame time (ms)", 70, 0, math.max(peak * 1.1, BUDGET_MS * 1.5), overlay },
+			{ values = fValues }
+		)
+		if last > BUDGET_MS then
+			Iris.Text({ "OVER BUDGET — the kart is moving slower than real time." })
+		end
+	end
 end
 
 local function drawModerate()
@@ -561,6 +664,7 @@ function DevConsoleController.start(grantedRole: string, hotkey: Enum.KeyCode, h
 		-- Cheap and throttled inside the client cache; safe to call every
 		-- frame because it no-ops until the age threshold passes.
 		sampleSpeed()
+		sampleFrame()
 		Client.refreshSnapshot(2)
 		if tab == "Logs" then
 			Client.refreshLogs()

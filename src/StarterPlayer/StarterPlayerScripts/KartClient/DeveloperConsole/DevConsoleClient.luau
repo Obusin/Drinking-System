@@ -98,6 +98,7 @@ local cache = {
 	playerAt = 0,
 	logs = nil :: any,
 	logsAt = 0,
+	dressing = nil :: any,
 	lastMessage = "",
 	lastOk = true,
 }
@@ -158,6 +159,20 @@ function DevConsoleClient.refreshLogs(force: boolean?)
 	end)
 end
 
+-- Not throttled: it is only ever fired by an explicit button press, and
+-- the answer is worth having immediately when you press it.
+function DevConsoleClient.refreshDressing(userId: number)
+	task.spawn(function()
+		local response = DevConsoleClient.call("inspect_dressing", { targetUserId = userId })
+		if response.success then
+			cache.dressing = response.data
+		else
+			cache.dressing = nil
+			DevConsoleClient.note(response)
+		end
+	end)
+end
+
 -- Fire-and-note. Used by every button: the UI never blocks on a command.
 function DevConsoleClient.send(command: string, payload: any?)
 	task.spawn(function()
@@ -169,6 +184,26 @@ end
 
 function DevConsoleClient.localUserId(): number
 	return Players.LocalPlayer.UserId
+end
+
+-- SERVER -> CLIENT PUSH.
+--
+-- The client never fires this remote, so it adds no inbound surface. The
+-- only payload acted on is a CFrame the SERVER resolved — the client is
+-- not trusted to pick where it goes, only to apply it, because it is the
+-- one that owns its kart's position.
+function DevConsoleClient.listen(hooks: any)
+	local found = BloxKart:FindFirstChild(Protocol.PUSH_REMOTE)
+	if not found or not found:IsA("RemoteEvent") then
+		return
+	end
+	found.OnClientEvent:Connect(function(topic, data)
+		if topic == "teleport" and typeof(data) == "table" and typeof(data.cf) == "CFrame" then
+			if hooks and hooks.teleport then
+				hooks.teleport(data.cf)
+			end
+		end
+	end)
 end
 
 return DevConsoleClient

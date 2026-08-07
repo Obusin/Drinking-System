@@ -201,25 +201,40 @@ task.spawn(function()
 		if not allowed then
 			return
 		end
-		local DevConsoleController = require(script.DeveloperConsole.DevConsoleController)
-		DevConsoleController.start(grantedRole or "viewer", Config.DevConsole.Hotkey, {
-			-- A SETTER, not access. The console submits an intent and this
-			-- file — which owns the game wiring — acts on it. A tab that
-			-- could reach `items` directly would have broken the layering
-			-- the whole console is built on.
+		-- ONE hooks table, shared by the push listener and the console.
+		--
+		-- These are SETTERS AND READERS, not access. The console submits
+		-- an intent and this file — which owns the game wiring — acts on
+		-- it. A tab that could reach `sim` or `items` directly would break
+		-- the layering the whole console is built on.
+		local hooks = {
+			-- Local-only race-state override; see devForceRace above.
 			setForceRace = function(on: boolean)
 				devForceRace = on == true
 			end,
 			getForceRace = function()
 				return devForceRace
 			end,
-			-- READ-ONLY, for the speed graph. The console plots the value
-			-- this client is already simulating with, so the graph cannot
-			-- disagree with the kart.
+			-- Read-only, for the speed graph. Plots the value this client
+			-- is already simulating with, so the graph cannot disagree
+			-- with the kart.
 			getSpeed = function(): number?
 				return sim and math.abs(sim.speed) or nil
 			end,
-		})
+			-- Applied through RespawnAt, the same call the existing
+			-- respawn and grid placement use, so the client stays the
+			-- SINGLE owner of its kart's position. The server resolved
+			-- the destination; this only applies it.
+			teleport = function(cf: CFrame)
+				if sim then
+					sim:RespawnAt(cf)
+				end
+			end,
+		}
+
+		DevConsoleClient.listen(hooks)
+		local DevConsoleController = require(script.DeveloperConsole.DevConsoleController)
+		DevConsoleController.start(grantedRole or "viewer", Config.DevConsole.Hotkey, hooks)
 		print("[DevConsole] ready — press " .. Config.DevConsole.Hotkey.Name .. " to toggle.")
 	end)
 	if not ok then
