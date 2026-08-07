@@ -49,5 +49,5 @@ return {
 	-- artist who forgets cannot accidentally turn scenery into a wall.
 	ForceNonQueryable = true,
 
-	Debug = false,
+	Debug = true, -- prints what got adopted and what got flung. Turn off for release.
 }

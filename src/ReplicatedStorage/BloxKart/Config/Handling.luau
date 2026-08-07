@@ -373,13 +373,32 @@ return {
 	-- facing the wall and backs away from it — see the block in
 	-- Simulation for why nothing is reflected.
 	--
-	-- Lower than it looks like it should be. This is applied to your FULL
-	-- speed, so 0.3 at 95 studs/s is still 28 studs/s backwards, which is
-	-- a firm shove. Push it toward 0.5 and hitting a wall starts throwing
-	-- you further than the corner would have cost you.
-	BounceKeep = 0.3,
-	BounceMinSpeed = 18, -- below this it just stops. A crawl that pings
-	-- backwards off a wall looks broken rather than physical.
+	-- SCALED BY SPEED, so a fast hit is punished and a slow one is only
+	-- corrected. One flat number could not do both: strong enough to stop
+	-- a full-speed kart burying itself in a wall was violent at walking
+	-- pace, and gentle enough to be fair at walking pace let a fast one
+	-- through.
+	--
+	-- Interpolated on speed as a fraction of top, then floored by
+	-- BounceMinPush above.
+	BounceKeepSlow = 0.35, -- at a crawl
+	BounceKeepFast = 0.55, -- at top speed — 52 studs/s straight back
+	-- STILL BOUNCES WHEN SLOW, and that is the point.
+	--
+	-- This was 18, which meant anything under a fifth of top speed just
+	-- slid along the wall — so you could creep into geometry and lean on
+	-- it, which is exactly how a kinematic kart ends up somewhere it
+	-- should not be. 5 is low enough that only a genuine crawl is exempt,
+	-- and a crawl that pings off a wall looks broken rather than physical.
+	BounceMinSpeed = 5,
+
+	-- MINIMUM SHOVE, whatever the speed.
+	--
+	-- Without this a slow hit recoils by a fraction of almost nothing and
+	-- the kart stays resting against the wall. This guarantees every
+	-- bounce actually separates the kart from what it hit, which is what
+	-- stops people leaning on geometry until they are through it.
+	BounceMinPush = 14,
 
 	-- How long steering authority is reduced after a bounce, and by how
 	-- much. This is what makes it read as an IMPACT rather than a

@@ -965,7 +965,13 @@ function Simulation:Step(dt: number, input): { [string]: any }
 			-- through zero and you drive off again. Steering inverts
 			-- while reversing, which is correct and makes the recoil feel
 			-- like a car rather than a slider.
-			self.speed = -math.abs(self.speed) * H.BounceKeep
+			-- Harder the faster you were going, and never softer than
+			-- BounceMinPush — so a slow nudge still separates the kart
+			-- from the wall rather than leaving it resting against it.
+			local hitSpeed = math.abs(self.speed)
+			local frac = math.clamp(hitSpeed / maxSpeed, 0, 1)
+			local keep = H.BounceKeepSlow + (H.BounceKeepFast - H.BounceKeepSlow) * frac
+			self.speed = -math.max(hitSpeed * keep, H.BounceMinPush)
 
 			-- Pushed clear along the surface normal as well. Without it
 			-- the kart can rest a hair inside the wall, re-trigger next
