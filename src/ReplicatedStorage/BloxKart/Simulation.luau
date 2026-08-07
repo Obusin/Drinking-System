@@ -604,58 +604,20 @@ function Simulation:_updateSwim(dt: number)
 		self.model:SetAttribute(Names.SWIMMING, self.swim)
 	end
 
-	--=================================================================
-	--  JUMPING THE WAVES — real impulses, not the visual bob.
+	-- The sea's clock. The hull's motion is drawn from this on the
+	-- client; nothing here pushes the kart any more.
 	--
-	--  Driven off the field's RATE OF CHANGE under the kart: a crest
-	--  rising beneath you throws you up, and crossing it faster means it
-	--  arrives faster, so a moving kart skips and a moored one wallows.
-	--  That falls out of the maths rather than being a second rule.
-	--
-	--  Only ever ADDS lift, never pulls down. Gravity already owns the
-	--  way down and a second thing pulling would fight it.
-	--=================================================================
-	-- AN EXISTING DRIFT ENDS ON ENTRY. Blocking new drifts is not enough:
-	-- carrying one in off the tarmac would leave the kart in a state the
-	-- water has no answer for, sliding on a surface that cannot grip.
-	if not SW.AllowDrift and self.swim > 0.5 and self.state == STATE_DRIFT then
-		self.state = STATE_GRIP
-		self.driftBlend = 0
-		self.releaseDir = 0
-		self.driftDir = 0
-	end
-
-	if self.swim <= 0.01 then
-		self.seaClock = 0
-		return
-	end
-	self.seaClock = (self.seaClock or 0) + dt
-
+	-- Real vertical impulses came out: under GroundSnap they were
+	-- swallowed and did nothing, over it they were a literal jump, and a
+	-- boat does neither. The ride is orientation, and orientation is
+	-- visual.
 	local now = Simulation.waveAt(self.pos, self.seaClock)
-	local rise = (now - (self.lastWave or now)) / math.max(dt, 1e-3)
+	self.waveRise = (now - (self.lastWave or now)) / math.max(dt, 1e-3)
 	self.lastWave = now
-
-	if self.grounded and rise > SW.LaunchMinRise and math.abs(self.speed) >= SW.LaunchMinSpeed then
-		-- Measured ABOVE the threshold, not from zero, so a wave that only
-		-- just qualifies gives a nudge rather than the full kick. Without
-		-- that the threshold becomes a cliff and every launch is identical.
-		local over = rise - SW.LaunchMinRise
-		local kick = math.min(over * SW.LaunchPerRise, SW.LaunchMax) * self.swim
-		if kick > self.vertVel then
-			self.vertVel = kick
-			self.wasLaunched = true
-			-- Said out loud, exactly like the glide launch: a kick alone
-			-- does not clear GroundSnap within a frame, so the next probe
-			-- would still report contact and swallow it.
-			self.grounded = false
-		end
+	if self.model then
+		self.model:SetAttribute(Names.WAVE_RISE, self.waveRise)
 	end
 
-	-- A moored boat is never still. Small enough to be felt rather than
-	-- seen, and it stops the water appearing to switch off when you stop.
-	if math.abs(self.speed) < SW.LaunchMinSpeed and self.grounded then
-		self.vertVel += math.sin(self.seaClock * 3.1) * SW.IdleShake * self.swim * dt * 60
-	end
 end
 
 function Simulation:Step(dt: number, input): { [string]: any }

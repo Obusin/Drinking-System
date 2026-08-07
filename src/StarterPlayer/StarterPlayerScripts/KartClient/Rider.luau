@@ -410,10 +410,10 @@ local function updateBody(kart: Model, s, dt: number)
 	-- AUTHORED LEAN ON TOP. Suspension alone gives you bumps; this gives
 	-- you cornering, which is the part players actually read as weight.
 	-- Outward, away from the turn — leaning into it reads as a motorbike.
-	local steer = kart:GetAttribute(Names.STEER)
-	steer = if typeof(steer) == "number" then math.clamp(steer, -1, 1) else 0
-	local drift = kart:GetAttribute(Names.DRIFT)
-	drift = if typeof(drift) == "number" then math.clamp(drift / 40, -1, 1) else 0
+	local rawSteer = kart:GetAttribute(Names.STEER)
+	local steer = if typeof(rawSteer) == "number" then math.clamp(rawSteer, -1, 1) else 0
+	local rawDrift = kart:GetAttribute(Names.DRIFT)
+	local drift = if typeof(rawDrift) == "number" then math.clamp(rawDrift / 40, -1, 1) else 0
 	roll += steer * RIG.BodyRollPerSteer + drift * RIG.BodyRollPerDrift
 
 	roll = math.clamp(roll, -RIG.BodyRollMax, RIG.BodyRollMax)
@@ -494,20 +494,57 @@ local function updateBody(kart: Model, s, dt: number)
 		local wRate = math.min(SW.WaveTiltRate * dt, 1)
 		s.waveP = (s.waveP or 0) + (wavePitch * wet - (s.waveP or 0)) * wRate
 		s.waveR = (s.waveR or 0) + (waveRoll * wet - (s.waveR or 0)) * wRate
+
+		--=============================================================
+		--  BURSTS — the kick over a crest, and they are VISUAL.
+		--
+		--  The kart never leaves the floor. Real impulses were tried and
+		--  are a dead end: under GroundSnap they are swallowed and do
+		--  nothing, over it they are a literal jump, and a boat does
+		--  neither. What a hull actually does over a crest is lift AND
+		--  pitch back, and the pitch is the part the eye reads.
+		--
+		--  Decays rather than tracking, so each crest is an EVENT with a
+		--  shape rather than a value being followed.
+		--=============================================================
+		if SW.Bursts then
+			local rise = kart:GetAttribute(Names.WAVE_RISE)
+			rise = if typeof(rise) == "number" then rise else 0
+			if rise > SW.BurstMinRise then
+				local over = rise - SW.BurstMinRise
+				s.burstLift = math.max(s.burstLift or 0, math.min(over * SW.BurstLift, SW.BurstLiftMax))
+				s.burstPitch = math.max(s.burstPitch or 0, math.min(over * SW.BurstPitch, SW.BurstPitchMax))
+			end
+			local fade = math.exp(-SW.BurstDecay * dt)
+			s.burstLift = (s.burstLift or 0) * fade
+			s.burstPitch = (s.burstPitch or 0) * fade
+		end
+
+		-- YAW WANDER. A kart's nose never moves on its own; a hull's does
+		-- constantly. This is the clearest "not tarmac" cue there is, and
+		-- it is purely the bodywork slewing — the kart still goes exactly
+		-- where the simulation says.
+		s.waveYaw = math.sin(s.seaT * math.pi * 2 * SW.YawRate) * SW.YawWander * wet
 	elseif (s.waveP or 0) ~= 0 or (s.waveR or 0) ~= 0 then
 		-- Eased out on leaving the water rather than dropped, or the hull
 		-- levels with a jolt the moment you touch land.
 		local wRate = math.min(SW.WaveTiltRate * dt, 1)
 		s.waveP = (s.waveP or 0) * (1 - wRate)
 		s.waveR = (s.waveR or 0) * (1 - wRate)
+		s.waveYaw = (s.waveYaw or 0) * (1 - wRate)
+		s.burstLift = (s.burstLift or 0) * (1 - wRate)
+		s.burstPitch = (s.burstPitch or 0) * (1 - wRate)
 	end
 
 	-- A hull rolls more than a chassis does. Applied to the OUTPUT, not
 	-- to the stored state, so it scales the roll instead of compounding it.
 	local hullRoll = s.bodyRoll * (1 + (SW.RollScale - 1) * wet) + (s.waveR or 0)
-	local hullPitch = s.bodyPitch + (s.waveP or 0)
+	local hullPitch = s.bodyPitch + (s.waveP or 0) + (s.burstPitch or 0)
 
-	motor.Transform = CFrame.new(0, bob - s.bodyDip, 0)
+	-- Yaw is applied about the kart's own up, between the lift and the
+	-- pitch/roll, so the hull slews without tipping the axis it slews on.
+	motor.Transform = CFrame.new(0, bob + (s.burstLift or 0) - s.bodyDip, 0)
+		* CFrame.Angles(0, math.rad(s.waveYaw or 0), 0)
 		* CFrame.Angles(math.rad(hullPitch), 0, math.rad(hullRoll))
 end
 
@@ -627,6 +664,34 @@ end
 -- Built once per kart, on the first glide rather than at spawn: most
 -- karts never touch a ramp, and a Trail plus a Sound on every kart in
 -- the field is a cost paid by everybody for something few of them use.
+-- SAYS WHETHER ROBLOX ACTUALLY ACCEPTED THE ASSET.
+--
+-- A Sound with a SoundId it is not allowed to play stays silent and
+-- reports nothing — since the audio privacy change, an id you do not own
+-- simply never loads. That is indistinguishable from a wiring bug from
+-- the driver's seat, and it has exactly the opposite fix.
+--
+-- Loaded is not instant, so this waits for the event rather than reading
+-- the property once and drawing a conclusion from a value that was
+-- always going to be false at that moment.
+local announced: { [string]: boolean } = {}
+local function checkSound(sound: Sound, label: string)
+	if sound.SoundId == "" or announced[sound.SoundId] then
+		return
+	end
+	announced[sound.SoundId] = true
+	task.delay(5, function()
+		if sound.Parent and not sound.IsLoaded then
+			warn(
+				("[Rider] %s (%s) never loaded. Roblox will not play audio you do not own — re-upload it to this account, or check the id is a Sound and not a different asset type."):format(
+					label,
+					sound.SoundId
+				)
+			)
+		end
+	end)
+end
+
 local function ensureGliderFx(kart: Model, s)
 	if s.gliderFx then
 		return
@@ -648,6 +713,7 @@ local function ensureGliderFx(kart: Model, s)
 	deploy.RollOffMaxDistance = 200
 	deploy.Parent = hitbox
 	s.deploy = deploy
+	checkSound(deploy, "glide deploy")
 
 	-- The hull through the water. Volume follows SPEED, not the state:
 	-- a moored boat is nearly silent and a moving one is not, so the
@@ -661,6 +727,7 @@ local function ensureGliderFx(kart: Model, s)
 	cruise.RollOffMaxDistance = 200
 	cruise.Parent = hitbox
 	s.cruise = cruise
+	checkSound(cruise, "water cruise")
 
 	local sound = Instance.new("Sound")
 	sound.Name = "GlideWind"
@@ -670,6 +737,7 @@ local function ensureGliderFx(kart: Model, s)
 	sound.RollOffMaxDistance = 220
 	sound.Parent = hitbox
 	s.wind = sound
+	checkSound(sound, "glide wind")
 
 	s.trails = {}
 	for _, inst in kart:GetDescendants() do

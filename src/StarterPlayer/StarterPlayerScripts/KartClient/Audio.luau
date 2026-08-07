@@ -204,6 +204,19 @@ end
 
 -- Scaled by how hard the landing was, so a gentle touchdown is a lap
 -- and a real drop is a crash. One sound, two readings.
+-- Same diagnostic as Rider's: a SoundId Roblox will not play is silent
+-- and says nothing, which looks exactly like a wiring bug.
+function Audio:_checkSound(sound: Sound, label: string)
+	if not sound or sound.SoundId == "" then
+		return
+	end
+	task.delay(5, function()
+		if sound.Parent and not sound.IsLoaded then
+			warn(("[Audio] %s (%s) never loaded — Roblox will not play audio you do not own."):format(label, sound.SoundId))
+		end
+	end)
+end
+
 function Audio:Splash(impact: number)
 	if not self.splash or self.splash.SoundId == "" then
 		return
