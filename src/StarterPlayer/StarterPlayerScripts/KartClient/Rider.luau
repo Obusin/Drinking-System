@@ -232,6 +232,9 @@ local function counterSteer(kart: Model, s, dt: number): number
 	-- Only while actually sideways, and faded in with the slide so it
 	-- doesn't twitch on a straight.
 	local sideways = math.clamp(math.abs(drift) / maxLock, 0, 1)
+	-- Shared with the road wheels: how far through the crossfade from
+	-- "following the stick" to "catching the slide" we are.
+	s.slide = sideways
 	s.saw = (s.saw or 0) + dt * RIG.RoadWheelSawRate
 	local saw = math.sin(s.saw * math.pi * 2) * RIG.RoadWheelSaw * sideways
 
@@ -852,7 +855,15 @@ local function updateRoadWheels(kart: Model, s, dt: number)
 	-- view, which is the one that has to feel good.
 	-- Counter-steer, worked out once per frame and shared with the
 	-- steering wheel so the driver's hands and the front tyres agree.
-	lock += (s.counter or 0) * maxLock
+	-- CROSSFADE, NOT SUM. See RoadWheelCounterBlend.
+	--
+	-- Adding the counter term to the player's steering meant the two
+	-- cancelled at full slip and the wheels sat dead straight through the
+	-- deepest part of the drift. Blending hands the front wheels over to
+	-- the slide as it develops, so they cross the centre and point the
+	-- other way — which is what opposite lock looks like from outside.
+	local slide = (s.slide or 0) * RIG.RoadWheelCounterBlend
+	lock = lock * (1 - slide) + (s.counter or 0) * maxLock * slide
 
 	-- Lock stop, which real steering has and which matters here for a
 	-- specific reason: a SPINOUT drives driftAngle through several whole
@@ -952,7 +963,22 @@ local function updateKart(kart: Model, dt: number)
 	-- for free. Scaled separately because a driver's arms don't move as
 	-- far as the tyres do — R.WheelCounterSteer = 0 keeps the wheel showing
 	-- pure input if you'd rather it matched the keys.
-	local shown = math.clamp(s.steer + s.counter * R.WheelCounterSteer, -1, 1)
+	-- CROSSFADED, exactly like the road wheels, or the driver's hands hold
+	-- one way while the tyres point the other — which is the contradiction
+	-- the note above is about. Summing cancelled at full slip and left the
+	-- wheel centred through the deepest part of the drift.
+	--
+	-- WheelCounterSteer still scales how far the ARMS follow the tyres: a
+	-- driver's hands do not travel as far as the front wheels do, and 0
+	-- keeps the wheel showing pure input if you prefer that.
+	-- WheelCounterSteer damps HOW FAR the hands go, not WHETHER they cross
+	-- over. Folding it into the blend instead stalled the wheel at +8
+	-- degrees while the tyres were at -18 — hands and tyres disagreeing,
+	-- which is the thing this is supposed to prevent. A real drifter's
+	-- hands do cross to opposite lock; they simply travel less than the
+	-- front wheels do.
+	local handSlide = (s.slide or 0) * RIG.RoadWheelCounterBlend
+	local shown = math.clamp(s.steer * (1 - handSlide) + s.counter * R.WheelCounterSteer * handSlide, -1, 1)
 	local spin = -shown * math.rad(R.MaxWheelAngle)
 	motor.Transform = CFrame.Angles(0, 0, if R.InvertWheel then -spin else spin)
 

@@ -354,6 +354,25 @@ return {
 	-- flips which way they crank, if it ends up mirrored on your model.
 	RoadWheelCounterSteer = 0.85,
 
+	-- HOW FAR THE FRONT WHEELS CROSS OVER, 0..1.
+	--
+	-- The counter-steer term used to be ADDED to the player's steering,
+	-- and at full slip the two cancelled exactly: the wheels went from
+	-- full lock to dead straight and never pointed the other way. Which
+	-- is the one thing opposite lock is.
+	--
+	-- The mistake was treating the stick as "where the front wheels
+	-- point" during a drift. It is not — mid-drift it means "how much
+	-- drift", and the front wheels are doing something else entirely:
+	-- catching the slide. So the two CROSSFADE as the slide develops
+	-- rather than summing.
+	--
+	-- 1.0 is full crossover — at maximum slip the wheels are on full
+	-- opposite lock regardless of the stick. 0.8 keeps a little of the
+	-- driver's input visible in the tyres, which reads as a person
+	-- holding it rather than an autopilot.
+	RoadWheelCounterBlend = 0.85,
+
 	-- CATCH: reacts to how fast the slide is CHANGING, not how big it is.
 	-- This is the term that makes the wheels move during a steady drift
 	-- instead of sitting parked at an angle — cranking as the rear steps

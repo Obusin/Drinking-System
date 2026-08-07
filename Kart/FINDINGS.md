@@ -1180,6 +1180,35 @@ bounded. Two schedules, and both problems went away.
 
 ---
 
+### Mid-drift, the stick does not mean "where the front wheels point".
+
+Front-wheel counter-steer was ADDED to the player's steering, and at full
+slip the two cancelled exactly: the tyres went from full lock to dead
+straight and never crossed the centre. Which is the one thing opposite
+lock is.
+
+The error was treating the stick as a front-wheel command throughout. It
+is not — on a straight it aims the kart, but mid-drift it means "how
+much drift", and the front wheels are doing something else entirely:
+catching the slide. **They crossfade as the slide develops rather than
+summing.**
+
+```
+slip     summed        crossfaded
+ 0 deg   +26.0 deg     +26.0 deg
+20 deg    +9.0 deg      -2.1 deg   <- crosses over
+38 deg     0.0 deg     -18.2 deg
+```
+
+Corollary, and the same mistake one layer up: a damping factor on a
+crossfade damps WHETHER something happens, not HOW FAR. Folding the
+steering wheel's `WheelCounterSteer` into the blend stalled the driver's
+hands at +8 degrees while the tyres were at -18 — hands and tyres
+disagreeing, which that shared term exists to prevent. It belongs on the
+term, not on the blend.
+
+---
+
 ### One visual channel per fact, or the readout is ambiguous.
 
 Drift trails encoded the TIER — how charged the drift is — in colour,
