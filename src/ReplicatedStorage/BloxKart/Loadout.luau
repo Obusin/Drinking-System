@@ -80,13 +80,18 @@ end
 
 -- Resolve ids to the thing KartDress wants. Kept here rather than in the
 -- HUD so the catalogue is read in one place.
-function Loadout.look(): { body: string?, wheel: string?, paint: Color3? }
+function Loadout.look(): { body: string?, rim: string?, tire: string?, paint: Color3? }
 	local body = itemById(G.Bodies, current.Body or "stock")
-	local wheel = itemById(G.Wheels, current.Wheels or "stock")
+	local rim = itemById(G.Rims, current.Rim or "stock")
+	-- Falls back to the pre-split key, so a client holding a profile that
+	-- has not been through the migration yet still previews the tyre it
+	-- paid for rather than stock.
+	local tire = itemById(G.Tires, current.Tire or current.Wheels or "stock")
 	local paint = itemById(G.Paints, current.Paint or "stock")
 	return {
 		body = body and body.mesh or nil,
-		wheel = wheel and wheel.mesh or nil,
+		rim = rim and rim.mesh or nil,
+		tire = tire and tire.mesh or nil,
 		paint = paint and paint.colour or nil,
 	}
 end
@@ -138,9 +143,15 @@ local STAMP = "BloxKartLook"
 -- A short signature of the current look. Two looks are the same iff this
 -- string matches, which is all the verifier needs.
 local function signature(): string
-	return ("%s|%s|%s"):format(
+	-- EVERY SLOT THAT CHANGES THE LOOK BELONGS IN HERE. A slot left out
+	-- makes two different karts produce the same signature, and the
+	-- verifier then decides a kart wearing the wrong rims is already
+	-- correct — which is the "it changed in the garage and not on my
+	-- kart" failure, rebuilt from scratch.
+	return ("%s|%s|%s|%s"):format(
 		tostring(current.Body),
-		tostring(current.Wheels),
+		tostring(current.Rim),
+		tostring(current.Tire),
 		tostring(current.Paint)
 	)
 end

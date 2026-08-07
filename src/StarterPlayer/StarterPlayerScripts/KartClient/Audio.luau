@@ -110,8 +110,17 @@ function Audio.new(hitbox: BasePart)
 		RollOffMaxDistance = 260,
 	})
 
+	-- Bumping a wall. Its pitch is set at play time from how square the
+	-- impact was, so one instance covers every severity.
+	local bump = make({
+		Name = "_Bump",
+		SoundId = A.BumpSoundId,
+		Volume = A.BumpSoundVolume,
+		RollOffMaxDistance = 200,
+	})
 	return setmetatable({
 		created = created,
+		bump = bump,
 		boost = boost,
 		engine = engine,
 		screech = screech,
@@ -140,6 +149,20 @@ end
 -- item layer is what tells you WHAT hit you. Replacing the first with
 -- the second would make a missile and a banana feel like different
 -- amounts of trouble when they are the same amount.
+-- BUMP. `square` is how head-on the impact was (0..1), straight from
+-- Simulation's `bounced` event.
+--
+-- Pitched DOWN as it gets squarer: a heavier sound for a heavier hit is
+-- the whole reason this is not a single fixed sample.
+function Audio:PlayBump(square: number)
+	if self.bump.SoundId == "" then
+		return
+	end
+	local t = math.clamp(square, 0, 1)
+	self.bump.PlaybackSpeed = A.BumpPitchLow + (A.BumpPitchHigh - A.BumpPitchLow) * t
+	self.bump:Play()
+end
+
 function Audio:PlayHit(itemId: string?)
 	if self.hit.SoundId ~= "" then
 		self.hit:Play()

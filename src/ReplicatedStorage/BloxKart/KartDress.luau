@@ -148,7 +148,22 @@ end
 -- path re-applies unconditionally and by then the assets had arrived.
 --
 -- A caller that caches on this MUST cache on the return value.
-function KartDress.apply(model: Instance, look: { body: string?, wheel: string?, paint: Color3? }, rig): boolean
+export type Look = {
+	body: string?,
+	-- Two slots per wheel, because a wheel is now a Model holding a Rim
+	-- and a Tire. You buy a rim and you buy a tyre, and they combine.
+	rim: string?,
+	tire: string?,
+	-- LEGACY. The whole wheel as one mesh, from before the split. Kept
+	-- because profiles saved with it still exist and a player who paid
+	-- for slicks should not open the garage to find them gone. It targets
+	-- the wheel parts themselves, which the new rig does not have — so on
+	-- a new kart it lands on nothing and says so, rather than pretending.
+	wheel: string?,
+	paint: Color3?,
+}
+
+function KartDress.apply(model: Instance, look: Look, rig): boolean
 	local bodyNames = if rig and rig.BodyNames then rig.BodyNames else { "Body" }
 	local wheelNames = {}
 	if rig then
@@ -161,35 +176,41 @@ function KartDress.apply(model: Instance, look: { body: string?, wheel: string?,
 	else
 		wheelNames = { "FWheel", "RWheel" }
 	end
+	local rimNames = if rig and rig.RimNames then rig.RimNames else { "Rim" }
+	local tireNames = if rig and rig.TireNames then rig.TireNames else { "Tire" }
 
 	local ok = true
 
-	if look.body and look.body ~= "" then
-		local parts = partsNamed(model, bodyNames, true)
-		-- No parts is a FAILURE, not a no-op: we were asked for a body
-		-- and this model has nowhere to put one. Reporting success there
-		-- is how a naming mismatch stayed invisible.
+	-- One shape for every mesh slot: find the parts, refuse to call it a
+	-- success if there are none, swap. `optional` is for slots a given
+	-- kart may legitimately not have — the legacy whole-wheel mesh on a
+	-- rig built from rims and tyres.
+	local function swap(id: string?, names: { string }, optional: boolean?)
+		if not id or id == "" then
+			return
+		end
+		local parts = partsNamed(model, names, true)
+		-- No parts is a FAILURE, not a no-op: we were asked for a mesh and
+		-- this model has nowhere to put one. Reporting success there is how
+		-- a naming mismatch stayed invisible for five rounds of "the garage
+		-- is not saving".
 		if #parts == 0 then
-			ok = false
+			if not optional then
+				ok = false
+			end
+			return
 		end
 		for _, part in parts do
-			if not KartDress.applyMesh(part, look.body) then
+			if not KartDress.applyMesh(part, id) then
 				ok = false
 			end
 		end
 	end
 
-	if look.wheel and look.wheel ~= "" then
-		local parts = partsNamed(model, wheelNames, true)
-		if #parts == 0 then
-			ok = false
-		end
-		for _, part in parts do
-			if not KartDress.applyMesh(part, look.wheel) then
-				ok = false
-			end
-		end
-	end
+	swap(look.body, bodyNames)
+	swap(look.rim, rimNames)
+	swap(look.tire, tireNames)
+	swap(look.wheel, wheelNames, true)
 
 	-- Applied AFTER the mesh: a swapped mesh arrives with its own colour,
 	-- so painting first would be overwritten by the very next line.

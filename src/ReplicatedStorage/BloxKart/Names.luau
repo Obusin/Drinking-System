@@ -152,4 +152,10 @@ Names.TRANSITION_REMOTE = "KartTransition"
 -- showing what they are actually wearing.
 Names.GARAGE_REMOTE = "KartGarage"
 
+-- Client says "I drove into that prop", server decides and animates it.
+-- Detection has to be client-side because only the client simulates its
+-- own kart; the CONSEQUENCE is server-side so every player sees the same
+-- cone fly.
+Names.PROP_REMOTE = "KartProp"
+
 return Names

@@ -63,8 +63,10 @@ end
 local function itemsFor(slot: string)
 	if slot == "Body" then
 		return G.Bodies
-	elseif slot == "Wheels" then
-		return G.Wheels
+	elseif slot == "Rim" then
+		return G.Rims
+	elseif slot == "Tire" or slot == "Wheels" then
+		return G.Tires
 	end
 	return G.Paints
 end
@@ -210,12 +212,16 @@ function GarageHud.new(opts: {
 		slot = G.Slots[1],
 		-- What is currently worn. Kept whole so re-applying one slot never
 		-- drops another.
-		chosen = { Body = "stock", Wheels = "stock", Paint = "stock" },
+		-- EVERY SLOT HAS TO EXIST HERE, PRE-SEEDED. The server merge below
+		-- gates on `self.chosen[slot] ~= nil`, so a slot missing from this
+		-- table is not "defaulted" — it is silently DISCARDED, and the
+		-- garage then shows stock rims for a player wearing gold ones.
+		chosen = { Body = "stock", Rim = "stock", Tire = "stock", Paint = "stock" },
 		-- The last state the SERVER confirmed. Cancel restores to this,
 		-- and it is deliberately not "whatever was on screen when the
 		-- garage opened" — those differ when a commit was partly refused,
 		-- and the server's answer is the one that is true.
-		committed = { Body = "stock", Wheels = "stock", Paint = "stock" },
+		committed = { Body = "stock", Rim = "stock", Tire = "stock", Paint = "stock" },
 		opts = opts,
 		open = false,
 	}, GarageHud)
@@ -410,9 +416,14 @@ function GarageHud:_look()
 			look.body = item.mesh
 		end
 	end
-	for _, item in G.Wheels do
-		if item.id == self.chosen.Wheels then
-			look.wheel = item.mesh
+	for _, item in G.Rims do
+		if item.id == self.chosen.Rim then
+			look.rim = item.mesh
+		end
+	end
+	for _, item in G.Tires do
+		if item.id == self.chosen.Tire then
+			look.tire = item.mesh
 		end
 	end
 	for _, item in G.Paints do
@@ -553,9 +564,10 @@ function GarageHud:_primePreview()
 			-- worked, and what it landed on.
 			local eq = Loadout.get()
 			log(
-				"preview dressed and revealed: Body=%s Wheels=%s Paint=%s",
+				"preview dressed and revealed: Body=%s Rim=%s Tire=%s Paint=%s",
 				tostring(eq.Body),
-				tostring(eq.Wheels),
+				tostring(eq.Rim),
+				tostring(eq.Tire),
 				tostring(eq.Paint)
 			)
 			Players.LocalPlayer:SetAttribute(Names.PREVIEW_READY, true)
@@ -609,10 +621,11 @@ function GarageHud:_primePreview()
 				-- display — and without the path there was nothing in the
 				-- log to tell that apart from a real success.
 				log(
-					"preview ready on %s: Body=%s Wheels=%s Paint=%s",
+					"preview ready on %s: Body=%s Rim=%s Tire=%s Paint=%s",
 					now:GetFullName(),
 					tostring(eq.Body),
-					tostring(eq.Wheels),
+					tostring(eq.Rim),
+					tostring(eq.Tire),
 					tostring(eq.Paint)
 				)
 				Players.LocalPlayer:SetAttribute(Names.PREVIEW_READY, true)
@@ -685,7 +698,7 @@ function GarageHud:Commit()
 		return
 	end
 	local picks = table.clone(self.chosen)
-	log("commit -> Body=%s Wheels=%s Paint=%s", tostring(picks.Body), tostring(picks.Wheels), tostring(picks.Paint))
+	log("commit -> Body=%s Rim=%s Tire=%s Paint=%s", tostring(picks.Body), tostring(picks.Rim), tostring(picks.Tire), tostring(picks.Paint))
 	remote:FireServer("commit", picks)
 end
 
@@ -700,7 +713,7 @@ function GarageHud:Revert()
 		end
 		self.chosen[slot] = id
 	end
-	log("revert -> Body=%s Wheels=%s Paint=%s", tostring(self.chosen.Body), tostring(self.chosen.Wheels), tostring(self.chosen.Paint))
+	log("revert -> Body=%s Rim=%s Tire=%s Paint=%s", tostring(self.chosen.Body), tostring(self.chosen.Rim), tostring(self.chosen.Tire), tostring(self.chosen.Paint))
 	if not restored then
 		return
 	end
@@ -737,9 +750,10 @@ function GarageHud:ApplyEquipped(equipped)
 	-- after the push arrived.
 	Loadout.set(equipped, true)
 	log(
-		"<- server: Body=%s Wheels=%s Paint=%s",
+		"<- server: Body=%s Rim=%s Tire=%s Paint=%s",
 		tostring(equipped.Body),
-		tostring(equipped.Wheels),
+		tostring(equipped.Rim),
+		tostring(equipped.Tire),
 		tostring(equipped.Paint)
 	)
 	for slot, id in equipped do

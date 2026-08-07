@@ -171,16 +171,33 @@ function KartFactory.build(color: Color3?, visualName: string?): Model
 			end
 		end
 
+		-- A WHEEL MAY BE A MODEL, so this asks about the part OR any Model
+		-- above it. Without that the new rig had nothing it recognised
+		-- touching the ground and fell through to the body fallback, which
+		-- puts the kart at the wrong ride height — subtly, and everywhere.
+		local function isWheelish(inst: Instance): boolean
+			return CollectionService:HasTag(inst, RIG.WheelFrontTag)
+				or CollectionService:HasTag(inst, RIG.WheelRearTag)
+				or table.find(RIG.FrontWheelNames, inst.Name) ~= nil
+				or table.find(RIG.RearWheelNames, inst.Name) ~= nil
+		end
+
 		for _, d in visual:GetDescendants() do
 			if not d:IsA("BasePart") then
 				continue
 			end
-			if
-				CollectionService:HasTag(d, RIG.WheelFrontTag)
-				or CollectionService:HasTag(d, RIG.WheelRearTag)
-				or table.find(RIG.FrontWheelNames, d.Name)
-				or table.find(RIG.RearWheelNames, d.Name)
-			then
+			local wheelish = isWheelish(d)
+			if not wheelish then
+				local up = d:FindFirstAncestorWhichIsA("Model")
+				while up and up ~= visual do
+					if isWheelish(up) then
+						wheelish = true
+						break
+					end
+					up = up:FindFirstAncestorWhichIsA("Model")
+				end
+			end
+			if wheelish then
 				consider(d)
 			end
 		end
@@ -271,20 +288,72 @@ function KartFactory.build(color: Color3?, visualName: string?): Model
 	-- Road wheels: tagged, or named from the config lists. A wheel gets a
 	-- Motor6D rather than a weld so Rider can turn it; a welded wheel is
 	-- frozen to the body forever.
-	local function wheelKind(part: BasePart): boolean?
-		if CollectionService:HasTag(part, RIG.WheelFrontTag) then
+	--
+	-- TAKES AN INSTANCE, NOT A BASEPART, because a wheel is now allowed to
+	-- be a MODEL. The rig that made this necessary has FrontLeftWheel as a
+	-- Model holding a Rim and a Tire, so rims and tyres can be equipped
+	-- separately — and the old version, which only ever looked at
+	-- BaseParts, skipped the Model entirely and then welded its Rim and
+	-- Tire to the hitbox as though they were scenery. Every wheel on the
+	-- new kart was bolted rigidly to the chassis: no spin, no steering,
+	-- and nothing anywhere said so.
+	local function wheelKind(inst: Instance): boolean?
+		if CollectionService:HasTag(inst, RIG.WheelFrontTag) then
 			return true
 		end
-		if CollectionService:HasTag(part, RIG.WheelRearTag) then
+		if CollectionService:HasTag(inst, RIG.WheelRearTag) then
 			return false
 		end
-		if table.find(RIG.FrontWheelNames, part.Name) then
+		if table.find(RIG.FrontWheelNames, inst.Name) then
 			return true
 		end
-		if table.find(RIG.RearWheelNames, part.Name) then
+		if table.find(RIG.RearWheelNames, inst.Name) then
 			return false
 		end
 		return nil
+	end
+
+	-- The part a wheel Model actually turns on.
+	--
+	-- PrimaryPart if the artist set one, otherwise the biggest part —
+	-- which on a Rim/Tire pair is the tyre, and is the right answer for
+	-- the same reason it is the obvious one. Never "the first child":
+	-- that is decided by Explorer order, which nobody thinks of as load
+	-- bearing right up until they reorder it.
+	local function hubOf(model: Model): BasePart?
+		if model.PrimaryPart then
+			return model.PrimaryPart
+		end
+		local best, bestVolume = nil, -1
+		for _, d in model:GetDescendants() do
+			if d:IsA("BasePart") then
+				local v = d.Size.X * d.Size.Y * d.Size.Z
+				if v > bestVolume then
+					best, bestVolume = d, v
+				end
+			end
+		end
+		return best
+	end
+
+	-- Wheel Models, resolved once so the loop below can ask "is this part
+	-- inside a wheel, and is it the hub of it".
+	local wheelModels: { [Model]: { hub: BasePart, front: boolean } } = {}
+	-- The reverse index: hub part -> the Model it is the hub of. Needed
+	-- because the motor is built on the PART but has to be pivoted about
+	-- the MODEL.
+	local wheelOf: { [BasePart]: Model } = {}
+	for _, d in visual:GetDescendants() do
+		if d:IsA("Model") then
+			local front = wheelKind(d)
+			local hub = if front ~= nil then hubOf(d) else nil
+			if front ~= nil and hub then
+				wheelModels[d] = { hub = hub, front = front }
+				wheelOf[hub] = d
+			elseif front ~= nil then
+				warn(("[KartFactory] %s is a wheel but has no parts in it."):format(d:GetFullName()))
+			end
+		end
 	end
 
 	for _, desc in visual:GetDescendants() do
@@ -300,9 +369,31 @@ function KartFactory.build(color: Color3?, visualName: string?): Model
 				desc.Color = color
 			end
 
-			-- The hub itself gets a Motor6D below, not a weld. Its
-			-- children weld to the hub so they spin with it.
+			-- IS THIS PART A WHEEL, OR INSIDE ONE?
+			--
+			-- A bare part named WheelFL is a wheel in its own right. The
+			-- Tire inside FrontLeftWheel is not a wheel — it is cargo, and
+			-- it has to weld to the HUB rather than to the hitbox or it
+			-- will not turn with it.
 			local isFront = wheelKind(desc)
+			local owner: Model? = nil
+			if isFront == nil then
+				local model = desc:FindFirstAncestorWhichIsA("Model")
+				while model do
+					if wheelModels[model] then
+						owner = model
+						break
+					end
+					model = model:FindFirstAncestorWhichIsA("Model")
+				end
+				if owner and wheelModels[owner].hub == desc then
+					-- The hub of a wheel Model IS the wheel, as far as the
+					-- motor is concerned.
+					isFront = wheelModels[owner].front
+					owner = nil
+				end
+			end
+
 			if isFront ~= nil then
 				-- Motor6D, not a weld: a weld can't be rotated at runtime.
 				local motor = Instance.new("Motor6D")
@@ -311,7 +402,19 @@ function KartFactory.build(color: Color3?, visualName: string?): Model
 				-- About the wheel's own pivot. Anchored to its CFrame origin
 				-- instead, an imported wheel orbits that point rather than
 				-- spinning on its axle.
-				motor.C0, motor.C1 = Util.pivotJoint(hitbox, desc)
+				--
+				-- For a wheel MODEL the pivot that matters is the model's,
+				-- not the hub part's: a tyre's centre is the axle, but only
+				-- by luck, and a rim modelled off-centre would make the
+				-- whole wheel orbit rather than spin.
+				local ownerModel = wheelOf[desc]
+				if ownerModel then
+					local pivot = ownerModel:GetPivot()
+					motor.C0 = hitbox.CFrame:ToObjectSpace(pivot)
+					motor.C1 = desc.CFrame:ToObjectSpace(pivot)
+				else
+					motor.C0, motor.C1 = Util.pivotJoint(hitbox, desc)
+				end
 				motor:SetAttribute(Names.WHEEL_FRONT, isFront)
 
 				-- Both axes come from the KART and are converted into the
@@ -327,12 +430,26 @@ function KartFactory.build(color: Color3?, visualName: string?): Model
 				motor.Parent = desc
 				log("%s -> %s road wheel", desc.Name, if isFront then "front" else "rear")
 			elseif desc ~= suppliedWheel then
-				local anchorTo = if suppliedWheel and desc:IsDescendantOf(suppliedWheel)
-					then suppliedWheel
-					else hitbox
-				local weld = Instance.new("WeldConstraint")
-				weld.Part0, weld.Part1 = anchorTo, desc
-				weld.Parent = anchorTo
+				-- WELDED TO THE HUB IF IT BELONGS TO A WHEEL.
+				--
+				-- The old comment above claimed this already happened. It
+				-- did not — everything that was not itself a wheel welded to
+				-- the hitbox. It never showed because a wheel used to be one
+				-- bare part with nothing inside it, so there was never a
+				-- child to get this wrong for.
+				local anchorTo: BasePart
+				if owner then
+					anchorTo = wheelModels[owner].hub
+				elseif suppliedWheel and desc:IsDescendantOf(suppliedWheel) then
+					anchorTo = suppliedWheel
+				else
+					anchorTo = hitbox
+				end
+				if anchorTo ~= desc then
+					local weld = Instance.new("WeldConstraint")
+					weld.Part0, weld.Part1 = anchorTo, desc
+					weld.Parent = anchorTo
+				end
 			end
 		end
 	end

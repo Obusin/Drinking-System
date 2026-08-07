@@ -36,9 +36,11 @@ local RunService = game:GetService("RunService")
 local Config = require(BloxKart:WaitForChild("Config"))
 local Names = require(BloxKart:WaitForChild("Names"))
 local Util = require(BloxKart:WaitForChild("Util"))
+local WorldFilter = require(BloxKart:WaitForChild("WorldFilter"))
 
 local R = Config.Rider
 local RIG = Config.Rig
+local SUS = Config.Suspension
 local KART_TAG = "Kart"
 
 local Rider = {}
@@ -247,10 +249,98 @@ end
 --  speed isn't replicated. Distance between frames is, because their
 --  position is.
 --=====================================================================
+--=====================================================================
+--  SUSPENSION — visual only, and that is load-bearing.
+--
+--  Each wheel asks its OWN patch of ground how far away it is, and its
+--  visual height chases that through a damped spring. Nothing here is
+--  read by Simulation: the kart's path is decided by the Hitbox exactly
+--  as before, and these rays only decide where the art sits on it.
+--
+--  WHY A SPRING RATHER THAN A CHASE. Util.approach reaches the target
+--  and stops, which reads as the wheel being dragged into place. A
+--  spring overshoots and settles, and that overshoot IS the bounce.
+--
+--  ONE RAY PER WHEEL PER FRAME. Eight karts is 32 rays, which is
+--  nothing next to the sweep the controller already does every step.
+--=====================================================================
+
+local function suspensionFor(kart: Model, motor: Motor6D, hitbox: BasePart, s, dt: number, up: Vector3): number
+	if not SUS.Enabled then
+		return 0
+	end
+
+	local key = motor
+	s.ride = s.ride or {}
+	s.rideVel = s.rideVel or {}
+	local current = s.ride[key] or 0
+	local vel = s.rideVel[key] or 0
+
+	-- The joint origin is the wheel's axle, in world space, with no
+	-- transform applied — its RESTING place. Everything below is measured
+	-- from there, so the spring cannot wander: there is no accumulated
+	-- position to drift, only an offset from a point recomputed each frame.
+	local rest = (hitbox.CFrame * motor.C0).Position
+
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	-- The kart cannot be its own ground. Every kart is excluded, not just
+	-- this one, for the same reason the controller's sweep excludes them:
+	-- another racer's bodywork is not a road surface.
+	params.FilterDescendantsInstances = WorldFilter.rayParams.FilterDescendantsInstances
+	params.IgnoreWater = true
+
+	local radius = math.max(RIG.RoadWheelRadius + SUS.RadiusTrim, 0.05)
+	local hit = workspace:Raycast(rest, -up * (radius + SUS.RayLength), params)
+
+	-- Positive compresses the wheel up into the arch; negative droops it.
+	local target = -SUS.Droop
+	if hit then
+		target = math.clamp(radius - hit.Distance, -SUS.Droop, SUS.Travel)
+	end
+
+	-- LANDING. A spring alone barely notices a hard arrival, because the
+	-- wheel only ever has Travel studs to give. Extra compression scaled
+	-- by how fast we were actually falling is the difference between
+	-- touching down and ARRIVING.
+	local fall = s.fallSpeed or 0
+	if hit and fall > SUS.LandingSpeed and not s.wasGrounded then
+		target += math.min(fall * SUS.LandingKick, SUS.LandingMax)
+	end
+	s.wasGrounded = hit ~= nil
+
+	-- Damped spring, integrated per second so it is framerate independent
+	-- — the same rule the drift scrub had to learn.
+	vel += (target - current) * SUS.Stiffness * dt
+	-- exp(-rate * dt), which is the framerate-independent form of "lose
+	-- this much velocity per second". `Damping ^ dt` reads like the same
+	-- thing and is not: it treats Damping as a FRACTION KEPT, and at 60fps
+	-- 0.82^(1/60) is 0.9967 — so the wheel oscillated more or less
+	-- forever. Same shape of units bug the drift scrub had.
+	vel *= math.exp(-SUS.Damping * dt)
+	current += vel * dt
+	-- Clamped AFTER integrating, so a violent landing cannot push the
+	-- wheel through the bodywork and back out.
+	current = math.clamp(current, -SUS.Droop, SUS.Travel)
+
+	s.ride[key] = current
+	s.rideVel[key] = vel
+	return current
+end
+
 local function updateRoadWheels(kart: Model, s, dt: number)
 	local hitbox = kart.PrimaryPart
 	if not hitbox then
 		return
+	end
+
+	-- How fast the kart is dropping, measured against the kart's own up
+	-- rather than world Y — the track can be banked, looped or upside
+	-- down, and "falling" means toward the road either way.
+	local up = hitbox.CFrame.UpVector
+	if s.lastPos then
+		local drop = (s.lastPos - hitbox.Position):Dot(up)
+		s.fallSpeed = if dt > 0 then math.max(drop / dt, 0) else 0
 	end
 
 	-- Metres rolled since last frame -> radians, via the wheel's
@@ -266,7 +356,19 @@ local function updateRoadWheels(kart: Model, s, dt: number)
 	-- spin aliases into a strobe and any steering angle disappears inside
 	-- it; real footage sells that speed with motion blur, which we don't
 	-- have.
-	local spin = moved / math.max(RIG.RoadWheelRadius, 0.1)
+	--
+	-- NEGATED, and that is the right-hand rule rather than a fudge.
+	--
+	-- The axle is the kart's RIGHT vector (+X). A positive rotation about
+	-- +X carries +Y toward +Z — so the TOP of the wheel travels toward
+	-- +Z, and Roblox's forward is -Z. Driving forward is therefore a
+	-- NEGATIVE rotation about the axle.
+	--
+	-- Without the sign the wheels spin backwards at exactly the correct
+	-- speed, which is the most convincing possible way to be wrong: it
+	-- tracks acceleration, braking and reverse perfectly and is still
+	-- inside out.
+	local spin = -moved / math.max(RIG.RoadWheelRadius, 0.1)
 	local maxSpin = RIG.RoadWheelMaxSpin * dt
 	s.roll = (s.roll or 0) + math.clamp(spin, -maxSpin, maxSpin)
 
@@ -311,7 +413,22 @@ local function updateRoadWheels(kart: Model, s, dt: number)
 			local turn = if motor:GetAttribute(Names.WHEEL_FRONT)
 				then CFrame.fromAxisAngle(steerAxis, -lock)
 				else CFrame.new()
-			motor.Transform = turn * CFrame.fromAxisAngle(rollAxis, s.roll)
+
+			-- SUSPENSION IS A TRANSLATION, APPLIED OUTSIDE THE ROTATIONS.
+			--
+			-- `CFrame.new(v) * R` rotates in place and then offsets, which
+			-- is what a wheel does: it spins on its axle while the axle
+			-- moves up and down. Multiplying the other way round would
+			-- carry the offset through the spin and make the wheel orbit a
+			-- point above itself.
+			--
+			-- Along steerAxis, which is the kart's own up in this joint's
+			-- frame — so it stays correct upside down in a loop, where
+			-- world Y would send the wheels through the floor.
+			local travel = suspensionFor(kart, motor, hitbox, s, dt, up)
+			motor.Transform = CFrame.new(steerAxis * travel)
+				* turn
+				* CFrame.fromAxisAngle(rollAxis, s.roll)
 		end
 	end
 end

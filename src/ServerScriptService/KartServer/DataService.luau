@@ -90,7 +90,7 @@ local TEMPLATE = {
 	-- the template does not name is a field nobody can find by reading
 	-- this. Reconcile is additive, so adding it now costs nothing and
 	-- changes no existing profile.
-	equipped = { Body = "stock", FWheel = "stock", RWheel = "stock", Paint = "stock" },
+	equipped = { Body = "stock", Rim = "stock", Tire = "stock", Paint = "stock" },
 
 	karts = {},
 	fragments = {},

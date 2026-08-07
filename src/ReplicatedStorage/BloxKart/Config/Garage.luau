@@ -110,14 +110,22 @@ return {
 	-- window that has to be guessed right.
 	TrackInterval = 0.4,
 
-	-- Slot order is UI order. Wheels are ONE slot, not two: front and
-	-- rear are always bought and equipped as a pair, because a kart with
-	-- mismatched axles reads as a bug rather than as a build.
-	Slots = { "Body", "Wheels", "Paint" },
+	-- Slot order is UI order.
+	--
+	-- FRONT AND REAR ARE STILL A PAIR. A kart with mismatched axles reads
+	-- as a bug rather than as a build, so one rim choice and one tyre
+	-- choice go on all four corners.
+	--
+	-- RIM AND TYRE ARE NOT A PAIR, and that is the point of the new rig.
+	-- A wheel is a Model holding both, so they are two independent
+	-- purchases that combine — gold rims on rally tyres is a build
+	-- somebody chose, not an inconsistency.
+	Slots = { "Body", "Rim", "Tire", "Paint" },
 
 	SlotLabels = {
 		Body = "BODY",
-		Wheels = "WHEELS",
+		Rim = "RIMS",
+		Tire = "TYRES",
 		Paint = "PAINT",
 	},
 
@@ -130,8 +138,32 @@ return {
 		{ id = "gt", name = "GT", mesh = "rbxassetid://132060041489941", price = 300 },
 	},
 
-	--== WHEELS ========================================================
-	-- One entry drives BOTH FWheel and RWheel — see the pair note above.
+	--== RIMS ==========================================================
+	-- Swapped onto every MeshPart named "Rim" inside the four wheel
+	-- Models. Cheaper than tyres on purpose: a rim is the smaller part of
+	-- the silhouette, and the first thing somebody buys should be cheap.
+	Rims = {
+		{ id = "stock", name = "STOCK", mesh = "", price = 0 },
+		{ id = "split", name = "SPLIT SIX", mesh = "", price = 150 },
+		{ id = "mesh", name = "MESH", mesh = "", price = 150 },
+		{ id = "dish", name = "DEEP DISH", mesh = "", price = 220 },
+	},
+
+	--== TYRES =========================================================
+	-- Swapped onto every MeshPart named "Tire". These carry the old
+	-- wheel meshes, because the whole-wheel mesh was mostly tyre — so a
+	-- player who owned SLICKS still owns something that looks like what
+	-- they bought. See the migration note in GarageService.
+	Tires = {
+		{ id = "stock", name = "STOCK", mesh = "", price = 0 },
+		{ id = "slick", name = "SLICKS", mesh = "rbxassetid://136481236962745", price = 200 },
+		{ id = "rally", name = "RALLY", mesh = "rbxassetid://124866750857410", price = 200 },
+	},
+
+	--== WHEELS (LEGACY) ===============================================
+	-- The pre-split catalogue: one mesh for the whole wheel. Kept ONLY so
+	-- an existing profile's saved id still resolves to a name and a price
+	-- while it is being migrated. Nothing should add to this list.
 	Wheels = {
 		{ id = "stock", name = "STOCK", mesh = "", price = 0 },
 		{ id = "slick", name = "SLICKS", mesh = "rbxassetid://136481236962745", price = 200 },

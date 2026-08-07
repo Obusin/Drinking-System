@@ -171,8 +171,29 @@ return {
 	-- KartService/dress prints this kart's REAL MeshPart names. Add the
 	-- one that is the bodywork here. DO NOT rename art to match code.
 	BodyNames = { "Body", "Shell", "Hull", "Chassis" },
-	FrontWheelNames = { "WheelFL", "WheelFR", "FWheel", "WheelF" },
-	RearWheelNames = { "WheelRL", "WheelRR", "RWheel", "WheelR" },
+	-- A WHEEL MAY BE A MODEL OR A BARE PART, and the new rig is the
+	-- former: FrontLeftWheel is a Model holding a Rim and a Tire, so the
+	-- two can be bought and equipped separately.
+	--
+	-- The old names stay. A kart that was working yesterday keeps working,
+	-- and the factory does not care which shape it gets.
+	FrontWheelNames = { "FrontLeftWheel", "FrontRightWheel", "WheelFL", "WheelFR", "FWheel", "WheelF" },
+	RearWheelNames = { "RearLeftWheel", "RearRightWheel", "WheelRL", "WheelRR", "RWheel", "WheelR" },
+
+	--== WHAT LIVES INSIDE A WHEEL =====================================
+	-- Two cosmetic slots per wheel instead of one. Named rather than
+	-- positional, because "the second part in the model" is exactly the
+	-- kind of rule that breaks the first time somebody reorders the
+	-- Explorer.
+	--
+	-- TAGS BEAT NAMES and both are checked. A tag is one click in Studio
+	-- and cannot silently miss; a name is free but has to be typed the
+	-- same way every time, which is the failure that cost five rounds of
+	-- "the garage is not saving".
+	RimNames = { "Rim", "Rims", "Hub" },
+	TireNames = { "Tire", "Tires", "Tyre", "Tyres" },
+	RimTag = "KartRim",
+	TireTag = "KartTire",
 
 	RoadWheelSteer = 26, -- degrees of lock at full steer. Real karts turn
 	-- their fronts much further than a car; too little reads as broken

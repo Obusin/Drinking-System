@@ -48,8 +48,22 @@ return {
 	-- was. Getting hit is one event to the player — the kart is gone from
 	-- under them — so it gets one sound, and the item on top of it says
 	-- WHICH thing did it.
-	HitSoundId = "rbxassetid://85376004233635", -- spun out
+	HitSoundId = "rbxassetid://129285831966291", -- spun out / stunned
 	HitSoundVolume = 0.9,
+
+	--== BUMPING INTO THINGS ===========================================
+	-- Played on a BOUNCE, not on every graze. Simulation only raises
+	-- `bounced` for a square-enough impact, so wall-riding a corner stays
+	-- silent and an actual crash does not.
+	BumpSoundId = "rbxassetid://131553371831354",
+	BumpSoundVolume = 0.85,
+
+	-- PITCH VARIES WITH THE IMPACT, and that is what stops it sounding
+	-- like a sample. `bounced` carries how square the hit was (0..1), so
+	-- a glancing thud is higher and lighter than a head-on one.
+	BumpPitchLow = 1.12, -- barely square enough to count
+	BumpPitchHigh = 0.86, -- dead-on. LOWER is heavier, hence the order.
+
 
 	-- Per-item, layered OVER the generic one. A missile arriving should
 	-- sound like a missile arriving, not like a banana.

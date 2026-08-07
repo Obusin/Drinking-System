@@ -646,7 +646,11 @@ local function step(dt: number)
 	-- Stepped with the sim so a knocked cone travels with the same frame
 	-- the kart moved on. Tolerates a nil sim — the arc must continue
 	-- while you are on foot or spectating.
-	props:Update(sim, dt)
+
+	-- Props run on their OWN Heartbeat, so this only hands over the live
+	-- simulation for hit detection. Nothing here can freeze a cone
+	-- mid-air any more, which is what the early returns above used to do.
+	props:SetSim(sim)
 
 	Input.update(dt)
 	local events = stepSim(sim, dt)
@@ -695,6 +699,13 @@ local function step(dt: number)
 	-- Touching down. Distinct from itemEvents.landed further below, which
 	-- is the item roulette settling — same word, unrelated event.
 	if events.landed then
+		haptics:Punch(HAP.LandPunch)
+	end
+	-- Only raised for a square impact, so wall-riding stays silent and a
+	-- real crash does not. The value IS how head-on it was, which the
+	-- sound uses for its pitch.
+	if events.bounced then
+		audio:PlayBump(events.bounced)
 		haptics:Punch(HAP.LandPunch)
 	end
 	-- DEAD SINCE DRIFT RELEASE STOPPED FIRING A BOOST. Simulation banks

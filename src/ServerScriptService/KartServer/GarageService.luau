@@ -54,19 +54,53 @@ local remote: RemoteEvent? = nil
 -- pair note in Config.Garage.
 local SLOT_KEYS = {
 	Body = { "Body" },
-	Wheels = { "FWheel", "RWheel" },
+	Rim = { "Rim" },
+	Tire = { "Tire" },
 	Paint = { "Paint" },
+	-- LEGACY, still accepted so a client that has not reloaded cannot
+	-- error. Writes the tyre, for the same reason the migration does.
+	Wheels = { "Tire" },
 }
 
 local function catalogueFor(slot: string)
 	if slot == "Body" then
 		return G.Bodies
-	elseif slot == "Wheels" then
-		return G.Wheels
+	elseif slot == "Rim" then
+		return G.Rims
+	elseif slot == "Tire" or slot == "Wheels" then
+		return G.Tires
 	elseif slot == "Paint" then
 		return G.Paints
 	end
 	return nil
+end
+
+--=====================================================================
+--  MIGRATION: ONE WHEEL BECOMES A RIM AND A TYRE
+--
+--  A profile saved before the split has `FWheel`/`RWheel` and no `Tire`.
+--  Those ids came from a catalogue whose meshes were the WHOLE wheel,
+--  and a whole wheel is mostly tyre — so the old choice becomes the
+--  tyre and the rim starts stock.
+--
+--  THE IDS SURVIVE, so ownership does: `parts` is keyed by item id, and
+--  "slick" is still "slick" in Config.Garage.Tires. Somebody who paid
+--  200 for slicks still has slicks. Renaming the ids would have been
+--  tidier and would have quietly deleted everyone's purchases.
+--
+--  IN PLACE AND ONCE. Reading a profile that has already been migrated
+--  finds `Tire` set and does nothing, so this is safe on every load.
+--=====================================================================
+local function migrate(profile)
+	local eq = profile.equipped
+	if not eq or eq.Tire then
+		return
+	end
+	local old = eq.FWheel or eq.RWheel
+	eq.Tire = if old and old ~= "" then old else "stock"
+	eq.Rim = eq.Rim or "stock"
+	-- Left in place rather than cleared. They cost nothing, and a rollback
+	-- to yesterday's build would otherwise find the wheels gone.
 end
 
 local function itemById(list, id: string)
@@ -102,8 +136,11 @@ function GarageService.lookFor(player: Player): { [string]: any }?
 	end
 	local eq = profile.equipped or {}
 
+	migrate(profile)
+
 	local body = itemById(G.Bodies, eq.Body or "stock")
-	local wheel = itemById(G.Wheels, eq.FWheel or "stock")
+	local rim = itemById(G.Rims, eq.Rim or "stock")
+	local tire = itemById(G.Tires, eq.Tire or "stock")
 
 	-- MESH IDS ONLY. Skins.applyTo treats every key as a PART NAME to swap a
 	-- mesh onto, so a colour in here would be looked up as a part called
@@ -136,12 +173,27 @@ function GarageService.lookFor(player: Player): { [string]: any }?
 			look[name] = body.mesh
 		end
 	end
-	if wheel and wheel.mesh and wheel.mesh ~= "" then
+	-- RIM AND TYRE ARE PART NAMES INSIDE THE WHEEL MODELS, so they need no
+	-- front/rear spread: every wheel has one of each and they are all
+	-- called the same thing. That is the whole reason the new rig is
+	-- easier to dress than the old one.
+	if rim and rim.mesh and rim.mesh ~= "" then
+		for _, name in RIG.RimNames do
+			look[name] = rim.mesh
+		end
+	end
+	if tire and tire.mesh and tire.mesh ~= "" then
+		for _, name in RIG.TireNames do
+			look[name] = tire.mesh
+		end
+		-- AND the old whole-wheel parts, for karts still built the old way.
+		-- A name a model does not have is simply not found, so this costs
+		-- a few lookups and keeps every rig in the game dressable.
 		for _, name in RIG.FrontWheelNames do
-			look[name] = wheel.mesh
+			look[name] = tire.mesh
 		end
 		for _, name in RIG.RearWheelNames do
-			look[name] = wheel.mesh
+			look[name] = tire.mesh
 		end
 	end
 	return look
@@ -167,7 +219,13 @@ local function equippedOf(player: Player)
 		return nil
 	end
 	local eq = profile.equipped or {}
-	return { Body = eq.Body or "stock", Wheels = eq.FWheel or "stock", Paint = eq.Paint or "stock" }
+	migrate(profile)
+	return {
+		Body = eq.Body or "stock",
+		Rim = eq.Rim or "stock",
+		Tire = eq.Tire or "stock",
+		Paint = eq.Paint or "stock",
+	}
 end
 
 --=====================================================================
@@ -284,7 +342,8 @@ function GarageService.start()
 			local state = equippedOf(player)
 			log("-> %s reply after %s: %s", player.Name, why, if state then table.concat({
 				"Body=" .. tostring(state.Body),
-				"Wheels=" .. tostring(state.Wheels),
+				"Rim=" .. tostring(state.Rim),
+				"Tire=" .. tostring(state.Tire),
 				"Paint=" .. tostring(state.Paint),
 			}, " ") else "NO PROFILE (nil)")
 			remote:FireClient(player, "equipped", state)

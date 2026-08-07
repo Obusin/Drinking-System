@@ -45,6 +45,23 @@ local function tagList(): { string }
 		Config.Race.EndTag,
 		Config.Race.CheckpointTag,
 		Config.Respawn.VoidTag,
+
+		-- PROPS. Scenery you can knock over, and the reason it belongs
+		-- HERE rather than being disarmed by the client module that
+		-- animates it:
+		--
+		-- CanQuery is what decides whether the movement sweep sees a
+		-- part, and the Props module sets it false when it adopts one.
+		-- But that only helps if that module ran, on that machine, before
+		-- you drove into the cone — so a client that failed to load it,
+		-- and the SERVER simulating bots, both still saw solid walls.
+		--
+		-- This list is the project's answer to "invisible to movement",
+		-- it is shared by the client sweep and the server's missile
+		-- filter, and it is live via Triggers.watch. Excluding props here
+		-- means a prop can never be a wall for anybody, whatever else
+		-- does or does not happen.
+		Config.Props.Tag,
 	}
 	for _, pad in Config.Boosters.Pads do
 		if typeof(pad) == "table" and typeof(pad.Tag) == "string" then

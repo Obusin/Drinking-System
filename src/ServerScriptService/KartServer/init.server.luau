@@ -123,6 +123,11 @@ end
 -- Last, and only a probe: cycles a kart mesh to establish whether a skin
 -- can be an asset id rather than a separate model. Rig.SkinTest = false
 -- turns it off.
+-- Knockable scenery. Runs in BOTH places — a hub with cones is as much
+-- fun as a track with them, and it needs no round loop.
+local PropService = require(script.PropService)
+PropService.start()
+
 Skins.start()
 -- History first. Nothing here persists yet, but a record cannot be
 -- written retroactively, so the recording goes in before the thing it
