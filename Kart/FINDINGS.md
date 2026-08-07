@@ -861,6 +861,291 @@ several sessions of reading had got wrong.
 
 ---
 
+# 7c. The 2026-08-08 run — cosmetics, the glider, and guidance
+
+One session, and almost every bug in it was the same species: a system
+that was **guiding** something quietly turned into a system that was
+**forcing** it, or a piece of state that nobody owned outright.
+
+---
+
+### Art is only cosmetic if the code that reads it says so.
+
+Four separate wheels arrived as `FrontLeftWheel` **Models** holding a
+`Rim` and a `Tire`. `KartFactory` only ever looked at `BasePart`s, so it
+skipped the Models entirely and welded their contents to the hitbox as
+scenery. Every wheel on the new kart was rigidly bolted to the chassis:
+no spin, no steer, and nothing anywhere said so.
+
+The Consistency Rule protects handling from art. It does not protect the
+*cosmetic* pipeline from art being reorganised, and that pipeline has no
+diagnostics of its own unless you build them.
+
+**Anything that matches art by name or class must accept a container.**
+Meshes get grouped. It is not a rare event.
+
+---
+
+### A comment that describes behaviour the code does not have is a lie with a fuse.
+
+`KartFactory` said *"its children weld to the hub so they spin with it"*
+and welded them to the hitbox. That was harmless for years because a
+wheel was one bare part with no children — so the comment was never
+wrong in practice, and it was never checked.
+
+The first rig with children in a wheel detonated it. **A comment
+describing an untested branch is untested documentation.**
+
+---
+
+### The right-hand rule is not optional, and the wrong sign is invisible.
+
+Wheels spun backwards. The axle is the kart's `+X` (right), and a
+positive rotation about `+X` carries the top of the wheel toward `+Z` —
+but Roblox forward is `-Z`. Driving forward is a NEGATIVE rotation.
+
+What made it survive review: **the wheels spun backwards at exactly the
+correct speed.** It tracked acceleration, braking and reverse perfectly.
+A wrong sign is the most convincing possible way to be wrong, because
+every relationship still holds.
+
+---
+
+### `x ^ dt` is not a rate. It is a fraction kept, and at 60fps it is nearly 1.
+
+Suspension damping was written `vel *= 0.82 ^ dt`, read as "keep 82% per
+second". At 60fps that is `0.9967` per frame — very nearly no damping —
+so the wheel oscillated indefinitely. It looked like a suspension bug and
+was a units bug.
+
+The framerate-independent form of "lose this much per second" is
+`exp(-rate * dt)`. The same mistake had already been made once on the
+drift scrub. **Every decay in the codebase should be greppable and every
+one should be `exp` or `^dt` deliberately, never by accident.**
+
+For springs, tie damping to stiffness rather than picking it: `damping =
+2 * sqrt(stiffness) * zeta`, and state the zeta. Measured overshoot for
+the kart: 0.45 → 19%, 0.60 → 7%, 0.75 → 1%.
+
+---
+
+### A cap is not a force. Something has to push against it.
+
+Height correction on the glider saturated: raising the maximum sink rate
+changed nothing at four different values. `sink` was only a CAP on how
+fast the kart could fall, and gravity at 24 studs/s² was the only thing
+accelerating it into that cap.
+
+**Raising a limit nothing is pressing against does nothing.** The tell
+was the numbers being *identical* across settings, not merely similar.
+
+---
+
+### A correction proportional to error is largest exactly where it is most felt.
+
+Every version of the glider landing was error-driven — measure the
+distance from the ideal, shove toward it. It always felt like being
+grabbed, and no amount of retuning fixed it, because the shove is
+biggest precisely when the player is furthest out and paying attention.
+
+The fix was to stop correcting and start **flying an approach**:
+
+```
+sink = height above the target / time left to reach it
+```
+
+recomputed every frame from where the kart actually is. There is no
+error term, so a disturbance becomes a slightly different slope instead
+of a fight. This is what an aircraft does, and it is smooth by
+construction rather than by tuning.
+
+---
+
+### Guidance that cannot be escaped is control, and it will be felt as control.
+
+The glider ended up with three forcing mechanisms — a position funnel, a
+dictated descent rate, and a heading clamp — each added to fix the
+previous one's side effects. Together they were the reason it felt
+wrong, and they were **257 lines that all came out again**.
+
+Mario Kart gives you very little air authority for a very short time and
+lets the LEVEL do the work. Research said so at the start and it took
+five commits to trust it.
+
+**When a guidance system needs a second guidance system to fix its side
+effects, the first one is too strong.**
+
+---
+
+### Any guidance must release the moment its target is behind you.
+
+Overshooting the landing pad whipped the camera round. It was not the
+camera: the heading clamp keeps the nose within 55° of the target, and
+past the pad the direction TO the target points BACKWARDS — so it
+obediently turned the kart around. Measured at 235° of nose swing.
+
+The funnel and the descent slope had the same bug in quieter form, both
+computing against a target now behind. All three released through **one**
+`glidePassed` helper; three separate copies of the same rule is exactly
+how one of them gets left behind.
+
+---
+
+### A blend factor of 1 is a teleport.
+
+`blend = 1 - (1 - weight) ^ (dt * 60)` reaches exactly 1 at full weight,
+which erases the entire error in a single frame. That is not a strong
+correction, it is a jump, and it reads as one.
+
+**Rate-limit corrections in world units**, not just in blend factors. The
+cap has to clear the fastest the target can legitimately move, or the
+correction can never win — 75 studs/s here, because a 55° heading clamp
+at 80 studs/s allows 65 studs/s sideways.
+
+---
+
+### A launch is not airborne until it says it is.
+
+Hitting a glide ramp re-triggered every other frame: the launch kick
+lifts the kart 0.77 studs in one frame, well inside `GroundSnap` of 3.0,
+so the next ground probe still reported contact. The glide ended, the
+ramp was still underneath, and it launched again — re-boosting
+continuously and pinning the wings out.
+
+The drift hop already solved this and the glide did not copy it:
+
+```
+HOP    vertVel = HopSpeed;  grounded = false;  hopUntil = now + HopMinAir
+GLIDE  vertVel = LaunchUp   <- neither
+```
+
+**Any impulse that leaves the ground must clear `grounded` itself AND
+refuse to believe a landing for a minimum time.** A kick is not enough;
+the probe has a radius.
+
+---
+
+### Clear a published flag unconditionally; guard only the work.
+
+`EndGlide` guarded its whole body on `state == STATE_GLIDE`. Anything
+else that moved the kart out of that state — a respawn, a reset — left
+the `Gliding` attribute true forever, and the wings with it.
+
+**Flags that other systems read are cheap to clear and expensive to
+miss.** Clear first, then return early.
+
+---
+
+### `LocalTransparencyModifier` is reset whenever `Transparency` is written.
+
+The glider wings were hidden once, on a state change. `KartService`
+writes `Transparency` across every kart part during the spawn fade-in,
+which resets the modifier to 0 — so the wings popped visible on the next
+spawn and stayed that way, because nothing set it again.
+
+**Render-only overrides must be re-asserted, not set.** Cache the parts
+and write every frame; a handful of property writes is far cheaper than
+a bug that only appears after a respawn.
+
+---
+
+### Cache the authored value, because the live one is your own output.
+
+Scaling the wings open reads the part's full size. Reading `part.Size`
+back each frame would read whatever the animation last wrote, and the
+wings would ratchet smaller on every deploy.
+
+**Any animation that drives a property must own the baseline separately
+from the property.** The same rule the transparency baseline follows in
+`Props`, and the same rule `home` follows there.
+
+---
+
+### Scaling reads as deploying. Fading reads as a rendering bug.
+
+A part that fades in looks like it was always there and the engine was
+slow. A part that grows looks like it was put there on purpose. Add an
+overshoot — `easeOutBack`, one extra term — and it looks *thrown* open:
+
+```
+f(t) = 1 + c3*(t-1)^3 + c1*(t-1)^2      c3 = c1 + 1
+```
+
+Resizing does not disturb a `Motor6D` built with `pivotJoint`, because
+that joint is captured from the part's **CFrame**, and resizing moves
+faces about the centre. Had the joint been derived from a face or a
+corner, every deploy would have walked the wing sideways.
+
+---
+
+### Reuse the event, not the asset.
+
+The glide launch fires a real boost through `ApplyBoost` and reports
+`boostFired` — the same event a drift release uses. The boost sound, the
+boost VFX and the thruster flare were already wired to it, so all three
+arrive for free and can never drift out of sync.
+
+A bespoke "glide deploy" version of each would have been three more
+things to keep aligned with the originals.
+
+---
+
+### Split what changes on different timescales.
+
+Height and lateral correction shared one schedule and the result was a
+choice between an accurate landing and a glider worth flying. Bleeding
+90 studs of altitude takes seconds; lateral is fast and was already
+bounded. Two schedules, and both problems went away.
+
+---
+
+### Two roles that look like variations of one idea usually are not.
+
+The thrusters: the centre reads SPEED, the sides read BOOST and nothing
+else. If everything glowed with speed there would be nothing left to
+change when you actually boosted — the sides staying dark through a fast
+lap is *what makes them land* when they fire.
+
+---
+
+### `check.sh` does not check `string.format` arity.
+
+The rim/tyre rename left three `log()` calls with four `%s` and three
+arguments, which errors at runtime. `ALL CLEAN` said nothing.
+
+A ten-line audit over every `log(` in `src/` found them all. **Worth
+re-running after any change to a data shape** — the same class as the
+"luau-analyze misses missing methods" note above.
+
+---
+
+### A dial that is silently clipped is worse than one set wrong.
+
+`LaunchBoostSpeed = 155` against `DiveSpeedCap = 140`. The boost was
+quietly truncated, so the dial did not mean what it said and tuning it
+did nothing. **Any ceiling must clear the fastest thing allowed to push
+against it**, and that relationship belongs in a comment next to both.
+
+---
+
+### Argon deletes files you create while it is serving.
+
+Two-way sync treats Studio as the source of truth. A file created on
+disk that Studio has never seen gets removed on the next pass —
+`Config/Suspension.luau` vanished four times. Files that are *edited*
+are safe; only new ones are exposed.
+
+`check.sh` catches it loudly because a missing config module fails hard.
+The safe move when adding a config: write it and `git add` it in the same
+command, so it is recoverable even if the working copy is eaten.
+
+Also: Argon round-trips rename `.lua` to `.luau` and drop non-script
+files. That is how Iris's `LICENSE.txt` disappeared. **Anything that must
+survive a round-trip has to live inside a file that round-trips** — the
+licence text now sits in a comment at the top of `init.luau`.
+
+---
+
 # 8. Open — stress test these
 
 Current state: **works, still wonky.** Known-unresolved, roughly in

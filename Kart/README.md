@@ -61,6 +61,7 @@ Press Play. You spawn already seated; the match starts on its own.
 | [`SPEC-bots.md`](SPEC-bots.md) | AI racers, and the twelve-layer plan audited |
 | [`SPEC-hop-drift.md`](SPEC-hop-drift.md) | the drift state machine |
 | [`SPEC-nitro.md`](SPEC-nitro.md) | tanks and burn stages |
+| [`SPEC-glide.md`](SPEC-glide.md) | the glider: ramps, wings, and why there is no landing guarantee |
 
 ---
 

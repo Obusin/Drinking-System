@@ -225,6 +225,28 @@ return {
 	-- landing at a dead stop is worse than not gliding at all.
 	LandSpeedKeep = 0.92,
 
+	--== THE WINGS SNAP OUT, THEY DO NOT FADE IN ======================
+	-- Fading transparency reads as a rendering glitch — the wings look
+	-- like they were always there and the engine was slow to draw them.
+	-- Scaling reads as DEPLOYING, because something growing is something
+	-- being put there on purpose.
+	--
+	-- And it overshoots. easeOutBack goes past 1 and settles back, which
+	-- is the difference between a part appearing and a part being thrown
+	-- open. It costs one extra term and it is the whole effect.
+	--
+	--     f(t) = 1 + c3*(t-1)^3 + c1*(t-1)^2      c3 = c1 + 1
+	--
+	-- DeployBounce IS c1 — larger overshoots harder. Around 1.7 is the
+	-- textbook value and looks like a spring; past 3 it looks broken.
+	DeployTime = 0.22, -- seconds to open
+	DeployBounce = 2.2, -- overshoot, ~13% past full at this value
+	RetractTime = 0.14, -- and to close, faster and with no bounce
+
+	-- Below this the wings are also made invisible, because a part scaled
+	-- to nearly nothing is still a visible speck.
+	DeployHideBelow = 0.04,
+
 	--== WIND AND TRAILS ==============================================
 	-- Lives here rather than in Config.Audio for the same reason the prop
 	-- knock does: it is played BY the glide system, at the kart, and it

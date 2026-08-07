@@ -581,21 +581,16 @@ local function updateGlider(kart: Model, s, dt: number)
 	local amount = if gliding then RIG.WingFlutter else RIG.WingFlutterGround
 	local wobble = math.sin(s.flutter * math.pi * 2) * math.rad(amount)
 
-	-- WINGS OUT ONLY IN THE AIR, AND RE-ASSERTED EVERY FRAME.
+	-- THE WINGS SNAP OUT, THEY DO NOT FADE IN.
 	--
-	-- LocalTransparencyModifier is render-only and client-local, which is
-	-- what makes it the right tool — it never touches the Transparency
-	-- the server replicates.
+	-- Scaling reads as DEPLOYING; fading reads as the engine being slow
+	-- to draw something that was always there. The overshoot is what
+	-- turns "appearing" into "being thrown open".
 	--
-	-- But Roblox RESETS it to 0 whenever the part's Transparency is
-	-- written, and KartService writes Transparency across every part
-	-- during the spawn fade-in. Setting it once on a state change meant
-	-- the wings quietly popped visible on the next spawn and stayed that
-	-- way, because nothing ever set it again.
-	--
-	-- So the parts are found ONCE and the modifier is re-applied every
-	-- frame. Three parts on eight karts is twenty-four property writes —
-	-- far cheaper than a bug that only shows up after a respawn.
+	-- Parts are found ONCE and their authored Size cached with them. The
+	-- cache is not an optimisation — it is the only record of full size,
+	-- since the live Size is whatever this animation last set it to, and
+	-- reading that back would ratchet the wings smaller every deploy.
 	if not s.gliderParts then
 		s.gliderParts = {}
 		for _, inst in kart:GetDescendants() do
@@ -608,15 +603,40 @@ local function updateGlider(kart: Model, s, dt: number)
 					or (inst.Parent and inst.Parent.Name == "Glider")
 				)
 			then
-				table.insert(s.gliderParts, inst)
+				table.insert(s.gliderParts, { part = inst, size = inst.Size })
 			end
 		end
 	end
 
-	local hidden = if gliding then 0 else 1
-	for _, inst in s.gliderParts do
-		if inst.LocalTransparencyModifier ~= hidden then
-			inst.LocalTransparencyModifier = hidden
+	-- Progress toward open, 0..1. Retract is faster and has no bounce:
+	-- putting something away is not an event.
+	local rate = if gliding then 1 / GLD.DeployTime else -1 / GLD.RetractTime
+	s.deployT = math.clamp((s.deployT or 0) + rate * dt, 0, 1)
+
+	local scale
+	if s.deployT >= 1 then
+		scale = 1
+	elseif s.deployT <= 0 then
+		scale = 0
+	elseif gliding then
+		-- easeOutBack. Overshoots past 1 and settles back.
+		local c1 = GLD.DeployBounce
+		local c3 = c1 + 1
+		local u = s.deployT - 1
+		scale = 1 + c3 * u * u * u + c1 * u * u
+	else
+		scale = s.deployT
+	end
+
+	-- A part scaled to nearly nothing is still a visible speck, so the
+	-- transparency is still doing a job — just a much smaller one.
+	local hidden = if scale < GLD.DeployHideBelow then 1 else 0
+	for _, entry in s.gliderParts do
+		-- Roblox refuses a zero dimension; the floor keeps the write legal
+		-- without being visible.
+		entry.part.Size = entry.size * math.max(scale, 0.01)
+		if entry.part.LocalTransparencyModifier ~= hidden then
+			entry.part.LocalTransparencyModifier = hidden
 		end
 	end
 
