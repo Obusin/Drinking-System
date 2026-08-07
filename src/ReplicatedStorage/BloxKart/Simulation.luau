@@ -541,13 +541,37 @@ local function corridorPush(self, dt: number): number
 	return -math.sign(side) * strength * GL.CorridorPull * dt
 end
 
+-- HAVE WE GONE PAST THE PAD?
+--
+-- Every piece of guidance below has to stop when this is true, and the
+-- heading clamp most of all: past the pad the direction TO it points
+-- backwards, so a clamp that keeps the nose within 55 degrees of the
+-- target obediently swings the kart round to face where it came from.
+-- The camera follows the nose, so it whips — which looks like a camera
+-- bug and is not one.
+--
+-- Guidance is for getting there. Once you are past it there is nothing
+-- to guide toward, and the honest answer is to hand the kart back.
+local function glidePassed(self): boolean
+	local from, to = self.glideFrom, self.glideTo
+	if not from or not to then
+		return false
+	end
+	local line = to - from
+	local span = line.Magnitude
+	if span < 1 then
+		return false
+	end
+	return (self.pos - from):Dot(line / span) >= span
+end
+
 -- WHERE THE ARC SAYS WE SHOULD BE, and how hard to insist on it.
 --
 -- Returns the ideal position at our current progress, and a 0..1 weight.
 -- Weight 0 means fly it yourself; weight 1 means you are ON the ideal
 -- point whatever you did. Nil when there is no landing zone to aim at.
 local function funnel(self): (Vector3?, number, number)
-	if not GL.Funnel then
+	if not GL.Funnel or glidePassed(self) then
 		return nil, 0, 0
 	end
 	local from, to = self.glideFrom, self.glideTo
@@ -924,7 +948,7 @@ function Simulation:Step(dt: number, input): { [string]: any }
 	-- there — a player alternating hard left and right would otherwise
 	-- walk the heading round in steps each of which was individually
 	-- legal.
-	if self.state == STATE_GLIDE and self.glideTo then
+	if self.state == STATE_GLIDE and self.glideTo and not glidePassed(self) then
 		local want = self.glideTo - self.pos
 		want = want - self.up * want:Dot(self.up)
 		if want.Magnitude > 1 then
