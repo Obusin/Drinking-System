@@ -443,11 +443,16 @@ local function landingFor(from: Vector3, heading: Vector3): Vector3?
 	local best, bestDist = nil, math.huge
 	for _, part in CollectionService:GetTagged(GL.LandTag) do
 		if part:IsA("BasePart") then
-			local to = part.Position - from
+			-- THE TOP FACE, not the centre. A pad is a slab, and aiming at
+			-- its middle aims half its thickness underground — on a thick
+			-- marker that is the difference between landing on it and
+			-- landing in it.
+			local top = part.Position + part.CFrame.UpVector * (part.Size.Y * 0.5)
+			local to = top - from
 			if to:Dot(heading) > 0 then
 				local d = to.Magnitude
 				if d < bestDist then
-					best, bestDist = part.Position, d
+					best, bestDist = top, d
 				end
 			end
 		end
@@ -1073,14 +1078,31 @@ function Simulation:Step(dt: number, input): { [string]: any }
 			then GL.SinkNeutral + (GL.SinkDive - GL.SinkNeutral) * pitch
 			else GL.SinkNeutral + (GL.SinkNeutral - GL.SinkFloat) * pitch
 
-		-- HEIGHT CORRECTION, AS A SINK BIAS. Below the ideal arc the wings
-		-- hold on a little longer; above it they let go sooner. Bounded
-		-- both ways, so it can nudge the flight but never fly it.
-		local ideal, _lateral, weight = funnel(self)
-		if ideal and weight > 0 then
-			local err = (ideal - self.pos):Dot(self.up) -- + means we are low
-			local bias = math.clamp(err * GL.HeightCorrect, -GL.HeightCorrectMax, GL.HeightCorrectMax)
-			sink = math.max(sink - bias * weight, -GL.HeightClimb)
+		-- THE GLIDE SLOPE. Not an error to correct — a descent rate that
+		-- ARRIVES, recomputed every frame from where we actually are, so a
+		-- disturbance becomes a slightly different slope instead of a fight.
+		local _ideal, _lateral, weight = funnel(self)
+		local pad = self.glideTo
+		if pad and weight > 0 then
+			local above = (self.pos - pad):Dot(self.up)
+			local flat = pad - self.pos
+			flat -= self.up * flat:Dot(self.up)
+
+			if above > 0 then
+				-- Floored, or the slope goes infinite as the gap closes.
+				local eta = flat.Magnitude / math.max(math.abs(self.speed), 1)
+				local wanted = math.min(above / math.max(eta, 0.25), GL.SlopeMaxSink)
+
+				-- FLARE. Eased out near the pad so the kart SETTLES onto it
+				-- rather than arriving at it. Without this the steepest part
+				-- of the descent is the last stretch, which is the one
+				-- moment it must not be.
+				if above < GL.FlareHeight then
+					local f = math.clamp(above / GL.FlareHeight, 0, 1)
+					wanted = GL.FlareSink + (wanted - GL.FlareSink) * f
+				end
+				sink = sink + (wanted - sink) * weight
+			end
 		end
 
 		-- GRAVITY STILL DOES THE ARC; the wings only set a FLOOR on how
@@ -1308,7 +1330,16 @@ function Simulation:Step(dt: number, input): { [string]: any }
 			-- chord is what dragged it into the ground and stuck it.
 			local delta = ideal - self.pos
 			local lateral = delta - self.up * delta:Dot(self.up)
-			self.pos += lateral * blend
+			local step = lateral * blend
+			-- CAPPED. At full weight `blend` is 1, which erases the whole
+			-- sideways error in a single frame — a teleport, and it reads
+			-- as one. Capping the speed turns the same correction into a
+			-- few tenths of a second of flying back onto line.
+			local cap = GL.LateralMaxSpeed * dt
+			if step.Magnitude > cap then
+				step = step.Unit * cap
+			end
+			self.pos += step
 		end
 	end
 

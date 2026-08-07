@@ -228,6 +228,43 @@ return {
 	-- worth flying.
 	HeightStart = 0.2,
 
+	--== THE APPROACH: A GLIDE SLOPE, NOT AN ERROR TO CHASE ===========
+	-- Every version before this corrected an ERROR — measure how far off
+	-- the ideal we are, shove toward it. That is why it always felt like
+	-- being grabbed: a correction proportional to error is largest exactly
+	-- when you are furthest out, which is exactly when you notice it.
+	--
+	-- An aircraft does not fly like that. It works out the descent rate
+	-- that ARRIVES:
+	--
+	--     sink = height above the pad / time left to reach it
+	--
+	-- and then just flies it. There is no error, because the target is
+	-- never missed in the first place — the rate is recomputed every
+	-- frame from where you actually are, so any disturbance is absorbed
+	-- into a slightly different slope rather than fought.
+	--
+	-- Smooth by construction, and it lands ON the pad rather than near it.
+	SlopeMaxSink = 60, -- however steep the slope wants to be, not steeper
+	SlopeFollow = 3.5, -- how briskly the wings take up a new slope
+
+	-- THE FLARE. The last stretch, where the slope is eased out so the
+	-- kart settles onto the pad instead of arriving at it.
+	FlareHeight = 22, -- studs above the pad where the flare begins
+	FlareSink = 9, -- descent rate it eases to for touchdown
+
+	-- Lateral correction is RATE LIMITED. At full funnel weight the old
+	-- blend was literally 1 — the whole sideways error erased in a single
+	-- frame, which is a teleport and reads as exactly that. Capping the
+	-- speed makes the same correction take a few tenths of a second and
+	-- look like the kart flying back onto line.
+	-- Just above the fastest a kart can move sideways at all: the heading
+	-- clamp allows 55 degrees off-line, which at 80 studs/s is 65 studs/s
+	-- across. At 40 the correction could not out-run the player and they
+	-- drifted 75 studs wide before being reeled in — inside the guarantee,
+	-- but visibly out over the scenery. 75 wins without being instant.
+	LateralMaxSpeed = 75, -- studs/s
+
 	-- GENTLE, because it no longer has to be exact.
 	--
 	-- These were 2.6 and 120, cranked up to force the kart to MATCH the
