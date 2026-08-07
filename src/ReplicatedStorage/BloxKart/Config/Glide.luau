@@ -69,6 +69,17 @@ return {
 	-- so a ramp on a banked section throws you along the bank.
 	LaunchUp = 46,
 
+	-- MINIMUM TIME IN THE AIR BEFORE A GLIDE MAY END, exactly like the
+	-- drift hop's HopMinAir and for exactly the same reason.
+	--
+	-- The launch kick lifts the kart 0.77 studs in one frame, which is
+	-- well inside GroundSnap. So the frame after launching it was still
+	-- `grounded`, the glide ended immediately, the ramp was still
+	-- underneath, and it launched again — a loop that re-boosted every
+	-- other frame and left the wings permanently out because `Gliding`
+	-- was being set back to true as fast as it was cleared.
+	MinAirTime = 0.35,
+
 	-- Multiplies the speed you arrived with. Slightly over 1 so a glide
 	-- rewards arriving fast, which is what makes people take the ramp
 	-- properly rather than trickling onto it.

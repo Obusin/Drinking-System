@@ -482,6 +482,11 @@ function Simulation:StartGlide(launchCF: CFrame?)
 	self.glideUntil = os.clock() + GL.MaxTime
 	self.speed = math.abs(self.speed) * GL.LaunchSpeedScale
 	self.vertVel = GL.LaunchUp
+	-- OFF THE GROUND, SAID OUT LOUD. The hop does this too: a kick alone
+	-- does not clear GroundSnap within a frame, so without it the very
+	-- next ground probe still reports contact.
+	self.grounded = false
+	self.glideMinUntil = os.clock() + GL.MinAirTime
 	self.up = up
 	self.forward, self.up = Util.orthonormal(self.forward, self.up)
 
@@ -507,6 +512,14 @@ function Simulation:StartGlide(launchCF: CFrame?)
 end
 
 function Simulation:EndGlide()
+	-- THE FLAG IS CLEARED FIRST AND UNCONDITIONALLY. Guarding the whole
+	-- function on the state meant that anything else moving the kart out
+	-- of STATE_GLIDE — a respawn, a reset — left `Gliding` true forever,
+	-- and the wings with it. Cheap to always clear; expensive to miss.
+	if self.model then
+		self.model:SetAttribute(Names.GLIDING, false)
+		self.model:SetAttribute(Names.GLIDE_PITCH, 0)
+	end
 	if self.state ~= STATE_GLIDE then
 		return
 	end
@@ -1458,7 +1471,11 @@ function Simulation:Step(dt: number, input): { [string]: any }
 			-- is not the finish line either — GlideLand is in Triggers.TAGS
 			-- and invisible to the ground probe by design.
 			local timedOut = os.clock() > (self.glideUntil or 0)
-			if self.grounded or timedOut then
+			-- Landing is only believed after the minimum air time. See
+			-- MinAirTime: the first frames off a ramp still read as
+			-- grounded, and trusting them relaunches on the spot.
+			local canLand = os.clock() >= (self.glideMinUntil or 0)
+			if (self.grounded and canLand) or timedOut then
 				if timedOut and not self.grounded then
 					warn("[Simulation] glide timed out in mid-air — a GlideRamp is aimed at nothing.")
 				end
