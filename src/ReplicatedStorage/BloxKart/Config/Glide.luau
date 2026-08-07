@@ -74,6 +74,26 @@ return {
 	-- properly rather than trickling onto it.
 	LaunchSpeedScale = 1.05,
 
+	--== THE LAUNCH IS A BOOST, NOT A NEW KIND OF EVENT ===============
+	-- Hitting the ramp fires a real boost through Simulation:ApplyBoost
+	-- and reports it as `boostFired`, which is the same event a drift
+	-- release uses.
+	--
+	-- That is the whole trick and it is why there is no deploy sound in
+	-- this file: the boost sound, the boost VFX and the side-thruster
+	-- flare are ALREADY wired to that event. A separate "glide deploy"
+	-- sound would be a second thing to keep in sync with the first, and
+	-- the first is the one people already recognise as "you just got
+	-- fast".
+	--
+	-- It also gives the launch the right shape — a hard shove off the
+	-- ramp that decays into the glide, rather than a constant cruise.
+	LaunchBoostSpeed = 155,
+	LaunchBoostTime = 1.3,
+	-- Tier only picks the pitch and the VFX size. 3 is the top drift
+	-- tier: a glide ramp should feel like the best boost in the game.
+	LaunchBoostTier = 3,
+
 	--== THE FLIGHT ===================================================
 	-- Against Handling.Gravity of 150. This is the single number that
 	-- decides whether a glide is a long float or a lob.
@@ -110,7 +130,10 @@ return {
 	-- Diving trades height for speed, which is what makes the choice a
 	-- choice: studs/s of speed gained per stud/s of extra sink.
 	DiveToSpeed = 0.55,
-	DiveSpeedCap = 140, -- however hard you dive, this is the ceiling
+	-- Above LaunchBoostSpeed, or the launch boost is silently clipped and
+	-- the dial does not mean what it says. Any ceiling here must clear the
+	-- fastest thing allowed to push against it.
+	DiveSpeedCap = 165, -- however hard you dive, this is the ceiling
 
 	-- A glide cannot go on forever. Backstop only — if this ever fires
 	-- the ramp is aimed at nothing and that is a level bug worth seeing.

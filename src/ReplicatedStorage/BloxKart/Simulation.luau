@@ -489,6 +489,11 @@ function Simulation:StartGlide(launchCF: CFrame?)
 	-- mid-flight would let a player who has drifted wide drag the target
 	-- with them, which is precisely the failure the corridor exists to
 	-- prevent.
+	-- A REAL BOOST, through the same door everything else uses. The sound,
+	-- the effects and the thruster flare all key off this rather than off
+	-- anything glide-specific.
+	self:ApplyBoost(GL.LaunchBoostSpeed, GL.LaunchBoostTime)
+
 	self.glideFrom = self.pos
 	self.glideTo = landingFor(self.pos, self.forward)
 
@@ -1631,6 +1636,9 @@ function Simulation:Step(dt: number, input): { [string]: any }
 				local ramp = touching[1]
 				if ramp and self:StartGlide(ramp.CFrame) then
 					events.glideStarted = true
+					-- Reported as a boost so Audio and Effects react without
+					-- either of them needing to know gliding exists.
+					events.boostFired = GL.LaunchBoostTier
 				end
 			end
 		end
