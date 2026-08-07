@@ -1180,6 +1180,59 @@ bounded. Two schedules, and both problems went away.
 
 ---
 
+### Sample the field at the POSITION, not the clock.
+
+Water done as a sine of time alone gives a kart vibrating in place: it
+bobs identically parked and at full speed, and two karts side by side
+rise and fall in perfect unison, which reads as fake immediately.
+
+A field `h(x, z, t)` means the swell exists in the WORLD. You drive
+through it, you take it at an angle, and the kart beside you is on a
+different part of the same wave. Same cost, completely different read.
+
+Three directional waves at unrelated wavelengths and headings: one is a
+ripple, two beat against each other, three stops the pattern being
+findable.
+
+**Pitch and roll come from the SLOPE of that field** — sample fore/aft
+and left/right, and the difference IS the tilt. Deriving them from one
+source means heave and tilt can never disagree about which wave the hull
+is on. (The same rule as body roll off the suspension, and `lookFor`
+sharing a name list with `KartDress`.)
+
+---
+
+### A ceiling the system sits at is not a ceiling, it is the value.
+
+The wave tilt was 26 degrees per stud against an 11-degree clamp, so
+EVERY frame was clamped. Constant maximum tilt is not a rough sea, it is
+a broken one — nothing varies, so nothing reads as motion.
+
+Tuned by measuring how often the clamp fires, which is the only number
+that matters here:
+
+```
+tilt/stud   frames clamped (moored / cruising / flat out)
+   26         every frame
+   14        21%   23%   23%
+    9        2.7%  1.2%  0.6%   <- a backstop again
+```
+
+**Tune a clamped quantity by the clamp's hit rate**, not by the peak
+value — the peak tells you nothing once it is pinned.
+
+---
+
+### Speed scales heave, not tilt.
+
+Folding the speed multiplier into the wave TILT as well as the heave is
+what kept it pinned however low the coefficient went. A faster boat
+heaves harder over the same wave; it does not lie at a steeper angle to
+it. Two effects that both felt like "more sea" turned out to be one that
+was right and one that was wrong.
+
+---
+
 ### Move the floor, not the movement code.
 
 Swim mode is a floor at the waterline and nothing else. The kart drives

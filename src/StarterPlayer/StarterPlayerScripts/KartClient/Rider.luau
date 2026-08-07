@@ -335,6 +335,27 @@ local function suspensionFor(kart: Model, motor: Motor6D, hitbox: BasePart, s, d
 end
 
 --=====================================================================
+--  THE SEA
+--
+--  h(x, z, t) as a sum of directional waves. Sampled at the kart's
+--  POSITION rather than driven by time alone, which is the whole
+--  difference between water and a vibrating kart: the swell exists in
+--  the world, so you drive through it, you take it at an angle, and two
+--  karts side by side are on different parts of the same wave.
+--=====================================================================
+local function waveAt(pos: Vector3, t: number): number
+	local h = 0
+	for _, w in SW.Waves do
+		local rad = math.rad(w.heading)
+		-- Distance along the wave's direction of travel. Everything
+		-- follows from this one projection.
+		local along = pos.X * math.cos(rad) + pos.Z * math.sin(rad)
+		h += math.sin(along / w.length * math.pi * 2 + t * w.speed) * w.amp
+	end
+	return h
+end
+
+--=====================================================================
 --  BODY ROLL — the payoff for four separate wheels.
 --
 --  Read entirely off the suspension that already exists, so the body
@@ -425,12 +446,45 @@ local function updateBody(kart: Model, s, dt: number)
 	local wet = s.wet or 0
 	local bob = 0
 	if wet > 0.001 then
-		s.bobT = (s.bobT or 0) + dt
-		bob = wet
-			* (
-				math.sin(s.bobT * math.pi * 2 * SW.BobRate) * SW.BobHeight
-				+ math.sin(s.bobT * math.pi * 2 * SW.BobRate2) * SW.BobHeight2
-			)
+		local hitbox = kart.PrimaryPart
+		local pos = if hitbox then hitbox.Position else Vector3.zero
+		local cf = if hitbox then hitbox.CFrame else CFrame.new()
+		s.seaT = (s.seaT or 0) + dt
+
+		-- Driving fast into a swell hits harder than drifting over it, so
+		-- the whole sea scales with speed. A moored kart wallows.
+		local pace = math.clamp((s.speedNow or 0) / math.max(H.MaxSpeed, 1), 0, 1)
+		local amp = wet * (1 + SW.SlamAtSpeed * pace)
+
+		local here = waveAt(pos, s.seaT) * amp
+
+		-- SPRUNG AGAINST THE SURFACE, not welded to it. Following the
+		-- water rigidly is the difference between floating and being
+		-- parented to a moving plane; the overshoot is the bounce.
+		s.heaveV = (s.heaveV or 0) + (here - (s.heave or 0)) * SW.HeaveStiffness * dt
+		s.heaveV *= math.exp(-SW.HeaveDamping * dt)
+		s.heave = (s.heave or 0) + s.heaveV * dt
+		bob = s.heave
+
+		-- PITCH AND ROLL ARE THE SLOPE OF THE WATER. Sampling the field
+		-- fore/aft and left/right and taking the difference means the hull
+		-- always lies along the wave it is actually on — heave and tilt
+		-- are the same field, so they can never disagree.
+		local d = SW.WaveSample
+		-- WITHOUT `amp`. Speed scales how hard the hull HEAVES over a wave,
+		-- not how steeply it lies against one — a fast boat does not tilt
+		-- more on the same water. Scaling both kept the tilt pinned at its
+		-- ceiling however low the coefficient went.
+		local fore = waveAt(pos + cf.LookVector * d, s.seaT)
+		local aft = waveAt(pos - cf.LookVector * d, s.seaT)
+		local right = waveAt(pos + cf.RightVector * d, s.seaT)
+		local left = waveAt(pos - cf.RightVector * d, s.seaT)
+
+		local wavePitch = math.clamp((fore - aft) * SW.WaveTilt, -SW.WaveTiltMax, SW.WaveTiltMax)
+		local waveRoll = math.clamp((right - left) * SW.WaveTilt, -SW.WaveTiltMax, SW.WaveTiltMax)
+
+		s.bodyPitch += wavePitch * wet
+		s.bodyRoll += waveRoll * wet
 		-- A hull rolls more than a chassis does.
 		s.bodyRoll *= 1 + (SW.RollScale - 1) * wet
 	end
