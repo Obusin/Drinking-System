@@ -1649,10 +1649,11 @@ function Simulation:Step(dt: number, input): { [string]: any }
 			-- by how hard it arrived — so a drift hop is still dead flat
 			-- and a fall off a bridge kicks.
 			--
-			-- Floored at LandBounceMin because the ground probe re-catches
-			-- anything that does not clear GroundSnap within a frame. A
-			-- bounce under that is not a small bounce, it is no bounce at
-			-- all — the same trap the wave launches fell into.
+			-- The threshold is set so the smallest possible bounce already
+			-- clears GroundSnap, because a bounce under about 30 studs/s
+			-- is not a small bounce — the ground probe re-catches it and
+			-- it is no bounce at all. Same trap the wave launches fell
+			-- into.
 			--
 			-- Each bounce is a fresh landing next time round, so they
 			-- decay on their own: 34% of a smaller impact is smaller
@@ -1661,11 +1662,10 @@ function Simulation:Step(dt: number, input): { [string]: any }
 			-- reversing the velocity on the contact frame is a direction
 			-- change, not a bounce. The kart squats here and leaves below.
 			if not self.wasGrounded and impact >= H.LandBounceMinDrop then
-				self.bouncePending = math.clamp(
-					math.max(impact * H.LandBounceKeep, H.LandBounceMin),
-					0,
-					H.LandBounceMax
-				)
+				-- No floor: see LandBounceMinDrop. The threshold guarantees
+				-- the result clears GroundSnap on its own, and clamping it
+				-- up is what made the second bounce step instead of decay.
+				self.bouncePending = math.min(impact * H.LandBounceKeep, H.LandBounceMax)
 				self.bounceAt = now + H.LandBounceDelay
 				events.bouncedLanding = impact
 			end

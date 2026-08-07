@@ -390,9 +390,26 @@ return {
 	--
 	-- So a drift hop and a kerb are dead flat, and only a real drop
 	-- bounces — which is also the right feel.
-	LandBounceMinDrop = 55, -- studs/s of impact before it bounces at all
+	-- NO FLOOR. It was the second bounce snapping.
+	--
+	-- A floor guarantees the FIRST bounce is visible, and then ruins
+	-- every one after it: a 58 studs/s return earns 29 naturally and was
+	-- being floored back up to 32 — so the sequence stopped decaying and
+	-- started STEPPING, which is what the eye caught.
+	--
+	--     with floor    58 -> 32   (up from a natural 29)
+	--     without       58 -> settles
+	--
+	-- The threshold does the floor's job instead. At 62, the smallest
+	-- bounce that can happen is 31 studs/s — which just clears GroundSnap
+	-- and is therefore visible by construction, with nothing to clamp.
+	--
+	-- One bounce that scales with the drop, and then it settles. Trying
+	-- for more is fighting the engine: anything under 30 studs/s is
+	-- swallowed by the ground probe, so the second bounce was never going
+	-- to be seen properly whatever it was set to.
+	LandBounceMinDrop = 62, -- studs/s of impact before it bounces at all
 	LandBounceKeep = 0.5, -- fraction of the impact returned upward
-	LandBounceMin = 32, -- and never less than this, or it is invisible
 	LandBounceMax = 62, -- ceiling, or a long fall pogos
 
 	-- IT COMPRESSES BEFORE IT RELEASES, and this is what stops it
