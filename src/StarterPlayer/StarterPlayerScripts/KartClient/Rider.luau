@@ -559,14 +559,23 @@ local function updateGlider(kart: Model, s, dt: number)
 	local amount = if gliding then RIG.WingFlutter else RIG.WingFlutterGround
 	local wobble = math.sin(s.flutter * math.pi * 2) * math.rad(amount)
 
-	-- WINGS OUT ONLY IN THE AIR. LocalTransparencyModifier is render-only
-	-- and client-local, so this never touches the real Transparency the
-	-- server replicates — the same tool the kart already uses to fade
-	-- itself in on spawn. A glider parked on the start line reads as a
-	-- modelling mistake.
-	if s.gliderShown ~= gliding then
-		s.gliderShown = gliding
-		local hidden = if gliding then 0 else 1
+	-- WINGS OUT ONLY IN THE AIR, AND RE-ASSERTED EVERY FRAME.
+	--
+	-- LocalTransparencyModifier is render-only and client-local, which is
+	-- what makes it the right tool — it never touches the Transparency
+	-- the server replicates.
+	--
+	-- But Roblox RESETS it to 0 whenever the part's Transparency is
+	-- written, and KartService writes Transparency across every part
+	-- during the spawn fade-in. Setting it once on a state change meant
+	-- the wings quietly popped visible on the next spawn and stayed that
+	-- way, because nothing ever set it again.
+	--
+	-- So the parts are found ONCE and the modifier is re-applied every
+	-- frame. Three parts on eight karts is twenty-four property writes —
+	-- far cheaper than a bug that only shows up after a respawn.
+	if not s.gliderParts then
+		s.gliderParts = {}
 		for _, inst in kart:GetDescendants() do
 			if
 				inst:IsA("BasePart")
@@ -577,8 +586,15 @@ local function updateGlider(kart: Model, s, dt: number)
 					or (inst.Parent and inst.Parent.Name == "Glider")
 				)
 			then
-				inst.LocalTransparencyModifier = hidden
+				table.insert(s.gliderParts, inst)
 			end
+		end
+	end
+
+	local hidden = if gliding then 0 else 1
+	for _, inst in s.gliderParts do
+		if inst.LocalTransparencyModifier ~= hidden then
+			inst.LocalTransparencyModifier = hidden
 		end
 	end
 
