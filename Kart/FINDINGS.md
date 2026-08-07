@@ -1235,6 +1235,41 @@ happen to use the same function.
 
 ---
 
+### A threshold has to sit where the scaled value clears its own floor.
+
+The landing bounce returns a fraction of the impact, floored so it
+clears `GroundSnap` — under about 30 studs/s the ground probe re-catches
+the kart and the bounce silently does not exist.
+
+With the threshold at 34 and the fraction at 0.34, *every* landing
+bounced by exactly the floor: 45 studs/s and 80 studs/s both produced 32,
+so the size stopped tracking the drop, which was the entire point.
+
+**If a value is floored, the threshold must be high enough that the
+scaled value beats the floor on its own.** 55 and 0.5 means a drift hop
+is dead flat and only a real drop bounces — which also turned out to be
+the better feel.
+
+```
+minDrop keep floor |  impact 40 / 70 / 110 / 160
+   34   0.34   32  |    32    32    37    54   barely varies
+   55   0.50   32  |  flat    35    55    62   tracks the drop
+```
+
+---
+
+### Reuse the punishment, do not invent a second one.
+
+A hard wall hit goes through `Spinout`, the same path items use. That
+means it respects a shield for free — and a player holding one would
+otherwise discover that walls are the single exception to a rule they had
+every reason to believe was universal.
+
+Cheaper than writing a second stun, and it cannot drift out of step with
+the first.
+
+---
+
 ### Rotate the thing they are attached to, not a list of the things.
 
 The flip was first built as "apply this rotation to every Motor6D" and

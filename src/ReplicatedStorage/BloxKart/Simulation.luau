@@ -1373,6 +1373,23 @@ function Simulation:Step(dt: number, input): { [string]: any }
 			self.bounceUntil = now + H.BounceLockout
 			events.bounced = square
 
+			-- A HARD, SQUARE HIT TAKES THE KART OFF YOU.
+			--
+			-- Below WallStunSpeed a wall is the recoil above and nothing
+			-- more, which is right for clipping a barrier mid-race. Above
+			-- it, the mistake costs control rather than just speed — the
+			-- Mario Kart rule, and what stops walls being a free way to
+			-- scrub speed into a corner.
+			--
+			-- Goes through Spinout, so it respects a shield exactly like
+			-- every other hit in the game. A player holding one should not
+			-- discover that walls are the exception.
+			if hitSpeed >= H.WallStunSpeed then
+				if self:Spinout(H.WallStunTime, H.WallStunKeep, H.WallStunFreeze) then
+					events.wallStunned = hitSpeed
+				end
+			end
+
 			-- Nothing left to slide with: this frame's movement was spent
 			-- on the impact.
 			break
@@ -1586,6 +1603,32 @@ function Simulation:Step(dt: number, input): { [string]: any }
 			self.vertVel = 0
 			self.grounded = true
 			self.normal = surfaceNormal
+
+			-- BOUNCE, EARNED BY THE DROP.
+			--
+			-- Landing perfectly flat reads as the kart being absorbed by
+			-- the floor. Above LandBounceMinDrop it comes back up, scaled
+			-- by how hard it arrived — so a drift hop is still dead flat
+			-- and a fall off a bridge kicks.
+			--
+			-- Floored at LandBounceMin because the ground probe re-catches
+			-- anything that does not clear GroundSnap within a frame. A
+			-- bounce under that is not a small bounce, it is no bounce at
+			-- all — the same trap the wave launches fell into.
+			--
+			-- Each bounce is a fresh landing next time round, so they
+			-- decay on their own: 34% of a smaller impact is smaller
+			-- still, and it drops under the threshold within two or three.
+			if not self.wasGrounded and impact >= H.LandBounceMinDrop then
+				local up = math.clamp(
+					math.max(impact * H.LandBounceKeep, H.LandBounceMin),
+					0,
+					H.LandBounceMax
+				)
+				self.vertVel = up
+				self.grounded = false
+				events.bouncedLanding = impact
+			end
 
 			-- Touchdown. Compresses the suspension by an amount the drop
 			-- earned; the spring in section 8 rings it back out.

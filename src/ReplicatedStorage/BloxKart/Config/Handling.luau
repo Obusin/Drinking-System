@@ -368,6 +368,46 @@ return {
 	-- is: 1 is dead-on, 0 is a graze. Below BounceMinDot the old slide is
 	-- kept, and that matters — wall-riding a corner has to stay smooth,
 	-- and a kart that pinballs off every kerb it brushes is unusable.
+	--== LANDING BOUNCE ================================================
+	-- A DROP HAS TO COST SOMETHING AND GIVE SOMETHING BACK. Landing
+	-- perfectly flat reads as the kart being absorbed by the floor; a
+	-- bounce says the drop had weight.
+	--
+	-- Scaled by how fast you actually arrived, so a drift hop is dead
+	-- flat and a fall off a bridge kicks.
+	--
+	-- MUST CLEAR GroundSnap TO EXIST. The probe re-catches anything that
+	-- does not rise past it within a frame, so a bounce below roughly
+	-- 30 studs/s is not a small bounce — it is no bounce, silently. Hence
+	-- a floor on the result rather than a pure fraction.
+	-- The threshold has to sit HIGH ENOUGH that the returned fraction
+	-- clears the visibility floor on its own, or every landing bounces by
+	-- exactly the floor and the size stops tracking the drop at all:
+	--
+	--    minDrop keep floor |  impact 40 / 70 / 110 / 160
+	--       34   0.34   32  |    32    32    37    54   barely varies
+	--       55   0.50   32  |  flat    35    55    62   <- here
+	--
+	-- So a drift hop and a kerb are dead flat, and only a real drop
+	-- bounces — which is also the right feel.
+	LandBounceMinDrop = 55, -- studs/s of impact before it bounces at all
+	LandBounceKeep = 0.5, -- fraction of the impact returned upward
+	LandBounceMin = 32, -- and never less than this, or it is invisible
+	LandBounceMax = 62, -- ceiling, or a long fall pogos
+
+	--== HITTING A WALL HARD ===========================================
+	-- Below this a wall is the recoil that already exists. Above it, you
+	-- are stunned — the Mario Kart rule, where a real mistake costs
+	-- control rather than just speed.
+	--
+	-- Well above BounceMinSpeed on purpose: clipping a barrier at speed
+	-- while racing should be survivable, and only a genuinely square,
+	-- fast hit should take the kart off you.
+	WallStunSpeed = 62, -- impact speed at which a bump becomes a stun
+	WallStunTime = 0.85, -- how long the spinout lasts
+	WallStunKeep = 0.25, -- fraction of speed kept through it
+	WallStunFreeze = 0.2, -- of that, how long is a dead stop
+
 	BounceMinDot = 0.45, -- squarer than this and it bounces
 	-- Fraction of speed that comes back as REVERSE. The kart keeps
 	-- facing the wall and backs away from it — see the block in
