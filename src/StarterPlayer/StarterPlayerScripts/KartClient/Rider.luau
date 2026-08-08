@@ -42,6 +42,7 @@ local WorldFilter = require(BloxKart:WaitForChild("WorldFilter"))
 local R = Config.Rider
 local H = Config.Handling
 local GLD = Config.Glide
+local FX = Config.Effects
 local RIG = Config.Rig
 local SW = Config.Swim
 local SUS = Config.Suspension
@@ -580,23 +581,48 @@ end
 --=====================================================================
 local function updateThrusters(kart: Model, s, dt: number)
 	local boosting = kart:GetAttribute(Names.BOOSTING) == true
-	local nitro = kart:GetAttribute(Names.NITRO_ON) == true
+
+	-- THE TIER PICKS THE COLOUR, from the palette the drift trails and the
+	-- nitro tank already use. Tier 1 blue, 2 orange, 3 purple — so the
+	-- thrusters say the same thing the tank the player was watching fill
+	-- has been saying, and there is no second copy to drift.
+	local rawTier: any = kart:GetAttribute(Names.BOOST_TIER)
+	local tier = if type(rawTier) == "number" then math.floor(rawTier) else 0
+	local tierColour = if tier > 0 then FX.TierColors[math.clamp(tier, 1, #FX.TierColors)] else nil
 
 	-- Above the floor, ramped to full. Below it the centre stays dark, so
 	-- rolling around the lobby does not spend the effect before the race.
 	local frac = math.clamp((s.speedNow or 0) / math.max(H.MaxSpeed, 1), 0, 1)
 	local lit = math.clamp((frac - RIG.ThrusterFloor) / math.max(1 - RIG.ThrusterFloor, 0.01), 0, 1)
 
+	-- TWO SEPARATE THINGS CAN BE BOOSTING, and the sides were only
+	-- watching one of them.
+	--
+	--   burnStage   the NITRO tank burning, which is the main boost in
+	--               the game and does NOT set boostUntil
+	--   boostUntil  ApplyBoost — pads, items, the glide launch, the
+	--               trick landing
+	--
+	-- `Boosting` is the second only, so through an entire nitro burn it
+	-- stays false and the sides never lit. Either counts.
+	local firing = tier > 0 or boosting
+
 	-- Boost pins the centre on regardless of speed — you boost hardest
 	-- from slow, and a thruster that stayed dark through the shove would
 	-- be reading the wrong thing.
-	if boosting then
+	if firing then
 		lit = 1
 	end
 
-	local base = if nitro then RIG.ThrusterNitro else RIG.ThrusterCentre
+	-- Centre: its own colour at speed, the tier's while burning. "Going
+	-- fast" is not a tier and should not borrow a tier's identity.
+	local base = tierColour or RIG.ThrusterCentre
 	local centre = RIG.ThrusterOff:Lerp(base, lit)
-	local side = if boosting then RIG.ThrusterBoost else RIG.ThrusterOff
+
+	-- Sides: lit whenever ANYTHING is boosting. They exist to say "a boost
+	-- is happening", so with no boost there is nothing for them to say —
+	-- but a nitro burn is very much a boost.
+	local side = if firing then (tierColour or RIG.ThrusterCentre) else RIG.ThrusterOff
 
 	-- Chased rather than assigned, so a boost fades up instead of
 	-- snapping. One shared blend for both, since they never need to
@@ -605,29 +631,57 @@ local function updateThrusters(kart: Model, s, dt: number)
 	s.centreLit = (s.centreLit or RIG.ThrusterOff):Lerp(centre, blend)
 	s.sideLit = (s.sideLit or RIG.ThrusterOff):Lerp(side, blend)
 
-	-- MATCHES A PART **OR** A CONTAINER, for the same reason the wheels
-	-- had to. `Thruster2` may be a bare MeshPart today and a Model or
-	-- Folder holding two meshes tomorrow — art gets reorganised, and a
-	-- lighting rig that silently stops working when somebody groups two
-	-- meshes is a rig nobody trusts.
+	-- BASEPARTS ONLY, AND THAT IS NOT A SIMPLIFICATION — IT IS THE FIX.
+	--
+	-- This used to accept a container too, so a Model or Folder sharing
+	-- the name would have its descendants painted. The rig has exactly
+	-- that: a FOLDER called `Thruster` holding CenterMesh,
+	-- SideThrustMesh, Thruster and Thruster2. The folder matched, and
+	-- painting its descendants recoloured all four — including both
+	-- housings, which is precisely what it was supposed to leave alone.
+	--
+	-- A glow is one part. Matching containers was written for a
+	-- hypothetical reorganisation and cost the actual rig its housings,
+	-- so a name now only counts when it is on something that can hold a
+	-- colour.
 	local function named(inst: Instance, tag: string, names: { string }): boolean
+		if not inst:IsA("BasePart") then
+			return false
+		end
 		return CollectionService:HasTag(inst, tag) or table.find(names, inst.Name) ~= nil
 	end
 
-	local litCentre, litSide = 0, 0
-	local function paint(inst: Instance, colour: Color3): number
-		local n = 0
-		if inst:IsA("BasePart") then
-			inst.Color = colour
-			n += 1
+	local litCentre, litSide, stripped, notNeon = 0, 0, 0, 0
+
+	-- PREPARED ONCE PER PART, not every frame. Both of these are the
+	-- reasons a driven Color silently does nothing, and both are cheap to
+	-- fix and impossible to see.
+	s.thrusterReady = s.thrusterReady or setmetatable({}, { __mode = "k" })
+	local function prepare(part: BasePart)
+		if s.thrusterReady[part] then
+			return
 		end
-		for _, d in inst:GetDescendants() do
-			if d:IsA("BasePart") then
-				d.Color = colour
-				n += 1
+		s.thrusterReady[part] = true
+		if RIG.ThrusterStripAppearance then
+			for _, d in part:GetChildren() do
+				if d:IsA("SurfaceAppearance") then
+					d:Destroy()
+					stripped += 1
+				end
 			end
 		end
-		return n
+		if RIG.ThrusterForceNeon and part.Material ~= Enum.Material.Neon then
+			notNeon += 1
+			part.Material = Enum.Material.Neon
+		end
+	end
+
+	-- ONE PART, NEVER A SUBTREE. Walking descendants is what let a
+	-- matching folder repaint everything inside it.
+	local function paint(part: BasePart, colour: Color3): number
+		prepare(part)
+		part.Color = colour
+		return 1
 	end
 
 	for _, inst in kart:GetDescendants() do
@@ -647,7 +701,19 @@ local function updateThrusters(kart: Model, s, dt: number)
 	-- invisible in the Explorer unless you go looking.
 	--
 	-- This separates the first two from the rest in one line of Output.
-	if not s.thrusterChecked then
+	-- RETRIED UNTIL IT FINDS SOMETHING, rather than reported on the first
+	-- frame. Rider sees a kart before it has finished assembling and
+	-- being dressed, so a first-frame count of zero says nothing about
+	-- the rig — it just says "not built yet", which is the least useful
+	-- moment to ask.
+	if stripped > 0 or notNeon > 0 then
+		print(("[Rider] %s thrusters: removed %d SurfaceAppearance, forced %d part(s) to Neon."):format(
+			kart.Name,
+			stripped,
+			notNeon
+		))
+	end
+	if not s.thrusterChecked and (litCentre > 0 or litSide > 0 or (s.thrusterTries or 0) > 180) then
 		s.thrusterChecked = true
 		if litCentre == 0 or litSide == 0 then
 			warn(("[Rider] %s: lit %d centre part(s) named %q and %d side part(s) named %q. A zero means the name does not match. If both are non-zero and it still does not glow, the mesh has a SurfaceAppearance — that overrides Color, and it has to be removed or the glow has to be a separate untextured part."):format(
@@ -659,6 +725,7 @@ local function updateThrusters(kart: Model, s, dt: number)
 			))
 		end
 	end
+	s.thrusterTries = (s.thrusterTries or 0) + 1
 end
 
 --=====================================================================

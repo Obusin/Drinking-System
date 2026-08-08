@@ -807,7 +807,10 @@ function Simulation:Step(dt: number, input): { [string]: any }
 	-- Same route STEER and DRIFT already take.
 	if self.model then
 		self.model:SetAttribute(Names.BOOSTING, boosting)
-		self.model:SetAttribute(Names.NITRO_ON, (self.burnStage or 0) > 0)
+		-- The TIER, not just "am I boosting". The thrusters colour
+		-- themselves from the same palette the trails and the tank use, and
+		-- a boolean cannot say which of the three is burning.
+		self.model:SetAttribute(Names.BOOST_TIER, self.burnStage or 0)
 	end
 	self.drifting, self.boosting = drifting, boosting
 

@@ -1235,6 +1235,47 @@ happen to use the same function.
 
 ---
 
+### Two systems can mean "boosting", and a name will only cover one.
+
+The thruster sides read `Names.BOOSTING`, which is published from
+`boostUntil` — set by `ApplyBoost` for pads, items, the glide launch and
+the trick landing. The NITRO tank does not touch it; it runs on
+`burnStage`.
+
+So through an entire nitro burn, the main boost in the game, the flag
+was false and the sides never lit. The centre worked only because it
+also reads speed.
+
+The name is the trap: `Boosting` reads as "a boost is happening" and
+means "an ApplyBoost is active". **Anything else that asks the same
+question through it has the same blind spot.**
+
+Where two subsystems can both mean one thing, either publish the union
+or name each for what it actually is.
+
+---
+
+### Matching by name must also match by CLASS.
+
+The thruster matcher accepted any Instance with the right name, so a
+FOLDER named `Thruster` — sitting above the MeshPart of the same name —
+matched, and painting its descendants recoloured all four parts
+including both housings.
+
+Container matching was written for a hypothetical future reorganisation.
+The rig that exists has a folder sharing the name, which turned that
+flexibility into the bug.
+
+**Second time in this session**: the wing trails generalised to a rig
+shape that did not exist and broke the one that did. The pattern is
+adding flexibility before there is a second case to justify it — and the
+flexibility is what breaks the first case.
+
+A glow is one part. Match `IsA("BasePart")`, and paint exactly that
+part, never a subtree.
+
+---
+
 ### The same instant-assign bug, one layer up.
 
 After the kart itself stopped jumping on landing, a trace of snap

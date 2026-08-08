@@ -262,13 +262,28 @@ return {
 	-- when you actually boosted.
 	--
 	-- The two *Mesh parts are housings and are deliberately not touched.
-	-- THE MESHES ARE THE GLOW; Thruster/Thruster2 are the housings.
+	-- `Thruster` and `Thruster2` ARE the glow. CenterMesh and
+	-- SideThrustMesh are the housings and are deliberately not touched.
 	--
-	-- Named the other way round first, which lit the housing and left the
-	-- part you actually see dark. Lists rather than single names so a rig
-	-- that names them differently is one word here, not a code change.
-	ThrusterCenterNames = { "CenterMesh" },
-	ThrusterSideNames = { "SideThrustMesh" },
+	-- Lists rather than single names, so a rig that names them differently
+	-- is one word here rather than a code change.
+	ThrusterCenterNames = { "Thruster" },
+	ThrusterSideNames = { "Thruster2" },
+	-- A GLOW PART CANNOT HAVE A SURFACEAPPEARANCE. Roblox ignores Color
+	-- entirely when one is present, so the driven colour goes nowhere and
+	-- reports nothing — the single most likely reason a thruster looks
+	-- dead while the code is provably running.
+	--
+	-- Removed on adopt, client-side, because a part whose whole job is to
+	-- be a driven colour cannot also be a texture map. If the art needs
+	-- the texture, the glow has to be a separate untextured part.
+	ThrusterStripAppearance = true,
+
+	-- And forced to Neon, because Color on a Plastic part is just a dark
+	-- part: "off" and "on" end up looking nearly identical, which reads as
+	-- the effect not working rather than as the material being wrong.
+	ThrusterForceNeon = true,
+
 	ThrusterCenterTag = "KartThrusterCenter",
 	ThrusterSideTag = "KartThrusterSide",
 
@@ -276,12 +291,16 @@ return {
 	-- and reads as "off but present"; true black reads as a hole.
 	ThrusterOff = Color3.fromRGB(8, 9, 14),
 
-	-- The centre at full speed with no nitro.
+	-- The centre at speed, with no boost. Its own colour, because "going
+	-- fast" is not a tier and should not borrow a tier's identity.
 	ThrusterCentre = Color3.fromRGB(96, 178, 255),
-	-- And while nitro is burning.
-	ThrusterNitro = Color3.fromRGB(255, 214, 92),
-	-- The sides, which only ever show this or nothing.
-	ThrusterBoost = Color3.fromRGB(255, 138, 48),
+
+	-- BOOST COLOURS COME FROM Config.Effects.TierColors — the same
+	-- palette the drift trails and the nitro HUD already use.
+	--
+	-- Blue, orange, purple for tiers 1-3. Not restated here: a second copy
+	-- of a palette is a second copy that can drift, and then the thrusters
+	-- disagree with the tank the player was watching fill.
 
 	-- Fraction of top speed before the centre starts to light. Without a
 	-- floor it glows faintly while you roll around the lobby, which
