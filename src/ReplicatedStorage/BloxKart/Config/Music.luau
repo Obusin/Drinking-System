@@ -47,9 +47,8 @@ return {
 	--
 	-- Set 2026-08-02.
 	Lobby = {
-		"rbxassetid://115138058496886", -- Upbeat Sunday Morning Groove for Lobby
-		"rbxassetid://92891988699419", -- Festival Town
-		"rbxassetid://95540214622796", -- Sunset Jazz
+		"rbxassetid://125858112035500", -- Upbeat Sunday Morning Groove for Lobby
+		
 		
 	},
 

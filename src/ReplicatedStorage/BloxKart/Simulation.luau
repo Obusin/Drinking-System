@@ -1746,7 +1746,9 @@ function Simulation:Step(dt: number, input): { [string]: any }
 			-- angle is turns*2pi, which is the pose it started in — so it
 			-- cannot finish crooked however it is interrupted.
 			local t = math.clamp((now - self.trickStart) / math.max(self.trickAirtime, 1e-3), 0, 1)
-			local swept = 1 - (1 - t) ^ TR.Ease
+			-- t^n, not 1-(1-t)^n. See TR.Ease: the speed belongs at the
+			-- END, so the fastest part of the flip lands with the kart.
+			local swept = t ^ TR.Ease
 			self.trickAngle = self.trickTurns * math.pi * 2 * swept
 		elseif (self.trickAngle or 0) ~= 0 then
 			-- Finished. Snapped to exactly zero rather than left at a

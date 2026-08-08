@@ -71,9 +71,23 @@ return {
 	-- the kart settled before the wheels arrive.
 	Window = 0.82,
 
-	-- Eased at both ends. A constant spin looks mechanical; a flip that
-	-- winds up and settles looks thrown.
-	Ease = 1.6,
+	-- SLOW OFF THE RAMP, FAST INTO THE LANDING. This is an ease-IN, and
+	-- it is the opposite of what was here.
+	--
+	-- `1 - (1-t)^n` is an ease-OUT: most of the rotation is spent in the
+	-- first moments and it crawls to a stop. That reads as the kart being
+	-- flicked and then hanging there, which is why it looked like several
+	-- fast flips rather than one deliberate one.
+	--
+	-- `t^n` puts the speed at the END. The kart leaves the ramp with a
+	-- lazy hang, winds up through the arc, and whips through the last
+	-- part just as the ground arrives — so the fastest moment and the
+	-- landing coincide, which is what makes it feel earned rather than
+	-- merely completed.
+	--
+	-- Higher is lazier at the start and more violent at the end. Past
+	-- about 3 the first half looks like nothing is happening.
+	Ease = 2.2,
 
 	--== THE REWARD ===================================================
 	-- Reported as `boostFired`, the same event a drift release uses — so

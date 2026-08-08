@@ -712,8 +712,15 @@ local function step(dt: number)
 	-- The camera reacts to the DROP, not to the fact of landing. A drift
 	-- hop and a fall off a bridge both raise `landed`; only one of them
 	-- should move the camera, and the impact speed is the difference.
-	if events.bouncedLanding and camera then
-		camera:Land(events.bouncedLanding)
+	if events.bouncedLanding then
+		if camera then
+			camera:Land(events.bouncedLanding)
+		end
+		-- The wall bump sound, reused: it is already a bouncy noise, and
+		-- a landing bounce and a wall bounce are the same event to the
+		-- ear. Scaled the same way, by how hard it was — PlayBump takes a
+		-- 0..1 and pitches itself from it.
+		audio:PlayBump(math.clamp(events.bouncedLanding / 140, 0.25, 1))
 	end
 	if events.wallStunned and camera then
 		camera:WallHit()

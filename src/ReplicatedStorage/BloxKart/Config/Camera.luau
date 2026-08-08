@@ -67,8 +67,19 @@ return {
 	-- The camera also dips with the kart on a heavy landing, a beat
 	-- behind — it is the weight of the CAMERA, not of the kart, and
 	-- having it lag is what makes the drop feel shared.
+	-- THE DROP EASES IN, IT IS NOT ASSIGNED.
+	--
+	-- Setting it directly teleported the camera down by up to half a stud
+	-- on the landing frame — the same mistake the kart's squash had, one
+	-- layer up, and the reason a trace of snap survived after the kart
+	-- itself stopped jumping.
+	--
+	-- In fast, out slow: the camera should be dragged down quickly by the
+	-- impact and float back, which is what a heavy camera does. Equal
+	-- rates read as a bob.
 	LandDrop = 0.5, -- studs, at LandShakeMax
-	LandDropRecover = 7,
+	LandDropFall = 26, -- per second, going down
+	LandDropRecover = 7, -- and coming back
 
 	-- WALL. A stun should feel like one.
 	WallShake = 0.7,

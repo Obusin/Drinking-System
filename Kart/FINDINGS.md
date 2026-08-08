@@ -1235,6 +1235,47 @@ happen to use the same function.
 
 ---
 
+### The same instant-assign bug, one layer up.
+
+After the kart itself stopped jumping on landing, a trace of snap
+remained — and it was the CAMERA, doing exactly what the squash had
+done: `self.drop` was assigned and then decayed, so the eye teleported
+down half a stud on the landing frame.
+
+**Every value that moves something visible has to be eased onto, not
+placed.** It is worth grepping for the pattern rather than waiting to
+feel each one: an assignment followed only by a decay is the shape.
+
+In fast, out slow, once it does ease: a heavy camera is dragged down by
+the impact and floats back. Equal rates read as a bob.
+
+---
+
+### Ease-in and ease-out are not interchangeable, and the flip wanted in.
+
+The trick rotation used `1 - (1-t)^n` — an ease-OUT, so most of the
+rotation happens in the first moments and it crawls to a stop. That
+reads as the kart being flicked and then hanging, which is why one flip
+looked like several fast ones.
+
+`t^n` puts the speed at the END: a lazy hang off the ramp, winding up
+through the arc, whipping through as the ground arrives. **The fastest
+moment and the landing coincide**, which is what makes it feel earned
+rather than merely completed.
+
+```
+t     ease-out    ease-in
+0.25    133 deg     17 deg
+0.50    241 deg     78 deg
+0.75    321 deg    191 deg
+1.00    360 deg    360 deg
+```
+
+Rule of thumb: ease-OUT for something arriving at a resting place, ease-
+IN for something building toward an event.
+
+---
+
 ### Discrete collision teleports on contact. Hide it in the suspension.
 
 At 60fps a kart arriving at 164 studs/s is already **2.7 studs under the

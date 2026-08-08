@@ -43,6 +43,7 @@ function CameraRig.new(sim)
 		shakePhase = 0,
 		impact = 0,
 		drop = 0,
+		dropTo = 0,
 		flip = 0,
 		glide = 0,
 	}, CameraRig)
@@ -118,7 +119,9 @@ function CameraRig:Land(impact: number)
 	-- The camera drops with the kart, a beat behind. That lag is the
 	-- weight of the CAMERA, and it is what makes the landing feel shared
 	-- rather than watched.
-	self.drop = math.max(self.drop or 0, CAM.LandDrop * (amt / CAM.LandShakeMax))
+	-- A TARGET, not the value. The camera eases onto it below rather than
+	-- being placed, or the landing frame teleports the eye.
+	self.dropTo = math.max(self.dropTo or 0, CAM.LandDrop * (amt / CAM.LandShakeMax))
 end
 
 function CameraRig:WallHit()
@@ -287,9 +290,13 @@ function CameraRig:Update(dt: number, sim, input)
 	end
 
 	-- The landing drop. Recovers on its own.
-	if (self.drop or 0) > 0.001 then
+	-- Falls onto the target fast and floats back slowly — a heavy camera
+	-- dragged down by the impact. Equal rates would read as a bob.
+	local dropRate = if (self.dropTo or 0) > (self.drop or 0) then CAM.LandDropFall else CAM.LandDropRecover
+	self.drop = Util.approach(self.drop or 0, self.dropTo or 0, dropRate, dt)
+	self.dropTo = math.max((self.dropTo or 0) - CAM.LandDropRecover * dt, 0)
+	if self.drop > 0.001 then
 		eye -= camUp * self.drop
-		self.drop = math.max(self.drop - CAM.LandDropRecover * dt, 0)
 	end
 
 	local shake = pick(CAM.BoostShake, stage) + (self.impact or 0)
