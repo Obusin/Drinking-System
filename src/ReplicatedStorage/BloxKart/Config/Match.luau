@@ -44,16 +44,63 @@ return {
 	--== PHASE LENGTHS =================================================
 	-- Time between rounds. Long enough to read the results board and
 	-- short enough that nobody alt-tabs.
-	IntermissionTime = 8,
+	-- TESTING: shortened from 8 so a lap-and-restart cycle is quick to
+	-- iterate on. Put this back to 8 before shipping — 3 is not enough
+	-- time to read a results board.
+	IntermissionTime = 3,
+	-- Maximum time spent waiting for a joining client's splash to reveal. The
+	-- normal route is event-driven; this only prevents one failed client from
+	-- holding a whole server forever.
+	IntermissionLoadTimeout = 30,
 
 	-- Karts are on the grid and held still for this long. This is the
 	-- 3-2-1-GO, so it wants to be a whole number of seconds plus a beat
 	-- for "GO" to land on zero.
 	GridTime = 4,
+	-- The Grid phase first places and holds every kart, then waits for all
+	-- expected human clients to confirm that their local kart attached and
+	-- applied the grid CFrame. This is a safety ceiling, not a normal path:
+	-- a broken/disconnecting client must not stall an entire server forever.
+	GridReadyTimeout = 15,
+
+	-- Authored camera markers live at ReplicatedFirst.Intermission. All
+	-- BaseParts beneath it are read as an ordered cinematic path by the
+	-- client; rotate each part to compose its shot.
+	IntermissionCamera = {
+		Enabled = true,
+		FolderName = "Intermission",
+		SegmentTime = 3.5,
+		FinalHold = 1.0,
+		-- The intermission is a presentation beat, not a ready-up skip.
+		-- When markers exist, always let the complete authored rail play.
+		LockFullSequence = true,
+		Fov = 72,
+	},
+
+	-- After the Intermission rail ends, CUT to a dedicated wide player shot,
+	-- then tighten into normal chase composition. The two camera sequences are
+	-- deliberately separate; this is presentation only and never delays input.
+	GridCamera = {
+		Enabled = true,
+		Duration = 1.45,
+		StartFov = 82,
+		StartDistance = 48,
+		StartHeight = 22,
+		StartLookHeight = 4,
+	},
 
 	-- Hard cap on a round. Nobody should ever hit this — it exists so a
 	-- single AFK player can't hold the server hostage.
-	TimeLimit = 300,
+	--
+	-- 300 -> 600. Sunset Circuit runs about 4 minutes for three laps, and
+	-- a five-minute cap gives a slow driver only 25% headroom. That is
+	-- not a safety net, it is a second finish line — and the one it cuts
+	-- off is always the player already having the worst race.
+	--
+	-- Rule of thumb: roughly TWICE the expected finish time. It should be
+	-- unreachable by anyone actually driving, which is the only way it
+	-- stays what the comment above says it is.
+	TimeLimit = 600,
 
 	-- Once the FIRST racer finishes, everyone else gets this long to
 	-- come in before the round is called. Standard kart-game behaviour:
@@ -64,18 +111,17 @@ return {
 	-- up, so the finish registers before the UI takes over.
 	FinishSettle = 1.5,
 
-	ResultsTime = 10,
+	ResultsTime = 15,
 
 	--== AFTER THE FLAG ================================================
-	-- How long a finished racer keeps driving before it leaves the
-	-- world. The AI already has the kart by then, so this is a short
-	-- cutscene you watch rather than a pause you sit through.
+	-- How long a finished kart coasts before it parks. It is not a racing
+	-- AI: no pickups, no hazards and no power-ups are allowed after the flag.
 	--
 	-- It also exists for a plainer reason: a bot that finished used to
 	-- keep racing until the round ended, lapping the field two or three
 	-- more times and cluttering the track for everyone still trying to
 	-- finish. Finishing has to actually end the drive.
-	FinishDriveTime = 5,
+	FinishDriveTime = 1.25,
 	-- How long the FINISH banner hangs before fading. Longer than the
 	-- countdown's, because it is read rather than reacted to.
 	FinishFadeTime = 1.6,

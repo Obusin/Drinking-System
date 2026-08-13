@@ -74,13 +74,13 @@ end
 -- gets NOT_AUTHORIZED and simply never builds the UI.
 --
 -- Yields. Called once at startup, off the critical path.
-function DevConsoleClient.probe(): (boolean, string?)
+function DevConsoleClient.probe(): (boolean, string?, string?)
 	local response = DevConsoleClient.call("ping", {})
 	if response.success then
 		local role = response.data and response.data.role
-		return true, if type(role) == "string" then role else "developer"
+		return true, if type(role) == "string" then role else "developer", response.code
 	end
-	return false, nil
+	return false, nil, response.code
 end
 
 --=====================================================================
@@ -215,6 +215,12 @@ function DevConsoleClient.listen(hooks: any)
 			if hooks and hooks.teleport then
 				hooks.teleport(data.cf)
 			end
+		elseif topic == "path" then
+			-- DRAWN LOCALLY, so only the person who asked can see it. The
+			-- server has already checked they are allowed to — reaching
+			-- this at all means the push was authorised.
+			local PathView = require(script.Parent.Parent.PathView)
+			PathView.toggle(if typeof(data) == "table" then data.on else nil)
 		end
 	end)
 end

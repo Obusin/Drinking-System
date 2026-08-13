@@ -384,9 +384,9 @@ return {
 	-- clears the visibility floor on its own, or every landing bounces by
 	-- exactly the floor and the size stops tracking the drop at all:
 	--
-	--    minDrop keep floor |  impact 40 / 70 / 110 / 160
-	--       34   0.34   32  |    32    32    37    54   barely varies
-	--       55   0.50   32  |  flat    35    55    62   <- here
+	--    minDrop keep floor |  impact 45 / 60 / 110 / 160
+	--       45   0.50   42  |    42    42    55    62   too springy
+	--       58   0.42   35  |  flat    35    46    54   <- here
 	--
 	-- So a drift hop and a kerb are dead flat, and only a real drop
 	-- bounces — which is also the right feel.
@@ -399,7 +399,8 @@ return {
 	--   no floor   clean, but then small drops cannot bounce at all,
 	--              because a gentle landing simply cannot produce enough
 	--              speed to escape GroundSnap on its own.
-	--   floor 42   rises 5.9 studs, 1.96x. Clean AND low drops bounce.
+	--   floor 35   rises 4.1 studs, enough clearance without making a
+	--              low ledge feel like a jump pad.
 	--
 	-- The real constraint was never "should there be a floor". It is that
 	-- ANY bounce which happens must clear GroundSnap with margin, whatever
@@ -407,26 +408,26 @@ return {
 	-- be given it — and the floor is how.
 	--
 	-- THE FLOOR MUST SIT BELOW THE THRESHOLD, and that is not a style
-	-- point. At floor 45 against a threshold of 45 the bounce returns at
+	-- point. At a floor equal to its threshold the bounce returns at
 	-- exactly the speed that qualifies for another, and the kart bounces
 	-- at a fixed height forever. Floor under threshold guarantees a
 	-- floored bounce cannot re-trigger, which is what makes it terminate:
 	--
-	--     from  45  ->  42, settles
-	--     from 116  ->  58 -> 42, settles
-	--     from 164  ->  62 -> 42, settles
+	--     from  58  ->  35, settles
+	--     from 116  ->  49 -> 35, settles
+	--     from 164  ->  54 -> 35, settles
 	--
-	-- Decreasing every time, every bounce at 1.96x margin or better.
-	LandBounceMinDrop = 45, -- studs/s of impact before it bounces at all
-	LandBounceMin = 42, -- and never less than this, or the probe eats it
-	LandBounceKeep = 0.5, -- fraction of the impact returned upward
-	LandBounceMax = 62, -- ceiling, or a long fall pogos
+	-- Decreasing every time, every bounce clears GroundSnap with margin.
+	LandBounceMinDrop = 58, -- medium drops settle instead of pogoing
+	LandBounceMin = 35, -- low rebound that still escapes the ground probe
+	LandBounceKeep = 0.42, -- fraction of a hard impact returned upward
+	LandBounceMax = 54, -- ceiling, so a long fall remains recoverable
 
 	-- IT COMPRESSES BEFORE IT RELEASES, and this is what stops it
 	-- snapping.
 	--
 	-- Reversing the velocity on the contact frame takes the kart from
-	-- falling at 116 to rising at 58 inside 16ms. Nothing reads as weight
+	-- falling at 116 to rising at 49 inside 16ms. Nothing reads as weight
 	-- in 16ms — it just changes direction. A real spring absorbs first
 	-- and gives it back a beat later, and that beat IS the bounce.
 	--
@@ -576,4 +577,54 @@ return {
 	-- ANY new caller of Step must sub-step too. There is nothing in the
 	-- module that can enforce it.
 	MaxSubSteps = 4,
+
+	--== WHEELIE, PER BOOST TIER =======================================
+	-- Degrees of nose-up for burn stage 1, 2 and 3. VISUAL ONLY: it is a
+	-- rotation of the art about the rear axle at the render write, and
+	-- the hitbox never moves — so it can never clear an obstacle, change
+	-- how the vehicle turns, or lift the wheels out of the ground probe.
+	--
+	-- ZERO HERE, because a kart does not do wheelies. A vehicle that does
+	-- overrides these in Config.Vehicles, which is the same mechanism
+	-- every other per-vehicle number uses — Simulation stays entirely
+	-- unaware that motorcycles exist.
+	WheelieByTier = { 0, 0, 0 },
+	-- Studs behind the centre to pivot about. The rear axle: pivot at the
+	-- centre and the back wheel swings down through the road.
+	WheelieAxle = 0,
+	-- UP FAST, DOWN SLOW. Slamming back level is what makes a wheelie
+	-- read as ending rather than as being switched off, and the slow
+	-- return is most of what makes it satisfying.
+	WheelieRise = 3.5,
+	WheelieFall = 1.1,
+
+	--== STOPPIE, THE WHEELIE'S MIRROR =================================
+	-- Degrees of TAIL-UP under hard braking, pivoting about the FRONT
+	-- axle. Same construction as the wheelie and the same guarantees:
+	-- a rotation of the art at the render write, hitbox untouched, so a
+	-- bike stood on its nose is still braking exactly like a flat one.
+	--
+	-- ZERO HERE. A kart has four wheels and a floor pan; there is
+	-- nothing for it to pivot on. A vehicle that can override it in
+	-- Config.Vehicles, which is why Simulation needs no `isBike` branch
+	-- to decide who gets one — the data decides.
+	StoppieAngle = 0,
+	-- Studs FORWARD of the centre. The front axle: pivot at the centre
+	-- and the front wheel drives down through the road instead.
+	StoppieAxle = 0,
+	-- FADES OUT AS YOU SLOW, and that is the whole trick to it looking
+	-- like a stop rather than a pose. Below this fraction of top speed
+	-- the tail comes back down on its own, so the bike settles onto both
+	-- wheels exactly as it arrives at a standstill — no state to clear
+	-- and nothing to detect "stopped".
+	StoppieAt = 0.12,
+	-- MUCH FASTER UP THAN A WHEELIE, and deliberately so. A wheelie
+	-- builds as power arrives; a brake bites the instant it is touched.
+	-- Sharing the wheelie's rate here made the tail reach a quarter of
+	-- the angle it was asked for, because BrakeRate collapses the target
+	-- faster than the rotation can climb to it — see Config.Vehicles.
+	StoppieRise = 30,
+	-- Down over about half a second, so the tail settles as the vehicle
+	-- arrives at a standstill rather than dropping once already parked.
+	StoppieFall = 4.5,
 }

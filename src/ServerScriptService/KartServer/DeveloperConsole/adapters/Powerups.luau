@@ -36,6 +36,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local BloxKart = ReplicatedStorage:WaitForChild("BloxKart")
 local Items = require(BloxKart.Items)
 local Protocol = require(BloxKart.DeveloperConsole.Protocol)
+local Names = require(BloxKart.Names)
 
 local Powerups = {}
 
@@ -98,6 +99,11 @@ function Powerups.give(userId: number, itemId: string): (boolean, string, string
 		return false,
 			Protocol.Code.UNAVAILABLE,
 			"The item system is not running here (KartItemPickup remote missing — lobby?)."
+	end
+	-- Keep the developer grant equivalent to a real box for Rainbow's
+	-- server-side activation receipt as well as for its client slot.
+	if item.Id == "Rainbow" then
+		player:SetAttribute(Names.RAINBOW_HELD, (player:GetAttribute(Names.RAINBOW_HELD) or 0) + 1)
 	end
 	r:FireClient(player, item.Id)
 	return true, Protocol.Code.OK, ("Gave %s to %s."):format(item.Id, player.Name)

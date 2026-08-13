@@ -1,14 +1,9 @@
 --[[
 	RaceService — relays race progress so every client can see the field.
 
-	Clients own their own simulation, so each one knows exactly where IT
-	is and nothing about anyone else. Attributes written by a client
-	don't replicate, so progress comes up over a RemoteEvent and the
-	server writes it onto the kart, where it replicates to everyone.
-
-	Deliberately thin: the server does not yet verify that a reported
-	score is achievable. This is the seam where anti-cheat goes when the
-	race stops being a placeholder — one function, one place.
+	Clients may own responsive local simulation, but the server projects every
+	live kart onto the authored route, banks valid laps at the finish line, and
+	writes the replicated standings attributes. Clients never submit a score.
 --]]
 
 local CollectionService = game:GetService("CollectionService")
@@ -21,11 +16,13 @@ local Debris = game:GetService("Debris")
 
 local BloxKart = ReplicatedStorage:WaitForChild("BloxKart")
 local Standings = require(BloxKart:WaitForChild("Standings"))
+local Route = require(BloxKart:WaitForChild("Route"))
 local Names = require(BloxKart:WaitForChild("Names"))
 local Config = require(BloxKart:WaitForChild("Config"))
 -- For the settle probe: it has to ignore karts, characters and every
 -- other trigger volume, which is exactly what this list already is.
 local WorldFilter = require(BloxKart:WaitForChild("WorldFilter"))
+local TagZones = require(BloxKart:WaitForChild("TagZones"))
 local Match = require(BloxKart:WaitForChild("Match"))
 local Items = require(BloxKart:WaitForChild("Items"))
 local MatchService = require(script.Parent.MatchService)
@@ -37,6 +34,222 @@ local RaceService = {}
 local remote: RemoteEvent
 local itemRemote: RemoteEvent
 local hitRemote: RemoteEvent
+local overtakeRemote: RemoteEvent
+local liveStandingsRemote: RemoteEvent
+
+-- Ranking is a server concern. Client-side CollectionService only contains
+-- what that client has streamed in, which made an eight-kart field look like
+-- 0/0 as distant bots unloaded. Publish the complete answer onto every live
+-- kart; each owner always has their own kart streamed in and can read it.
+-- A tenth of a second keeps an overtake feeling live without turning eight
+-- route projections into per-frame work. More importantly, humans and bots
+-- are sampled on this one schedule instead of bots publishing their own
+-- intermediate estimate between server ticks.
+local STANDINGS_INTERVAL = 0.10
+local standingsAt = 0
+local lastPlace: { [Model]: number } = setmetatable({}, { __mode = "k" }) :: any
+local lastLiveStandingsKey = ""
+local lastLiveStandings = {}
+local lastLiveField = 0
+-- Last local projection per kart. A nearby-window projection prevents a
+-- bridge/hairpin from stealing a racer onto the wrong lap section; a large
+-- miss below deliberately reacquires globally after a respawn or recovery.
+local lastRouteU: { [Model]: number } = setmetatable({}, { __mode = "k" }) :: any
+local lastSpotlightAt: { [number]: number } = {}
+local SPOTLIGHT_COOLDOWN = 1.1
+local ROUTE_REACQUIRE_DISTANCE = 70
+-- Authoritative lap state. Client reports used to supply this bank, which
+-- meant a forged score could turn into forged laps even after within-lap
+-- distance moved server-side.
+local serverLap: { [Model]: { laps: number, lapU: number, lastU: number?, inEnd: boolean } } = setmetatable({}, { __mode = "k" }) :: any
+local endZone = TagZones.new(Config.Race.EndTag, {
+	forceQueryable = Config.Race.ForceQueryable,
+	maxParts = Config.Race.CheckpointMaxOverlap,
+})
+
+local function projectedRouteU(kart: Model, path): number
+	local body = kart.PrimaryPart
+	if not body or #path == 0 then
+		return 0
+	end
+
+	local prior = lastRouteU[kart]
+	local u = Route.nearestU(body.Position, path, prior)
+	local point = Route.pointAt(u, nil, path)
+	-- A window is exactly what protects parallel roads and overpasses, but it
+	-- cannot recover after a reset when the old window is on the other side of
+	-- the map. Reacquire only when the local answer is plainly not near this
+	-- kart, rather than making every ordinary frame vulnerable to a crossover.
+	if prior and (not point or (point - body.Position).Magnitude > ROUTE_REACQUIRE_DISTANCE) then
+		u = Route.nearestU(body.Position, path)
+	end
+	lastRouteU[kart] = u
+	return u
+end
+
+local function authoritativeLap(kart: Model, path): number
+	local body = kart.PrimaryPart
+	if not body or #path == 0 then
+		return 0
+	end
+	local state = serverLap[kart]
+	if not state then
+		state = { laps = 0, lapU = 0, lastU = nil, inEnd = false }
+		serverLap[kart] = state
+	end
+	if MatchService.phase() ~= Match.Phase.Racing then
+		state.laps, state.lapU, state.lastU, state.inEnd = 0, 0, nil, false
+		lastRouteU[kart] = nil
+		return 0
+	end
+
+	local u = projectedRouteU(kart, path)
+	local nodes = #path
+	if state.lastU then
+		local step = u - state.lastU
+		if step < -nodes * 0.5 then
+			step += nodes -- ordinary wrap at node zero
+		end
+		-- Teleports, recoveries and crossovers are not route distance driven.
+		if step > 0 and step < nodes * Config.Race.LapStepMax then
+			state.lapU += step
+		end
+	end
+	state.lastU = u
+
+	local inEnd = #endZone:Overlapping(body.CFrame, body.Size) > 0
+	if inEnd and not state.inEnd and state.lapU >= nodes * Config.Race.LapNeed then
+		state.laps += 1
+		state.lapU = 0
+	end
+	state.inEnd = inEnd
+	return state.laps
+end
+
+function RaceService.canFinish(kart: Model): boolean
+	if MatchService.phase() ~= Match.Phase.Racing then
+		return false
+	end
+	local path = Route.path()
+	if #path == 0 then
+		return false -- an authored race needs a route to be securely officiated
+	end
+	return authoritativeLap(kart, path) >= MatchService.laps()
+end
+
+local function publishStandings(now: number)
+	local entries = {}
+	local path = Route.path()
+	for _, kart in KartService.allKarts() do
+		if kart and kart.Parent then
+			local score = kart:GetAttribute(Standings.ATTRIBUTE)
+			-- The server owns BOTH the completed-lap bank and within-lap
+			-- distance. The client remote remains for compatibility with older
+			-- clients but has no authority over standings.
+			if not kart:GetAttribute(Match.FINISH_PLACE) and #path > 0 then
+				local laps = authoritativeLap(kart, path)
+				score = Standings.routeScore(laps, projectedRouteU(kart, path), path)
+				kart:SetAttribute(Standings.ATTRIBUTE, score)
+			end
+			table.insert(entries, {
+				kart = kart,
+				finish = kart:GetAttribute(Match.FINISH_PLACE),
+				score = score,
+				grid = kart:GetAttribute(Match.GRID_SLOT),
+			})
+		end
+	end
+
+	table.sort(entries, function(a, b)
+		-- A crossed finish line is final. A finished P1 must stay ahead of
+		-- a fast but still-running racer, even if the latter's route score
+		-- happens to be numerically greater after a late report.
+		local aFinished = type(a.finish) == "number"
+		local bFinished = type(b.finish) == "number"
+		if aFinished ~= bFinished then
+			return aFinished
+		end
+		if aFinished and a.finish ~= b.finish then
+			return a.finish < b.finish
+		end
+
+		local aScore = if type(a.score) == "number" then a.score else 0
+		local bScore = if type(b.score) == "number" then b.score else 0
+		if aScore ~= bScore then
+			return aScore > bScore
+		end
+
+		-- During the grid countdown every score is zero. Grid slot makes
+		-- that otherwise arbitrary tie stable and understandable.
+		local aGrid = if type(a.grid) == "number" then a.grid else math.huge
+		local bGrid = if type(b.grid) == "number" then b.grid else math.huge
+		if aGrid ~= bGrid then
+			return aGrid < bGrid
+		end
+		return a.kart.Name < b.kart.Name
+	end)
+
+	local field = #entries
+	-- The local client cannot reliably enumerate a streamed-out field, so the
+	-- server sends one compact, authoritative top-five snapshot. It is sent
+	-- only when names/ranks/field size change, not every standings tick.
+	local top = {}
+	local signature = tostring(field)
+	for place = 1, math.min(5, field) do
+		local entry = entries[place]
+		local kart = entry.kart
+		local ownerId = kart:GetAttribute(Names.OWNER)
+		local name = tostring(kart:GetAttribute(Names.RACER_NAME) or kart.Name)
+		local id = if typeof(ownerId) == "number" then "u:" .. ownerId else "k:" .. kart.Name
+		top[place] = { place = place, id = id, name = name, userId = ownerId }
+		signature ..= "|" .. id
+	end
+	if liveStandingsRemote and signature ~= lastLiveStandingsKey then
+		lastLiveStandingsKey = signature
+		lastLiveStandings = top
+		lastLiveField = field
+		liveStandingsRemote:FireAllClients(top, field)
+	end
+
+	for place, entry in entries do
+		local kart = entry.kart
+		local was = lastPlace[kart]
+		lastPlace[kart] = place
+		if kart:GetAttribute(Standings.PLACE_ATTRIBUTE) ~= place then
+			kart:SetAttribute(Standings.PLACE_ATTRIBUTE, place)
+		end
+		if kart:GetAttribute(Standings.FIELD_ATTRIBUTE) ~= field then
+			kart:SetAttribute(Standings.FIELD_ATTRIBUTE, field)
+		end
+
+		-- The server sees the full field, unlike a streamed client. Tell
+		-- only the affected player who moved relative to them; a card is
+		-- feedback, never gameplay authority.
+		local ownerId = kart:GetAttribute(Names.OWNER)
+		if
+			was
+			and was ~= place
+			and type(ownerId) == "number"
+			and MatchService.phase() == Match.Phase.Racing
+			and now - (lastSpotlightAt[ownerId] or 0) >= SPOTLIGHT_COOLDOWN
+		then
+			local opponent = entries[if place > was then place - 1 else place + 1]
+			local player = Players:GetPlayerByUserId(ownerId)
+			if opponent and player and overtakeRemote then
+				lastSpotlightAt[ownerId] = now
+				overtakeRemote:FireClient(player, {
+					kind = if place > was then "overtaken" else "passed",
+					from = was,
+					to = place,
+					opponent = {
+						name = opponent.kart:GetAttribute(Names.RACER_NAME) or opponent.kart.Name,
+						userId = opponent.kart:GetAttribute(Names.OWNER),
+					},
+				})
+			end
+		end
+	end
+end
 
 -- "X hit Y with Z", to everyone. A hit is a spectacle: half the value of
 -- a well-timed missile is the lobby seeing it land, and in a race you
@@ -47,7 +260,13 @@ local hitRemote: RemoteEvent
 -- doesn't know who fired.
 -- Names rather than Players, because a bot has no Player object and the
 -- feed shouldn't care which kind of racer landed the hit.
-function RaceService.announce(itemId: string?, byName: string?, victimName: string?, victimKart: Model?)
+function RaceService.announce(
+	itemId: string?,
+	byName: string?,
+	victimName: string?,
+	victimKart: Model?,
+	byUserId: number?
+)
 	if not (RaceService.feed and victimName and itemId) then
 		return
 	end
@@ -61,7 +280,9 @@ function RaceService.announce(itemId: string?, byName: string?, victimName: stri
 		-- Nil `by` is normal: a mine kills long after its owner drove off,
 		-- and a missile fired at nobody still hits whoever it runs into.
 		by = byName,
+		byUserId = byUserId,
 		victim = victimName,
+		victimUserId = victimKart and victimKart:GetAttribute(Names.OWNER),
 		-- WHERE it happened, so every client can hear it. The feed
 		-- already reaches everybody; it was carrying the news and not
 		-- the noise. An Instance replicates fine and the client reads a
@@ -131,7 +352,13 @@ function RaceService.creditVoidKill(kart: Model, victimName: string): boolean
 	if hit.byPlayer then
 		Progress.eliminated(hit.byPlayer)
 	end
-	RaceService.announce(hit.item or Config.Match.EliminationText, hit.byName, victimName, kart)
+	RaceService.announce(
+		hit.item or Config.Match.EliminationText,
+		hit.byName,
+		victimName,
+		kart,
+		if hit.byPlayer then hit.byPlayer.UserId else nil
+	)
 	return true
 end
 
@@ -182,7 +409,13 @@ function RaceService.relayHit(byName: string?, targetKart: Model, payload, byPla
 	end
 
 	if victim then
-		RaceService.announce(tostring(effect.item), byName, victim.DisplayName, targetKart)
+		RaceService.announce(
+			tostring(effect.item),
+			byName,
+			victim.DisplayName,
+			targetKart,
+			if byPlayer then byPlayer.UserId else nil
+		)
 		if windUp > 0 then
 			-- TOLD FIRST, HIT SECOND. The warning is the whole reason the
 			-- wind-up exists, so it goes out now and the effect follows.
@@ -213,7 +446,13 @@ function RaceService.relayHit(byName: string?, targetKart: Model, payload, byPla
 				if targetKart.Parent and RaceService.onNonPlayerHit then
 					local n = RaceService.onNonPlayerHit(targetKart, effect)
 					if n then
-						RaceService.announce(tostring(effect.item), byName, n, targetKart)
+						RaceService.announce(
+							tostring(effect.item),
+							byName,
+							n,
+							targetKart,
+							if byPlayer then byPlayer.UserId else nil
+						)
 					end
 				end
 			end)
@@ -221,7 +460,13 @@ function RaceService.relayHit(byName: string?, targetKart: Model, payload, byPla
 		end
 		local name = RaceService.onNonPlayerHit(targetKart, effect)
 		if name then
-			RaceService.announce(tostring(effect.item), byName, name, targetKart)
+			RaceService.announce(
+				tostring(effect.item),
+				byName,
+				name,
+				targetKart,
+				if byPlayer then byPlayer.UserId else nil
+			)
 		end
 	end
 end
@@ -540,8 +785,10 @@ function RaceService.spawnHazard(ownerId: number, cf: CFrame, item, back: boolea
 	-- invisible; the model is decoration welded to it, and must never
 	-- be queryable or it would read as a wall to a kart's sweep.
 	if spec.Model then
-		local folder = ServerStorage:FindFirstChild(IT.HazardModelFolder)
-		local template = folder and folder:FindFirstChild(spec.Model)
+		-- Both RECURSIVE: the folder because a Package nests it a level
+		-- deeper, the model because art gets filed inside the folder too.
+		local folder = ServerStorage:FindFirstChild(IT.HazardModelFolder, true)
+		local template = folder and folder:FindFirstChild(spec.Model, true)
 		-- A Model OR a single Part. Art is just as often one
 		-- MeshPart with decals on it as a whole model, and rejecting
 		-- that was a silent fallback to the grey box.
@@ -638,10 +885,27 @@ function RaceService.start()
 	remote.Name = Standings.REMOTE
 	remote.Parent = BloxKart
 
-	remote.OnServerEvent:Connect(function(player, score)
-		if typeof(score) ~= "number" or score ~= score then
-			return -- NaN or garbage
+	overtakeRemote = Instance.new("RemoteEvent")
+	overtakeRemote.Name = Names.OVERTAKE_REMOTE
+	overtakeRemote.Parent = BloxKart
+
+	liveStandingsRemote = Instance.new("RemoteEvent")
+	liveStandingsRemote.Name = Names.LIVE_STANDINGS_REMOTE
+	liveStandingsRemote.Parent = BloxKart
+	-- A late joiner must receive the current order even if nobody changes
+	-- place after their listener connects.
+	Players.PlayerAdded:Connect(function(player)
+		if lastLiveField > 0 then
+			liveStandingsRemote:FireClient(player, lastLiveStandings, lastLiveField)
 		end
+	end)
+	liveStandingsRemote.OnServerEvent:Connect(function(player)
+		if lastLiveField > 0 then
+			liveStandingsRemote:FireClient(player, lastLiveStandings, lastLiveField)
+		end
+	end)
+
+	remote.OnServerEvent:Connect(function(player, _score)
 		local kart = KartService.kartFor(player)
 		if not kart then
 			return
@@ -665,26 +929,14 @@ function RaceService.start()
 			return
 		end
 
-		-- Never BACKWARDS, either.
-		--
-		-- Progress in a race only goes one way. A respawn, a rejoin, or a
-		-- client that lost its place has no business lowering a score that
-		-- was already earned, and the only thing a lower number can ever
-		-- be is wrong.
-		--
-		-- This is also most of the validation the TODO below wanted: a
-		-- forged score can still be too HIGH, but the whole class of
-		-- accidental self-demotion is gone.
-		local had = kart:GetAttribute(Standings.ATTRIBUTE)
-		if typeof(had) == "number" and score < had then
-			return
-		end
-
-		-- TODO: validate the jump UPWARD against the last known score
-		-- before trusting it. Cheap to add here, impossible to add later
-		-- if everything reads the attribute directly instead.
-		kart:SetAttribute(Standings.ATTRIBUTE, score)
+		-- Intentionally ignored. Scores are refreshed from server-visible
+		-- kart positions in publishStandings; accepting this payload would
+		-- re-open a placement and reward exploit.
 	end)
+
+	-- MatchService owns finish places and rewards; RaceService owns the
+	-- route proof. A hook avoids a circular require in the other direction.
+	MatchService.canFinish = RaceService.canFinish
 
 	----------------------------------------------------------------
 	-- ITEM BOXES
@@ -723,6 +975,9 @@ function RaceService.start()
 			if item then
 				box:Destroy() -- one taker; destroyed before the reply so a
 				-- second request in the same frame finds nothing
+				if item.Id == "Rainbow" then
+					player:SetAttribute(Names.RAINBOW_HELD, (player:GetAttribute(Names.RAINBOW_HELD) or 0) + 1)
+				end
 				itemRemote:FireClient(player, item.Id)
 			end
 			return
@@ -752,6 +1007,9 @@ function RaceService.start()
 		box:SetAttribute(Names.TAKEN, true)
 		box.Transparency = 1
 		box.CanQuery = false
+		if item.Id == "Rainbow" then
+			player:SetAttribute(Names.RAINBOW_HELD, (player:GetAttribute(Names.RAINBOW_HELD) or 0) + 1)
+		end
 		itemRemote:FireClient(player, item.Id)
 
 		task.delay(IT.RespawnTime, function()
@@ -778,6 +1036,81 @@ function RaceService.start()
 	feed.Name = Names.FEED_REMOTE
 	feed.Parent = BloxKart
 	RaceService.feed = feed
+
+	--==============================================================
+	--  THE HORN. Cosmetic, and still rate-limited.
+	--
+	--  It takes NO PAYLOAD. The client says "I honked" and nothing
+	--  else — there is nothing it could tell us that we would
+	--  believe, and the kart position everyone needs is already
+	--  replicated. The server supplies the player, so a client cannot
+	--  honk as somebody else.
+	--
+	--  THE COOLDOWN IS THE POINT. This is a broadcast that any client
+	--  can trigger, which is the shape of every audio-spam vector
+	--  there is. The client has its own shorter cooldown for feel;
+	--  that one is a courtesy and this one is the defence.
+	--
+	--  Rebroadcast to EVERYONE INCLUDING THE SENDER is deliberately
+	--  avoided — the sender already played it locally the instant
+	--  they pressed, so echoing it back would double it a round-trip
+	--  later.
+	--==============================================================
+	--==============================================================
+	--  THE BOT PATH IS A LINE, NOT GEOMETRY.
+	--
+	--  `Triggers.TAGS` already keeps these out of the kart's movement
+	--  sweep and out of Route's own ground probes. That is enough for
+	--  karts and it is NOT enough for everything else: a player on
+	--  foot, a dropped item, or any raycast that does not use the
+	--  shared exclude list still sees a solid part.
+	--
+	--  And unlike a checkpoint there is every reason to place these
+	--  densely — a smooth line wants a lot of them — so leaving them
+	--  solid litters the road with invisible walls.
+	--
+	--  Forced here rather than left to the author, because "remember to
+	--  untick CanCollide on all sixty of them" is not a workflow.
+	--  Transparency is deliberately NOT touched: whether you can see
+	--  your own path while building is your call.
+	--==============================================================
+	local function tamePath(part: Instance)
+		if part:IsA("BasePart") then
+			part.CanCollide = false
+			part.CanTouch = false
+			-- CanQuery is the flag that actually hides it from raycasts;
+			-- CanCollide only stops things resting on it. Route finds
+			-- these by TAG, never by ray, so nothing here needs it.
+			part.CanQuery = false
+			part.Anchored = true
+			part.CastShadow = false
+		end
+	end
+	for _, part in CollectionService:GetTagged(Config.Race.BotPathTag) do
+		tamePath(part)
+	end
+	CollectionService:GetInstanceAddedSignal(Config.Race.BotPathTag):Connect(tamePath)
+
+	local horn = Instance.new("RemoteEvent")
+	horn.Name = Names.HORN_REMOTE
+	horn.Parent = BloxKart
+	local hornAt: { [Player]: number } = {}
+	horn.OnServerEvent:Connect(function(player: Player)
+		local now = os.clock()
+		if now < (hornAt[player] or 0) then
+			return
+		end
+		hornAt[player] = now + Config.Audio.HornServerCooldown
+		for _, other in Players:GetPlayers() do
+			if other ~= player then
+				horn:FireClient(other, player)
+			end
+		end
+	end)
+	-- Or the table grows by one entry per player who ever joined.
+	Players.PlayerRemoving:Connect(function(player)
+		hornAt[player] = nil
+	end)
 
 	-- "I fell in the void." No payload: there is nothing the client
 	-- could tell us that we would believe, and everything the credit
@@ -967,7 +1300,8 @@ function RaceService.start()
 					arg:GetAttribute(Names.HAZARD_ITEM),
 					if owner then owner.DisplayName else nil,
 					player.DisplayName,
-					KartService.kartFor(player)
+					KartService.kartFor(player),
+					ownerId
 				)
 				arg:Destroy()
 			end
@@ -975,12 +1309,22 @@ function RaceService.start()
 	end)
 
 	RunService.Heartbeat:Connect(stepSettling)
+	RunService.Heartbeat:Connect(function()
+		local now = workspace:GetServerTimeNow()
+		if now >= standingsAt then
+			standingsAt = now + STANDINGS_INTERVAL
+			publishStandings(now)
+		end
+	end)
 
 	Players.PlayerRemoving:Connect(function(player)
 		local kart = KartService.kartFor(player)
 		if kart then
 			kart:SetAttribute(Standings.ATTRIBUTE, nil)
+			kart:SetAttribute(Standings.PLACE_ATTRIBUTE, nil)
+			kart:SetAttribute(Standings.FIELD_ATTRIBUTE, nil)
 		end
+		lastSpotlightAt[player.UserId] = nil
 	end)
 end
 

@@ -79,7 +79,7 @@ return {
 	-- high enough to clear kerbs and the kart's own bodywork. The hitbox
 	-- centre sits about 1.2 above the road, so this stays well inside
 	-- HitRadius vertically.
-	CruiseHeight = 3, -- studs above the surface
+	CruiseHeight = 5, -- studs above the surface
 	CruiseProbe = 80, -- how far down to look for road. Needs to exceed
 	-- any drop it should fly over rather than dive into
 	ClimbRate = 7, -- how hard it corrects its height. Too high and it

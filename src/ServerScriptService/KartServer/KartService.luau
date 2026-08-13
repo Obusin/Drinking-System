@@ -82,6 +82,42 @@ local reloadAt: { [Player]: number } = {}
 -- When a character last arrived and a kart was therefore already on its
 -- way. The watchdog waits this out rather than racing it.
 local spawningAt: { [Player]: number } = {}
+-- A race kart is client-simulated.  The first seat therefore has one extra
+-- prerequisite beyond the character existing: the LocalScript must have
+-- installed the systems that attach Simulation, input, rider visuals and
+-- remote-kart presentation.  This is populated by a payload-free client
+-- acknowledgement; it grants no gameplay capability.
+local clientReady: { [Player]: boolean } = {}
+local clientReadyRemote: RemoteEvent? = nil
+local clientAttached: { [Player]: Model } = {}
+local kartAttachedRemote: RemoteEvent? = nil
+
+local function waitForClientReady(player: Player): boolean
+	if clientReady[player] then
+		return true
+	end
+
+	setPlayerState(
+		player,
+		if Place.isLobby() then Names.STATE_LOADING else Names.STATE_RACE_LOADING,
+		"waiting for client kart setup"
+	)
+	local deadline = os.clock() + RIG.ClientReadyTimeout
+	while player.Parent and not clientReady[player] and os.clock() < deadline do
+		task.wait(0.05)
+	end
+
+	if clientReady[player] then
+		return true
+	end
+
+	-- Failing open is intentional.  The loading screen is the normal cover for
+	-- this handshake, but a LocalScript fault must not strand a player forever.
+	-- The existing watchdog/recovery path remains the fallback for that rare
+	-- case, and the warning makes it diagnosable rather than silent.
+	warn("[KartService] " .. player.Name .. " client setup acknowledgement timed out; spawning as fallback.")
+	return player.Parent ~= nil
+end
 
 -- THE ONLY THING THAT GIVES A PLAYER A BODY.
 --
@@ -668,7 +704,14 @@ local function createKart(name: string, slot: number, player: any?): Model
 		wanted or RIG.VisualName,
 		if isBot(player) then " (bot)" else ""
 	)
-	local kart = KartFactory.build(KartFactory.colorFor(slot), wanted)
+	-- HUMANS ONLY. See Vehicles.ForceForPlayers: bots keep the kart so a
+	-- race is bike-versus-kart, which is the only way the difference is
+	-- visible from the seat rather than measured.
+	local kind = nil
+	if player and not isBot(player) and Config.Vehicles.ForceForPlayers ~= "" then
+		kind = Config.Vehicles.ForceForPlayers
+	end
+	local kart = KartFactory.build(KartFactory.colorFor(slot), wanted, kind)
 	kart.Name = name
 	-- Who is driving, as text, for anything that has to SHOW it — the
 	-- results board and the spectator line. Players could be resolved
@@ -738,8 +781,43 @@ local function seatPlayer(player: Player, kart: Model)
 		log("seat FAILED for %s: %s", player.Name, tostring(err))
 		return
 	end
-	setPlayerState(player, if Place.isLobby() then Names.STATE_LOBBY_DRIVING else Names.STATE_RACE_DRIVING, "seated")
+	-- Sitting is not the final ready state. The driver may receive this event
+	-- before their local Simulation attaches, which was the source of the
+	-- inert/half-initialised first kart. The authenticated attach remote below
+	-- advances the state once the client has constructed the controller.
+	clientAttached[player] = nil
+	setPlayerState(player, if Place.isLobby() then Names.STATE_LOBBY else Names.STATE_RACE_LOADING, "seated; waiting for client kart attach")
 	log("seated %s", player.Name)
+end
+
+local function awaitClientAttach(player: Player, kart: Model)
+	local deadline = os.clock() + RIG.ClientAttachTimeout
+	while player.Parent and karts[player] == kart and clientAttached[player] ~= kart and os.clock() < deadline do
+		task.wait(0.05)
+	end
+	if not player.Parent or karts[player] ~= kart or clientAttached[player] == kart then
+		return
+	end
+	-- A RemoteEvent can be the one thing that loses a race with an initial
+	-- streamed seat. Ask the still-seated client to re-confirm the exact kart
+	-- before declaring the attachment failed. The client sends no state back
+	-- beyond that model identity, and the normal occupied-seat validation still
+	-- applies in the server handler.
+	if kartAttachedRemote then
+		kartAttachedRemote:FireClient(player, kart)
+		local retryDeadline = os.clock() + 1.5
+		while player.Parent and karts[player] == kart and clientAttached[player] ~= kart and os.clock() < retryDeadline do
+			task.wait(0.05)
+		end
+		if clientAttached[player] == kart then
+			return
+		end
+	end
+	-- Fails open for the same reason as the client boot gate: an otherwise
+	-- healthy player must never be imprisoned behind a loading screen because
+	-- one local module crashed. The state reason preserves the diagnosis.
+	warn("[KartService] " .. player.Name .. " did not confirm local kart attachment; releasing fallback state.")
+	setPlayerState(player, if Place.isLobby() then Names.STATE_LOBBY_DRIVING else Names.STATE_RACE_DRIVING, "client kart attach timed out")
 end
 
 -- Treats an empty seat as an escape attempt.
@@ -757,6 +835,13 @@ local function bindLockIn(player: Player, kart: Model)
 end
 
 local function spawnKartFor(player: Player)
+	-- Centralised here rather than only in CharacterAdded: the fallen-kart
+	-- watchdog also rebuilds through this function, and no player kart should
+	-- be created before their client can attach to it.
+	if not waitForClientReady(player) then
+		return
+	end
+
 	setPlayerState(player, Names.STATE_KART_SPAWNING, if Place.isLobby() then "lobby kart requested" else "race kart spawning")
 	local existing = karts[player]
 	if existing then
@@ -813,6 +898,7 @@ local function spawnKartFor(player: Player)
 	bindLockIn(player, kart)
 	task.spawn(dressAndReveal, player, kart, function()
 		seatPlayer(player, kart)
+		task.spawn(awaitClientAttach, player, kart)
 	end)
 end
 
@@ -897,13 +983,30 @@ local function onPlayerAdded(player: Player)
 		print(("[KartService] %s character arrived"):format(player.Name))
 		onCharacterAdded(player, character)
 	end)
-	if player.Character then
-		task.spawn(onCharacterAdded, player, player.Character)
-	else
-		-- Spawned explicitly, because CharacterAutoLoads is off — see
-		-- KartService.start for why we took that decision back.
-		reload(player, "joined")
-	end
+
+	-- The player character is part of the same initial handoff as the kart.
+	-- Wait here, before LoadCharacter, as well as in spawnKartFor: that gives
+	-- a cold join one clean order — client systems, character, kart, seat —
+	-- rather than showing a half-ready character while the splash is still up.
+	-- The spawn-level gate remains because later rebuild paths do not pass
+	-- through this join function.
+	task.spawn(function()
+		if not waitForClientReady(player) then
+			return
+		end
+		if player.Character then
+			-- CharacterAdded may have won the race while this coroutine was
+			-- waiting for the client acknowledgement.  It has already begun
+			-- the same chain and marked spawningAt, so never run it twice.
+			if not spawningAt[player] then
+				onCharacterAdded(player, player.Character)
+			end
+		else
+			-- Spawned explicitly, because CharacterAutoLoads is off — see
+			-- KartService.start for why we took that decision back.
+			reload(player, "joined")
+		end
+	end)
 end
 
 --=====================================================================
@@ -1101,6 +1204,36 @@ function KartService.start()
 	log("starting")
 	setupCollisionGroup()
 
+	-- Create this before player handlers are connected, so even a very fast
+	-- client cannot acknowledge its setup between join handling and listener
+	-- installation.  The client sends no data and this only releases its own
+	-- initial spawn gate.
+	clientReadyRemote = Instance.new("RemoteEvent")
+	clientReadyRemote.Name = Names.CLIENT_READY_REMOTE
+	clientReadyRemote.Parent = ReplicatedStorage.BloxKart
+	clientReadyRemote.OnServerEvent:Connect(function(player)
+		clientReady[player] = true
+	end)
+
+	kartAttachedRemote = Instance.new("RemoteEvent")
+	kartAttachedRemote.Name = Names.KART_ATTACHED_REMOTE
+	kartAttachedRemote.Parent = ReplicatedStorage.BloxKart
+	kartAttachedRemote.OnServerEvent:Connect(function(player, kart)
+		-- The client may confirm only the model currently owned by this player
+		-- and only after the server has genuinely seated them in it. The model
+		-- argument is an identity check, never a position or game instruction.
+		if typeof(kart) ~= "Instance" or not kart:IsA("Model") or karts[player] ~= kart then
+			return
+		end
+		local seat = kart:FindFirstChild("Seat")
+		local occupant = seat and seat:IsA("VehicleSeat") and seat.Occupant
+		if not occupant or occupant.Parent ~= player.Character then
+			return
+		end
+		clientAttached[player] = kart
+		setPlayerState(player, if Place.isLobby() then Names.STATE_LOBBY_DRIVING else Names.STATE_RACE_DRIVING, "client kart attached")
+	end)
+
 	-- Diagnostic harness. No-op unless Config.Garage.CycleTest > 0.
 	KartService.startCycleTest()
 
@@ -1187,6 +1320,8 @@ function KartService.start()
 	Players.PlayerRemoving:Connect(function(player)
 		spawningAt[player] = nil
 		reloadAt[player] = nil
+		clientReady[player] = nil
+		clientAttached[player] = nil
 		local kart = karts[player]
 		karts[player] = nil
 		slots[player] = nil
@@ -1266,6 +1401,13 @@ function KartService.start()
 			if not RIG.TestMode and not Place.isLobby() then
 				for _, player in Players:GetPlayers() do
 					if karts[player] then
+						continue
+					end
+					-- The normal join chain is waiting behind the splash for this
+					-- acknowledgement.  Treating that intentional state as a
+					-- missing kart would start a second spawn coroutine and make
+					-- the two destroy each other's fresh karts.
+					if not clientReady[player] then
 						continue
 					end
 					-- A spawn already in flight. Give it room; racing it

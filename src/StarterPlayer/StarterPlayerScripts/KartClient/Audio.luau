@@ -7,6 +7,8 @@
 --]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+local SoundService = game:GetService("SoundService")
 local BloxKart = ReplicatedStorage:WaitForChild("BloxKart")
 local Config = require(BloxKart:WaitForChild("Config"))
 local Util = require(BloxKart:WaitForChild("Util"))
@@ -33,6 +35,24 @@ function Audio.new(hitbox: BasePart)
 		SoundId = SW.SplashSoundId,
 		Volume = SW.SplashVolume,
 		RollOffMaxDistance = 220,
+	})
+
+	-- Ramps and water skips share one sound, pitched by size. See
+	-- Audio:Leap.
+	local leap = make({
+		Name = "_Leap",
+		SoundId = A.LeapSoundId,
+		Volume = A.LeapSoundVolume,
+		RollOffMaxDistance = 200,
+	})
+
+	-- Parented to the hitbox like everything else here, so it is
+	-- positional and falls off with distance for free.
+	local horn = make({
+		Name = "_Horn",
+		SoundId = A.HornSoundId,
+		Volume = A.HornVolume,
+		RollOffMaxDistance = A.HornRollOff,
 	})
 
 	local boost = make({
@@ -125,11 +145,49 @@ function Audio.new(hitbox: BasePart)
 		Volume = A.BumpSoundVolume,
 		RollOffMaxDistance = 200,
 	})
-	return setmetatable({
+
+	-- The countdown is deliberately 2D and local. A shared world speaker
+	-- would make every kart announce the same light and multiply the voice
+	-- for nearby players. Roblox's AudioTextToSpeech connects directly to
+	-- this client's output instead.
+	local countdownSpeech: AudioTextToSpeech? = nil
+	if A.CountdownTTS then
+		local ok, speech = pcall(function()
+			local output = Instance.new("AudioDeviceOutput")
+			output.Name = "_CountdownVoiceOutput"
+			output.Player = Players.LocalPlayer
+			output.Parent = SoundService
+
+			local tts = Instance.new("AudioTextToSpeech")
+			tts.Name = "_CountdownVoice"
+			tts.VoiceId = A.CountdownTTSVoiceId
+			tts.Volume = A.CountdownTTSVolume
+			tts.Parent = SoundService
+
+			local wire = Instance.new("Wire")
+			wire.Name = "_CountdownVoiceWire"
+			wire.SourceInstance = tts
+			wire.TargetInstance = output
+			wire.Parent = SoundService
+
+			table.insert(created, output)
+			table.insert(created, tts)
+			table.insert(created, wire)
+			return tts
+		end)
+		if ok then
+			countdownSpeech = speech
+		else
+			warn("[Audio] Roblox TTS countdown unavailable; keeping countdown beeps.")
+		end
+	end
+	local self = setmetatable({
 		created = created,
 		bump = bump,
 		boost = boost,
 		splash = splash,
+		leap = leap,
+		horn = horn,
 		engine = engine,
 		screech = screech,
 		tick = tick,
@@ -138,7 +196,14 @@ function Audio.new(hitbox: BasePart)
 		itemHit = itemHit,
 		notes = notes,
 		noteIndex = 0,
+		countdownSpeech = countdownSpeech,
 	}, Audio)
+
+	self:_checkSound(splash, "Swim splash")
+	self:_checkSound(leap, "Leap")
+	self:_checkSound(horn, "Horn")
+
+	return self
 end
 
 -- Rewinds on every call, which is what makes a rapid click read as
@@ -146,6 +211,26 @@ end
 function Audio:PlayTick()
 	if self.tick.SoundId ~= "" then
 		self.tick:Play()
+	end
+end
+
+-- Speaks a single race light through Roblox's native 2D TTS graph. The
+-- system can be unavailable on an older client or fail moderation/loading;
+-- that must never block the round, so the normal countdown cue still plays.
+function Audio:CountdownVoice(light: number)
+	local speech = self.countdownSpeech
+	if not speech then
+		return
+	end
+
+	local phrase = if light <= 0 then "Go!" else tostring(light)
+	local ok, err = pcall(function()
+		speech.Text = phrase
+		speech.TimePosition = 0
+		speech:Play()
+	end)
+	if not ok then
+		warn(string.format("[Audio] Roblox TTS countdown failed for %q: %s", phrase, tostring(err)))
 	end
 end
 
@@ -225,6 +310,47 @@ function Audio:Splash(impact: number)
 	self.splash.Volume = SW.SplashVolume * (0.45 + 0.55 * hard)
 	self.splash.PlaybackSpeed = SW.SplashPitchMax - (SW.SplashPitchMax - SW.SplashPitchMin) * hard
 	self.splash:Play()
+end
+
+-- LEAVING THE GROUND — a ramp launch, or a skip off a wave.
+--
+-- One sound for all of them, pitched by size. `size` is 0..1: 0 is the
+-- smallest leap worth hearing, 1 is a full ramp launch. Higher pitch for
+-- a small one, because pitch reads as MASS — a little skip should sound
+-- light and a ramp launch should not.
+--
+-- `quiet` scales the volume, and it is what keeps the water hop from
+-- becoming a machine gun: it fires up to 2.89 times a second at top
+-- speed, where a ramp fires once.
+function Audio:Leap(size: number, quiet: number?)
+	if not self.leap or self.leap.SoundId == "" then
+		return
+	end
+	local big = math.clamp(size, 0, 1)
+	self.leap.Volume = A.LeapSoundVolume * (quiet or 1)
+	self.leap.PlaybackSpeed = A.LeapPitchLow - (A.LeapPitchLow - A.LeapPitchHigh) * big
+	self.leap:Play()
+end
+
+-- THE HORN. Cosmetic, player-pressed, and the only sound in the game
+-- made on purpose for no mechanical reason.
+--
+-- Returns whether it actually sounded, so the caller knows whether to
+-- spend a network message. The cooldown lives here rather than at the
+-- key binding because holding the key, tapping it and a gamepad's repeat
+-- all arrive differently and only one of them should have to be right.
+function Audio:Horn(): boolean
+	if not self.horn or self.horn.SoundId == "" then
+		return false
+	end
+	local now = os.clock()
+	if now < (self.hornAt or 0) then
+		return false
+	end
+	self.hornAt = now + A.HornCooldown
+	self.horn.PlaybackSpeed = 1 + (math.random() * 2 - 1) * A.HornPitchVary
+	self.horn:Play()
+	return true
 end
 
 function Audio:Boost(tier: number)

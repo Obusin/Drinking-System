@@ -1,5 +1,5 @@
 --[[
-	ItemHud — held item and race position, top left.
+	ItemHud — held items.
 
 	Top left because that's where the reference puts the item slot, and
 	because the speedo cluster already owns bottom right.
@@ -32,17 +32,18 @@ function ItemHud.new()
 	gui.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
 
 	local MAX = Config.Items.MaxHeld
-	local SLOT, GAP = H.ItemSlotSize, H.ItemSlotGap
 
 	-- Same Device answer every other HUD uses. On touch the cluster sits
 	-- beside the centred speed readout rather than beside the nitro bar,
 	-- because the mobile layout stacks those two differently.
 	local mobile = Device.touchLayout()
+	local SLOT = if mobile then H.MobileItemSlotSize else H.ItemSlotSize
+	local GAP = if mobile then H.MobileItemSlotGap else H.ItemSlotGap
 
 	local panel = Instance.new("Frame")
 	panel.AnchorPoint = if mobile then H.MobileItemAnchor else H.ItemAnchor
 	panel.Position = if mobile then H.MobileItemPosition else H.ItemPosition
-	panel.Size = UDim2.fromOffset(MAX * SLOT + (MAX - 1) * GAP, SLOT + 36)
+	panel.Size = UDim2.fromOffset(MAX * SLOT + (MAX - 1) * GAP, SLOT)
 	panel.BackgroundTransparency = 1
 	panel.Parent = gui
 
@@ -123,12 +124,10 @@ function ItemHud.new()
 		entry.label = text(entry.frame, 9, H.SpeedUnitColor, UDim2.new(0, 0, 1, -15), 14)
 	end
 
-	local place = text(panel, 26, H.SpeedTextColor, UDim2.new(0, 0, 0, SLOT + 6), 30, Enum.TextXAlignment.Right)
-
-	return setmetatable({ gui = gui, slots = slots, place = place }, ItemHud)
+	return setmetatable({ gui = gui, slots = slots }, ItemHud)
 end
 
-function ItemHud:Update(slots, place: number, field: number)
+function ItemHud:Update(slots)
 	for i, entry in self.slots do
 		local data = slots[i]
 		entry.label.Text = if data then data.name else ""
@@ -161,7 +160,6 @@ function ItemHud:Update(slots, place: number, field: number)
 		end
 	end
 
-	self.place.Text = if place > 0 then ("%d/%d"):format(place, field) else ""
 end
 
 -- Off when there is no kart. The slots describe what you are holding,

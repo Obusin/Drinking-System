@@ -19,6 +19,7 @@ local TweenService = game:GetService("TweenService")
 
 local BloxKart = ReplicatedStorage:WaitForChild("BloxKart")
 local Config = require(BloxKart:WaitForChild("Config"))
+local Device = require(BloxKart:WaitForChild("Device"))
 local Util = require(BloxKart:WaitForChild("Util"))
 local Names = require(BloxKart:WaitForChild("Names"))
 local Shared = require(BloxKart:WaitForChild("Match"))
@@ -46,6 +47,12 @@ local function label(parent: Instance, size: number, colour: Color3): TextLabel
 end
 
 function MatchHud.new()
+	local mobile = Device.touchLayout()
+	local resultsWidth = if mobile then 286 else 620
+	local resultsRowHeight = if mobile then 24 else 36
+	local resultsTitleSize = if mobile then 23 else 38
+	local resultsRowSize = if mobile then 13 else 20
+	local actionSize = if mobile then 11 else 15
 	local gui = Instance.new("ScreenGui")
 	gui.Name = "BloxKartMatch"
 	gui.ResetOnSpawn = false
@@ -77,18 +84,24 @@ function MatchHud.new()
 	board.Name = "Results"
 	board.AnchorPoint = Vector2.new(0.5, 0.5)
 	board.Position = UDim2.fromScale(0.5, 0.5)
-	board.Size = UDim2.fromOffset(M.ResultsWidth, 120)
-	board.BackgroundTransparency = 1
+	board.Size = UDim2.fromOffset(resultsWidth, 120)
+	board.BackgroundColor3 = Color3.fromRGB(13, 20, 35)
+	board.BackgroundTransparency = if mobile then 0.22 else 0.12
 	board.Visible = false
 	board.Parent = gui
+	local boardStroke = Instance.new("UIStroke")
+	boardStroke.Color = Color3.fromRGB(130, 190, 255)
+	boardStroke.Transparency = 0.38
+	boardStroke.Thickness = if mobile then 1 else 2
+	boardStroke.Parent = board
 
-	local title = label(board, M.ResultsTitleSize, M.ResultsColor)
+	local title = label(board, resultsTitleSize, M.ResultsColor)
 	title.Size = UDim2.new(1, 0, 0, 40)
-	title.Text = "RESULTS"
+	title.Text = "RACE COMPLETE"
 
 	local rows = Instance.new("Frame")
 	rows.Position = UDim2.fromOffset(0, 46)
-	rows.Size = UDim2.new(1, 0, 1, -46)
+	rows.Size = UDim2.new(1, 0, 1, -90)
 	rows.BackgroundTransparency = 1
 	rows.Parent = board
 
@@ -97,15 +110,62 @@ function MatchHud.new()
 	layout.Padding = UDim.new(0, 2)
 	layout.Parent = rows
 
+	local keepRacing = Instance.new("TextButton")
+	keepRacing.Name = "KeepRacing"
+	keepRacing.AnchorPoint = Vector2.new(0.5, 1)
+	keepRacing.Position = UDim2.new(0.33, 0, 1, -4)
+	keepRacing.Size = UDim2.fromOffset(if mobile then 106 else 170, if mobile then 24 else 34)
+	keepRacing.BackgroundTransparency = 1
+	keepRacing.FontFace = FONT
+	keepRacing.Text = "KEEP RACING"
+	keepRacing.TextSize = actionSize
+	keepRacing.TextColor3 = Color3.fromRGB(120, 224, 168)
+	keepRacing.Parent = board
+
+	local lobby = Instance.new("TextButton")
+	lobby.Name = "Lobby"
+	lobby.AnchorPoint = Vector2.new(0.5, 1)
+	lobby.Position = UDim2.new(0.68, 0, 1, -4)
+	lobby.Size = UDim2.fromOffset(if mobile then 72 else 112, if mobile then 24 else 34)
+	lobby.BackgroundTransparency = 1
+	lobby.FontFace = FONT
+	lobby.Text = "LOBBY"
+	lobby.TextSize = actionSize
+	lobby.TextColor3 = M.ResultsDimColor
+	lobby.Parent = board
+
 	return setmetatable({
 		gui = gui,
 		count = count,
 		status = status,
 		board = board,
+		title = title,
 		rows = rows,
 		rowPool = {},
 		shownRound = -1,
+		suppressed = false,
+		keepRacing = keepRacing,
+		lobby = lobby,
+		resultsDismissed = false,
+		resultsWidth = resultsWidth,
+		resultsRowHeight = resultsRowHeight,
+		resultsRowSize = resultsRowSize,
 	}, MatchHud)
+end
+
+function MatchHud:SetResultsActions(onKeepRacing: (() -> ())?, onLobby: (() -> ())?)
+	self.keepRacing.Activated:Connect(function()
+		self.resultsDismissed = true
+		self:HideResults()
+		if onKeepRacing then
+			onKeepRacing()
+		end
+	end)
+	self.lobby.Activated:Connect(function()
+		if onLobby then
+			onLobby()
+		end
+	end)
 end
 
 --=====================================================================
@@ -191,8 +251,8 @@ end
 function MatchHud:_row(i: number): TextLabel
 	local row = self.rowPool[i]
 	if not row then
-		row = label(self.rows, M.ResultsRowSize, M.ResultsColor)
-		row.Size = UDim2.new(1, 0, 0, M.ResultsRowHeight)
+		row = label(self.rows, self.resultsRowSize, M.ResultsColor)
+		row.Size = UDim2.new(1, 0, 0, self.resultsRowHeight)
 		row.TextXAlignment = Enum.TextXAlignment.Center
 		row.LayoutOrder = i
 		self.rowPool[i] = row
@@ -237,7 +297,7 @@ function MatchHud:ShowResults()
 		row.TextColor3 = M.ResultsDimColor
 	end
 
-	self.board.Size = UDim2.fromOffset(M.ResultsWidth, 46 + math.max(#finished, 1) * (M.ResultsRowHeight + 2))
+	self.board.Size = UDim2.fromOffset(self.resultsWidth, 90 + math.max(#finished, 1) * (self.resultsRowHeight + 2))
 	self.board.Visible = true
 end
 
@@ -273,17 +333,27 @@ function MatchHud:Update(match)
 			local racers, need = match:Humans(), match:MinRacers()
 			self.status.Text = ("WAITING FOR RACERS   %d / %d"):format(racers, need)
 		elseif phase == P.Intermission then
-			local suffix = if match:IsReady()
-				then "READY"
-				else ("PRESS %s TO READY"):format(M.ReadyKey.Name)
-			self.status.Text = ("NEXT RACE IN %d   ·   %s   ·   %d/%d READY"):format(
-				math.ceil(match:TimeLeft()),
-				suffix,
-				match:ReadyCount(),
-				match:Racers()
-			)
+			if match:TimeLeft() <= 0 then
+				self.status.Text = "PREPARING INTERMISSION"
+			elseif M.IntermissionCamera.Enabled and M.IntermissionCamera.LockFullSequence then
+				self.status.Text = ("NEXT RACE IN %d"):format(math.ceil(match:TimeLeft()))
+			else
+				local suffix = if match:IsReady()
+					then "READY"
+					else ("PRESS %s TO READY"):format(M.ReadyKey.Name)
+				self.status.Text = ("NEXT RACE IN %d   ·   %s   ·   %d/%d READY"):format(
+					math.ceil(match:TimeLeft()),
+					suffix,
+					match:ReadyCount(),
+					match:Racers()
+				)
+			end
 		elseif phase == P.Results then
 			self.status.Text = ("NEXT RACE IN %d"):format(math.ceil(match:TimeLeft()))
+		elseif phase == P.Grid and match:TimeLeft() <= 0 then
+			-- The server has placed the field but deliberately has not started
+			-- 3-2-1 yet: it is waiting for every human kart to consume GridCF.
+			self.status.Text = "SETTING THE GRID"
 		else
 			self.status.Text = ""
 		end
@@ -292,12 +362,15 @@ function MatchHud:Update(match)
 	-- Built once per entry into Results, not per frame: the board is a
 	-- dozen instances and rebuilding it at 60fps for ten seconds would
 	-- be pure waste.
-	if phase == P.Results and not self.suppressed then
+	if phase == P.Results and not self.suppressed and not self.resultsDismissed then
 		if not self.board.Visible then
 			self:ShowResults()
 		end
 	elseif self.board.Visible then
 		self:HideResults()
+	end
+	if phase ~= P.Results then
+		self.resultsDismissed = false
 	end
 end
 

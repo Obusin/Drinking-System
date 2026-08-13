@@ -8,7 +8,7 @@ return {
 	-- no way out. Pair with Config.Input.AllowExit.
 	TestMode = false,
 
-	MaxRacers = 8, -- grid size. More players than this still spawn, they
+	MaxRacers = 20, -- grid size. More players than this still spawn, they
 	-- just reuse colours and grid slots.
 
 	-- The physical footprint. FIXED, regardless of what the art looks
@@ -311,6 +311,44 @@ return {
 	-- feels instant, slow enough that it is a fade rather than a switch.
 	ThrusterRate = 12,
 
+	-- What a bike's hands hold, in place of a steering wheel. It carries
+	-- GripL/GripR exactly as the wheel does, so the arm IK needs no
+	-- second code path.
+	--=================================================================
+	--  WHERE THE DRIVER SITS, relative to the hitbox centre.
+	--
+	--  This was a literal in KartFactory and a second pair of literals
+	--  in Rider's knee code, and BikeVisual now needs it too to place
+	--  the footpegs. Three copies of one position, and the day one
+	--  moves without the others is the day the rider's legs point at
+	--  nothing.
+	--
+	--  Everything about the rider hangs off this: the hand grips are
+	--  placed within arm's reach of it, and the knee and footpeg
+	--  targets are expressed as offsets FROM it.
+	--=================================================================
+	SeatOffset = Vector3.new(0, 0.5, 0.6),
+
+	HandlebarName = "Handlebar",
+
+	-- THE LOWER FORK SLIDER, which telescopes under braking and on
+	-- landings. Optional: art without a part by this name simply gets no
+	-- fork dive, and nothing else changes.
+	--
+	-- It must be the LOWER tube. Motorising the whole fork slides the
+	-- stanchions into the headstock instead of out of it, which is a fork
+	-- extending — the opposite of a dive, at exactly the right moment.
+	ForkName = "Fork",
+
+	-- THE PEGS THE RIDER STANDS ON. Named so the leg IK can read the
+	-- boot position off the ART rather than deriving it from the seat
+	-- offset and hoping the two agree — the foot lands exactly where
+	-- the peg was modelled, whatever the model does.
+	--
+	-- Optional. Art without them falls back to Config.Bike's peg
+	-- numbers, which is what the placeholder was built from anyway.
+	FootPegNames = { "FootPegL", "FootPegR" },
+
 	AeroName = "Aero",
 	AeroTag = "KartAero",
 
@@ -486,6 +524,15 @@ return {
 	FallbackCF = CFrame.new(0, 10, 0),
 	RespawnBelow = -100,
 	SeatDelay = 0.2, -- let the character assemble before Sit()
+	-- The splash remains up while the client brings up its kart systems.  Do
+	-- not create or seat the initial race kart until it acknowledges that
+	-- setup; this is only a failsafe for a client whose LocalScript crashed or
+	-- never replicated, so one bad join cannot remain on the splash forever.
+	ClientReadyTimeout = 15,
+	-- After seating, allow the client a short window to construct Simulation
+	-- for that exact kart. The splash waits on this state; the timeout is only
+	-- a recovery escape hatch for a client-side fault.
+	ClientAttachTimeout = 10,
 	ReseatDelay = 0.1, -- grace before shoving an escapee back in
 
 	Debug = false, -- trace spawning to Output

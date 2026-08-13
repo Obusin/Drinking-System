@@ -26,8 +26,8 @@
 
 	The seam it warned about — the finish remote trusting a client-sent
 	time — is closed as of the same day this comment was fixed: the
-	server now times a finish itself from when Racing began. The upward
-	progress-score jump is still open; see Kart/SECURITY.md #4.4.
+	server now times a finish itself from when Racing began. Route progress and
+	lap banking are also server-observed in RaceService.
 
 	`Rewards.Preview` drives the "not saved yet" line on the results
 	panel and should be flipped off once this is confirmed good under

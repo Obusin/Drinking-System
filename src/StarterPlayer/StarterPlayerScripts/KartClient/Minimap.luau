@@ -32,6 +32,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local BloxKart = ReplicatedStorage:WaitForChild("BloxKart")
 local Config = require(BloxKart:WaitForChild("Config"))
+local Device = require(BloxKart:WaitForChild("Device"))
 local Names = require(BloxKart:WaitForChild("Names"))
 local Route = require(BloxKart:WaitForChild("Route"))
 local Standings = require(BloxKart:WaitForChild("Standings"))
@@ -58,6 +59,8 @@ local function dot(parent: Instance, size: number, colour: Color3, order: number
 end
 
 function Minimap.new()
+	local mobile = Device.touchLayout()
+	local size = if mobile then M.MobileSize else M.Size
 	local gui = Instance.new("ScreenGui")
 	gui.Name = "BloxKartMinimap"
 	gui.ResetOnSpawn = false
@@ -71,9 +74,9 @@ function Minimap.new()
 	frame.BackgroundColor3 = M.BackgroundColor
 	frame.BackgroundTransparency = M.BackgroundTransparency
 	frame.BorderSizePixel = 0
-	frame.AnchorPoint = M.Anchor
-	frame.Position = M.Position
-	frame.Size = UDim2.fromOffset(M.Size.X, M.Size.Y)
+	frame.AnchorPoint = if mobile then M.MobileAnchor else M.Anchor
+	frame.Position = if mobile then M.MobilePosition else M.Position
+	frame.Size = UDim2.fromOffset(size.X, size.Y)
 	-- So a rotated map in heading mode cannot spill across the screen.
 	frame.ClipsDescendants = true
 	frame.Parent = gui
@@ -102,6 +105,10 @@ function Minimap.new()
 	return setmetatable({
 		gui = gui,
 		frame = frame,
+		size = size,
+		trackThickness = if mobile then M.MobileTrackThickness else M.TrackThickness,
+		selfSize = if mobile then M.MobileSelfSize else M.SelfSize,
+		racerSize = if mobile then M.MobileRacerSize else M.RacerSize,
 		world = world,
 		track = track,
 		builtCount = 0,
@@ -159,7 +166,7 @@ function Minimap:_build(): boolean
 	-- the track to fill the box and every corner would be the wrong
 	-- shape, which is worse than a map with empty space in it.
 	local usable = (1 - M.Padding * 2)
-	self.scale = math.min(M.Size.X * usable / spanX, M.Size.Y * usable / spanZ)
+	self.scale = math.min(self.size.X * usable / spanX, self.size.Y * usable / spanZ)
 
 	----------------------------------------------------------------
 	-- The outline, as a chain of segments.
@@ -179,7 +186,7 @@ function Minimap:_build(): boolean
 			seg.BorderSizePixel = 0
 			seg.AnchorPoint = Vector2.new(0.5, 0.5)
 			seg.Position = UDim2.new(0.5, (a.X + b.X) * 0.5, 0.5, (a.Y + b.Y) * 0.5)
-			seg.Size = UDim2.fromOffset(M.TrackThickness, length + M.SegmentOverlap)
+			seg.Size = UDim2.fromOffset(self.trackThickness, length + M.SegmentOverlap)
 			-- A Frame's long axis is vertical, so it is turned to lie
 			-- along the segment.
 			seg.Rotation = math.deg(math.atan2(delta.Y, delta.X)) + 90
@@ -257,7 +264,7 @@ function Minimap:Update(dt: number, sim)
 		local mine = kart:GetAttribute(Names.OWNER) == me
 		local marker = self.markers[kart]
 		if not marker then
-			marker = dot(self.world, if mine then M.SelfSize else M.RacerSize, if mine then M.SelfColor else M.RacerColor, if mine then 5 else 4)
+			marker = dot(self.world, if mine then self.selfSize else self.racerSize, if mine then M.SelfColor else M.RacerColor, if mine then 5 else 4)
 			self.markers[kart] = marker
 		end
 

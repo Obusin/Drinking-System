@@ -23,6 +23,10 @@ local NITRO_ACTION = "KartNitro"
 local RESET_ACTION = "KartReset"
 local ITEM_ACTION = "KartItem"
 local ITEM_BACK_ACTION = "KartItemBack"
+local DRIVE_FORWARD_ACTION = "KartDriveForward"
+local DRIVE_BACK_ACTION = "KartDriveBack"
+local DRIVE_LEFT_ACTION = "KartDriveLeft"
+local DRIVE_RIGHT_ACTION = "KartDriveRight"
 
 local Input = {
 	-- Touch steering / throttle. Added to whatever the VehicleSeat
@@ -31,6 +35,11 @@ local Input = {
 	-- is bit-for-bit unchanged when these stay 0.
 	touchSteer = 0,
 	touchThrottle = 0,
+	-- Independent of VehicleSeat.ThrottleFloat/SteerFloat. See Config.Input:
+	-- direct bindings make the custom kart controller work even if Roblox's
+	-- stock vehicle module misses the initial seating handoff.
+	driveSteer = 0,
+	driveThrottle = 0,
 
 	driftHeld = false,
 	nitroTaps = 0, -- queued, consumed one per frame by Simulation
@@ -52,6 +61,35 @@ local Input = {
 local driftPressed = false
 local camSnap = false
 local getHumanoid: (() -> Humanoid?)? = nil
+local driveForward, driveBack, driveLeft, driveRight = false, false, false, false
+local padSteer = 0
+
+local function refreshDrive()
+	Input.driveThrottle = (if driveForward then 1 else 0) - (if driveBack then 1 else 0)
+	Input.driveSteer = math.clamp((if driveRight then 1 else 0) - (if driveLeft then 1 else 0) + padSteer, -1, 1)
+end
+
+local function driveButton(which: string)
+	return function(_, state: Enum.UserInputState)
+		local down = state == Enum.UserInputState.Begin or state == Enum.UserInputState.Change
+		if state == Enum.UserInputState.Begin or state == Enum.UserInputState.End or state == Enum.UserInputState.Cancel then
+			if which == "forward" then
+				driveForward = down
+			elseif which == "back" then
+				driveBack = down
+			elseif which == "left" then
+				driveLeft = down
+			else
+				driveRight = down
+			end
+			refreshDrive()
+		end
+		-- The custom Simulation owns motion. Sinking these prevents Roblox's
+		-- VehicleSeat controller from becoming a second, sometimes absent,
+		-- source of the same inputs.
+		return Enum.ContextActionResult.Sink
+	end
+end
 
 --=====================================================================
 --  ACTIONS
@@ -214,6 +252,10 @@ UserInputService.InputChanged:Connect(function(input, processed)
 		Input.padLook = if math.abs(p.X) > CAM.PadLookDeadzone or math.abs(p.Y) > CAM.PadLookDeadzone
 			then Vector2.new(p.X, p.Y)
 			else Vector2.zero
+	elseif input.KeyCode == Enum.KeyCode.Thumbstick1 then
+		local p = input.Position
+		padSteer = if math.abs(p.X) > CAM.PadLookDeadzone then p.X else 0
+		refreshDrive()
 	end
 end)
 
@@ -308,6 +350,10 @@ end
 
 function Input.bind(humanoidGetter: () -> Humanoid?)
 	getHumanoid = humanoidGetter
+	ContextActionService:BindAction(DRIVE_FORWARD_ACTION, driveButton("forward"), false, table.unpack(IN.DriveForwardKeys))
+	ContextActionService:BindAction(DRIVE_BACK_ACTION, driveButton("back"), false, table.unpack(IN.DriveBackKeys))
+	ContextActionService:BindAction(DRIVE_LEFT_ACTION, driveButton("left"), false, table.unpack(IN.DriveLeftKeys))
+	ContextActionService:BindAction(DRIVE_RIGHT_ACTION, driveButton("right"), false, table.unpack(IN.DriveRightKeys))
 	ContextActionService:BindAction(LOOKBACK_ACTION, onLookBack, false, table.unpack(IN.LookBackKeys))
 	ContextActionService:BindAction(DRIFT_ACTION, onDrift, false, table.unpack(IN.DriftKeys))
 	ContextActionService:BindAction(NITRO_ACTION, onNitro, false, table.unpack(IN.NitroKeys))
@@ -321,6 +367,10 @@ function Input.bind(humanoidGetter: () -> Humanoid?)
 end
 
 function Input.unbind()
+	ContextActionService:UnbindAction(DRIVE_FORWARD_ACTION)
+	ContextActionService:UnbindAction(DRIVE_BACK_ACTION)
+	ContextActionService:UnbindAction(DRIVE_LEFT_ACTION)
+	ContextActionService:UnbindAction(DRIVE_RIGHT_ACTION)
 	ContextActionService:UnbindAction(LOOKBACK_ACTION)
 	ContextActionService:UnbindAction(DRIFT_ACTION)
 	ContextActionService:UnbindAction(NITRO_ACTION)
@@ -343,6 +393,10 @@ function Input.unbind()
 	Input.padLook = Vector2.zero
 	Input.touchSteer = 0
 	Input.touchThrottle = 0
+	Input.driveSteer = 0
+	Input.driveThrottle = 0
+	driveForward, driveBack, driveLeft, driveRight = false, false, false, false
+	padSteer = 0
 	driftPressed = false
 	camSnap = false
 	getHumanoid = nil

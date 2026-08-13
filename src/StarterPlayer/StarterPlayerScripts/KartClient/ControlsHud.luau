@@ -13,6 +13,7 @@ local ContextActionService = game:GetService("ContextActionService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
 local BloxKart = ReplicatedStorage:WaitForChild("BloxKart")
 
 local Config = require(BloxKart:WaitForChild("Config"))
@@ -42,6 +43,20 @@ local PRETTY = {
 	MouseButton1 = "LMB",
 	LeftShift = "SHIFT",
 	LeftControl = "CTRL",
+	-- Roblox normalises controller input to ButtonX/ButtonR1, but the
+	-- plastic says Xbox RB, PlayStation R1, or something else.  Describe
+	-- physical positions instead of pretending every pad has Xbox labels.
+	ButtonR1 = "R1 / RB",
+	ButtonL1 = "L1 / LB",
+	ButtonR2 = "R2 / RT",
+	ButtonL2 = "L2 / LT",
+	ButtonX = "FACE ←",
+	ButtonB = "FACE →",
+	ButtonY = "FACE ↑",
+	ButtonA = "FACE ↓",
+	ButtonSelect = "VIEW / −",
+	DPadUp = "D-PAD ↑",
+	DPadDown = "D-PAD ↓",
 }
 
 local function keyName(key: EnumItem?): string
@@ -51,17 +66,24 @@ local function keyName(key: EnumItem?): string
 	return PRETTY[key.Name] or key.Name:upper()
 end
 
--- First keyboard binding in a list, falling back to whatever's there.
-local function primary(keys: { EnumItem }?): EnumItem?
+local function primary(keys: { EnumItem }?, wantGamepad: boolean): EnumItem?
 	if not keys or #keys == 0 then
 		return nil
 	end
 	for _, k in keys do
-		if not isGamepad(k) then
+		if isGamepad(k) == wantGamepad then
 			return k
 		end
 	end
 	return keys[1]
+end
+
+local function isGamepadInput(inputType: Enum.UserInputType): boolean
+	return inputType.Name:sub(1, 7) == "Gamepad"
+end
+
+local function usingGamepad(): boolean
+	return isGamepadInput(UserInputService:GetLastInputType())
 end
 
 local FONT = Util.font(H.FontName, H.FontWeight)
@@ -100,27 +122,31 @@ function ControlsHud.new()
 	panel.BorderSizePixel = 0
 	panel.Parent = gui
 
-	-- Built from the real bindings. Throttle and steer are the seat's
-	-- own WASD and aren't rebindable, so those two are literal.
-	local rows: { { string } } = {
-		{ "W / S", "Throttle / Brake" },
-		{ "A / D", "Steer" },
-		{ keyName(primary(I.DriftKeys)), "Hop-drift" },
-		{ keyName(primary(I.NitroKeys)), "Nitro — tap per tank" },
-		{ keyName(primary(Config.Items.UseKeys)), "Use item — forward" },
-		{ keyName(primary(Config.Items.UseBackKeys)), "Use item — backward" },
-		{ keyName(primary(I.LookBackKeys)), "Look back" },
-		{ keyName(I.FreeLookButton), "Free look" },
+	-- Each row keeps both device labels, rather than making a controller
+	-- player mentally translate a keyboard overlay.  VehicleSeat owns the
+	-- left stick's throttle/brake and steering just as it owns WASD.
+	local rows = {
+		{ keyboard = "W / S", gamepad = "TRIGGERS", action = "Gas / Brake" },
+		{ keyboard = "A / D", gamepad = "LEFT STICK", action = "Steer" },
+		{ keyboard = keyName(primary(I.DriftKeys, false)), gamepad = keyName(primary(I.DriftKeys, true)), action = "Hop-drift" },
+		{ keyboard = keyName(primary(I.NitroKeys, false)), gamepad = keyName(primary(I.NitroKeys, true)), action = "Nitro — tap per tank" },
+		{ keyboard = keyName(primary(Config.Items.UseKeys, false)), gamepad = keyName(primary(Config.Items.UseKeys, true)), action = "Use item — forward" },
+		{ keyboard = keyName(primary(Config.Items.UseBackKeys, false)), gamepad = keyName(primary(Config.Items.UseBackKeys, true)), action = "Use item — backward" },
+		{ keyboard = keyName(primary(I.LookBackKeys, false)), gamepad = keyName(primary(I.LookBackKeys, true)), action = "Look back (hold)" },
+		{ keyboard = keyName(I.FreeLookButton), gamepad = "RIGHT STICK", action = "Free look" },
+		{ keyboard = keyName(primary(Config.Respawn.ResetKeys, false)), gamepad = keyName(primary(Config.Respawn.ResetKeys, true)), action = "Reset checkpoint" },
 	}
 	if Config.Match.AllowReadySkip then
-		table.insert(rows, { keyName(Config.Match.ReadyKey), "Ready up" })
+		table.insert(rows, { keyboard = keyName(Config.Match.ReadyKey), gamepad = keyName(Config.Match.ReadyKey), action = "Ready up" })
 	end
 	if I.AllowExit then
-		table.insert(rows, { keyName(primary(I.ExitKeys)), "Exit kart" })
+		table.insert(rows, { keyboard = keyName(primary(I.ExitKeys, false)), gamepad = keyName(primary(I.ExitKeys, true)), action = "Exit kart" })
 	end
-	table.insert(rows, { keyName(H.ControlsToggleKey), "Hide / show" })
+	table.insert(rows, { keyboard = keyName(H.ControlsToggleKey), gamepad = keyName(H.ControlsToggleGamepadKey), action = "Hide / show" })
 
 	local labels = {}
+	local keyLabels = {}
+	local gamepad = usingGamepad()
 	for i, row in rows do
 		local y = (i - 1) * H.ControlsRowHeight
 		table.insert(
@@ -134,7 +160,8 @@ function ControlsHud.new()
 				Enum.TextXAlignment.Left
 			)
 		)
-		labels[#labels].Text = row[1]
+		labels[#labels].Text = if gamepad then row.gamepad else row.keyboard
+		keyLabels[i] = labels[#labels]
 
 		table.insert(
 			labels,
@@ -147,7 +174,7 @@ function ControlsHud.new()
 				Enum.TextXAlignment.Left
 			)
 		)
-		labels[#labels].Text = row[2]
+		labels[#labels].Text = row.action
 	end
 
 	panel.Size = UDim2.fromOffset(H.ControlsKeyWidth + 190, #rows * H.ControlsRowHeight)
@@ -155,6 +182,10 @@ function ControlsHud.new()
 	local self = setmetatable({
 		gui = gui,
 		labels = labels,
+		keyLabels = keyLabels,
+		rows = rows,
+		gamepad = gamepad,
+		inputConnection = nil,
 		visible = true,
 		hideThread = nil,
 	}, ControlsHud)
@@ -164,10 +195,29 @@ function ControlsHud.new()
 			self:Toggle()
 		end
 		return Enum.ContextActionResult.Sink
-	end, false, H.ControlsToggleKey)
+	end, false, H.ControlsToggleKey, H.ControlsToggleGamepadKey)
+
+	self.inputConnection = UserInputService.LastInputTypeChanged:Connect(function(inputType)
+		-- Touch input should not swap the desktop/controller card while the
+		-- mobile HUD has it hidden. Keyboard and mouse both restore keyboard
+		-- labels; any Gamepad slot switches to the controller card.
+		if inputType == Enum.UserInputType.Keyboard or inputType.Name:sub(1, 5) == "Mouse" or isGamepadInput(inputType) then
+			self:_setGamepad(isGamepadInput(inputType))
+		end
+	end)
 
 	self:_scheduleHide()
 	return self
+end
+
+function ControlsHud:_setGamepad(gamepad: boolean)
+	if self.gamepad == gamepad then
+		return
+	end
+	self.gamepad = gamepad
+	for i, row in self.rows do
+		self.keyLabels[i].Text = if gamepad then row.gamepad else row.keyboard
+	end
 end
 
 --=====================================================================
@@ -226,6 +276,10 @@ function ControlsHud:Destroy()
 		self.hideThread = nil
 	end
 	ContextActionService:UnbindAction(TOGGLE_ACTION)
+	if self.inputConnection then
+		self.inputConnection:Disconnect()
+		self.inputConnection = nil
+	end
 	self.gui:Destroy()
 end
 

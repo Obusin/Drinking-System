@@ -50,7 +50,24 @@ Names.DEV_SPEED_SCALE = "DevSpeedScale"
 -- to DISPLAY a name reads this instead of guessing.
 Names.RACER_NAME = "RacerName"
 
+-- Cosmetic identity only. A bot can borrow this user's avatar/name for
+-- display, but it is not ownership and must never be trusted as a player.
+Names.BOT_AVATAR_USER_ID = "BotAvatarUserId"
+
+-- WHICH VEHICLE THIS IS. Stamped by KartFactory, read by whoever builds
+-- the Simulation — the client owns its own kart's controller, so the
+-- kind has to replicate rather than be passed in a call it never sees.
+--
+-- The handling itself is NOT replicated: both ends look the kind up in
+-- Config.Vehicles, which is shared. Sending the numbers would be a
+-- second copy that can disagree with the first.
+Names.VEHICLE_KIND = "VehicleKind"
+
 Names.OWNER = "OwnerUserId"
+-- Server -> affected player only. A place change is computed against the
+-- complete server field, so it remains meaningful when the opponent's model
+-- is outside this client's streaming radius.
+Names.OVERTAKE_REMOTE = "KartRivalSpotlight"
 
 -- On a Player. Server-owned lifecycle state, so join/respawn/kart
 -- failures are visible instead of being inferred from several objects.
@@ -64,6 +81,11 @@ Names.OWNER = "OwnerUserId"
 -- Fails OPEN: the loading screen times out and shows the menu regardless, so
 -- a profile that never loads costs a stock kart, never a stuck splash.
 Names.PREVIEW_READY = "BloxKartPreviewReady"
+
+-- Client-local handoff from ReplicatedFirst's splash to the normal client.
+-- The intermission cinematic must not advance behind an opaque loading screen;
+-- it begins only once the wipe has completely revealed the game.
+Names.SPLASH_DISMISSED = "BloxKartSplashDismissed"
 
 Names.PLAYER_STATE = "BloxKartState"
 Names.PLAYER_STATE_REASON = "BloxKartStateReason"
@@ -120,6 +142,12 @@ Names.STEER = "KartSteer"
 -- stay pointed down the road; see Rider.
 Names.DRIFT = "KartDrift"
 
+-- The driver's raw steering INTENT, before the kart's own steering
+-- weight is applied. Published because a motorcycle's lean has to
+-- anticipate the turn — chasing the smoothed steer leans it after the
+-- corner, which reads as the bike sliding rather than carving.
+Names.STEER_INPUT = "KartSteerInput"
+
 -- On a road wheel's Motor6D, both in the JOINT's frame.
 --
 -- Worked out per wheel at build time rather than assumed, because an
@@ -132,13 +160,37 @@ Names.STEER_AXIS = "SteerAxis"
 -- On a dropped item lying on the track. Which item it is, so picking it
 -- up grants THAT one rather than a fresh roll.
 Names.DROP_ITEM = "DroppedItem"
+Names.RAINBOW_ACTIVE = "RainbowActive"
+Names.RAINBOW_UNTIL = "RainbowUntil"
+Names.RAINBOW_HELD = "RainbowHeld"
+Names.LIVE_STANDINGS_REMOTE = "KartLiveStandings"
 
 --== REMOTES ==========================================================
+
+-- Client -> server, once per join.  This is deliberately only a lifecycle
+-- acknowledgement: the server still owns spawning, seating and every racing
+-- decision.  It prevents the initial race kart from being seated before this
+-- client's essential kart systems have installed their listeners.
+Names.CLIENT_READY_REMOTE = "KartClientReady"
+-- Client -> server after Simulation has attached to the exact kart the
+-- server seated it in. Unlike CLIENT_READY_REMOTE this is per-kart and lets
+-- the lifecycle distinguish "client booted" from "player can actually drive".
+Names.KART_ATTACHED_REMOTE = "KartClientKartAttached"
+-- On ReplicatedStorage.BloxKart, set once the server has created every
+-- gameplay remote/service for this place. Clients use it only as a boot
+-- barrier; it carries no authority.
+Names.SERVER_READY = "BloxKartServerReady"
 
 -- Server -> everyone: "X hit Y with Z". Broadcast rather than sent to
 -- the two people involved, because a hit is a spectacle — the whole
 -- point of landing one is that the lobby sees it.
 Names.FEED_REMOTE = "KartFeed"
+-- Both ways: client fires it empty to sound its horn, server rebroadcasts
+-- with the player who did it. NO PAYLOAD FROM THE CLIENT — there is
+-- nothing it could tell us that we would believe, and the kart position
+-- everyone needs is already replicated. Rate-limited server-side; a horn
+-- is a broadcast, and a broadcast a client can trigger is a spam vector.
+Names.HORN_REMOTE = "KartHorn"
 Names.REWARD_REMOTE = "KartReward"
 Names.XP_REMOTE = "KartXp"
 Names.STATS_REMOTE = "KartStats"
@@ -153,6 +205,9 @@ Names.QUEUE_REMOTE = "KartQueue"
 -- server decides when a teleport is actually in flight; the client only
 -- owns the wipe that hides it.
 Names.TRANSITION_REMOTE = "KartTransition"
+-- Race place only: client requests the one server-owned destination,
+-- the lobby.  There is deliberately no place id in this request.
+Names.RETURN_REMOTE = "KartReturnLobby"
 
 -- Garage: client asks to equip a part, server validates and saves. Also
 -- pushes the player's current `equipped` back on join so the garage opens

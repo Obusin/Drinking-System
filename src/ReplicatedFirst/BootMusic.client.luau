@@ -29,13 +29,24 @@ end
 
 local M = Config.Music
 local lobby = M and M.Lobby
-if not lobby or #lobby == 0 then
+local loading = M and M.Loading
+-- Loading music is now owned by KartClient/Music during the *visible*
+-- Intermission, not by this early ReplicatedFirst script. That prevents a
+-- song spending its entire opening behind the splash and avoids two tracks
+-- fighting the moment the normal music controller attaches.
+if typeof(loading) == "string" and loading ~= "" then
+	return
+end
+if (typeof(loading) ~= "string" or loading == "") and (not lobby or #lobby == 0) then
 	return -- no tracks yet — stay silent, exactly like the main system does
 end
 
 local sound = Instance.new("Sound")
 sound.Name = "BloxKartBootMusic"
-sound.SoundId = lobby[math.random(#lobby)]
+-- Loading has its own authored track. Keep the lobby fallback so a bad or
+-- removed Loading id degrades to the previous boot experience rather than
+-- making joins silently mute.
+sound.SoundId = if typeof(loading) == "string" and loading ~= "" then loading else lobby[math.random(#lobby)]
 sound.Looped = true
 sound.Volume = 0
 sound.Parent = SoundService

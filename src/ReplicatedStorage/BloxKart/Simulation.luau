@@ -71,6 +71,7 @@ local TR = Config.Trick
 local N = Config.Nitro
 local FX = Config.Effects
 local RS = Config.Respawn
+local BK = Config.Bike
 
 local STATE_GRIP = "grip"
 local STATE_HOP = "hop"
@@ -87,7 +88,9 @@ Simulation.GRIP = STATE_GRIP
 Simulation.HOP = STATE_HOP
 Simulation.DRIFT = STATE_DRIFT
 
-local function tierFor(t: number): number
+-- Takes the vehicle's handling table: drift tiers are a per-vehicle
+-- figure, and this is module scope so there is no `self` to read.
+local function tierFor(H, t: number): number
 	if t >= H.BoostTier3Time then
 		return 3
 	elseif t >= H.BoostTier2Time then
@@ -100,7 +103,34 @@ end
 
 local warnedNoFilter = false
 
-function Simulation.new(model: Model, hitbox: BasePart, seat: VehicleSeat, _character: Model?)
+--=====================================================================
+--  ONE HANDLING TABLE PER VEHICLE, ONE SOURCE OF TRUTH.
+--
+--  Every dial was read from `Config.Handling` directly, which is fine
+--  for one vehicle and impossible for two. A motorcycle wants a
+--  different turn rate and a different lean and the SAME meaning for
+--  everything else.
+--
+--  `self.H` is a small override table with `Config.Handling` behind it
+--  on a metatable. A vehicle lists only what it differs on; anything it
+--  does not mention resolves to the shared value; a default still lives
+--  in exactly one place. Adding a dial to Config.Handling reaches every
+--  vehicle for free — the property that copying the table per vehicle
+--  would quietly destroy.
+--
+--  `config-keys.py` still validates every key, because they are still
+--  Config.Handling's keys.
+--=====================================================================
+function Simulation.new(
+	model: Model,
+	hitbox: BasePart,
+	seat: VehicleSeat,
+	_character: Model?,
+	handling: { [string]: any }?
+)
+	-- Resolved once here so the constructor's own reads see the vehicle's
+	-- values too, not just the methods'.
+	local vehicleH = setmetatable(handling or {}, { __index = H })
 	-- The exclusion list IS the collision rule here — movement is
 	-- query-based, so an unstarted filter means this kart treats every
 	-- other kart and every trigger volume as solid wall.
@@ -122,6 +152,13 @@ function Simulation.new(model: Model, hitbox: BasePart, seat: VehicleSeat, _char
 	local pivot = hitbox.CFrame
 
 	return setmetatable({
+		-- Vehicle overrides in front, Config.Handling behind.
+		H = vehicleH,
+		-- A bike's banking belongs on the final hitbox render pose. Every
+		-- visual piece, the seat and the seated character are connected to
+		-- this part, so this is the one place a lean can move the complete
+		-- motorcycle together.
+		isBike = model:GetAttribute(Names.VEHICLE_KIND) == "bike",
 		model = model,
 		hitbox = hitbox,
 		seat = seat,
@@ -142,8 +179,8 @@ function Simulation.new(model: Model, hitbox: BasePart, seat: VehicleSeat, _char
 
 		steer = 0,
 		-- Grip is chased rather than switched, so the hop and the drift
-		-- release stop stepping it. See H.GripBlendRate.
-		gripNow = H.Grip,
+		-- release stop stepping it. See Handling.GripBlendRate.
+		gripNow = vehicleH.Grip,
 		state = STATE_GRIP,
 		hopUntil = 0,
 		bounceUntil = 0,
@@ -199,10 +236,12 @@ function Simulation.new(model: Model, hitbox: BasePart, seat: VehicleSeat, _char
 		shieldUntil = 0,
 
 		lean = 0,
+		bikeLeanVelocity = 0,
 		pitch = 0,
 		bob = 0,
 		squash = 0,
 		squashVel = 0, -- the suspension spring's velocity term
+		guide = nil, -- temporary presentation/movement takeover (Rainbow)
 	}, Simulation)
 end
 
@@ -226,7 +265,7 @@ function Simulation:RespawnAt(cf: CFrame)
 	self.airTime = 0
 	self.normal, self.visualNormal = self.up, self.up
 	-- Full grip, not whatever the drift or hop we died in had left it on.
-	self.gripNow = H.Grip
+	self.gripNow = self.H.Grip
 	self.squash, self.squashVel = 0, 0
 	self.catch = 0
 
@@ -255,6 +294,13 @@ end
 -- than "you have been stunned for N seconds".
 function Simulation:Hold(on: boolean)
 	self.held = on
+end
+
+-- A guided item supplies its final pose here rather than fighting the
+-- normal ground/render pass from outside Simulation. Nil restores normal
+-- driving on the next frame.
+function Simulation:SetGuide(guide: any?)
+	self.guide = guide
 end
 
 -- Back to an empty tank for a new round.
@@ -406,7 +452,7 @@ function Simulation:Spinout(duration: number, keep: number, stun: number?, revs:
 	-- second, unrelated punishment nobody asked that item for.
 	if duration > 0 then
 		local dir = if math.random() < 0.5 then -1 else 1
-		local yaw = math.rad(H.SpinYaw) * dir
+		local yaw = math.rad(self.H.SpinYaw) * dir
 		self.forward = Util.rotateAbout(self.forward, self.up, yaw)
 		-- `travel` comes with it. Leaving it behind would launch the kart
 		-- sideways at full speed, which is a crash rather than a spin.
@@ -415,7 +461,7 @@ function Simulation:Spinout(duration: number, keep: number, stun: number?, revs:
 
 		local right = self.forward:Cross(self.up)
 		if right.Magnitude > 1e-4 then
-			self.pos += right.Unit * H.SpinShove * dir
+			self.pos += right.Unit * self.H.SpinShove * dir
 		end
 	end
 	self.state = STATE_GRIP
@@ -608,13 +654,29 @@ end
 function Simulation:_updateSwim(dt: number)
 	if not SW.Enabled then
 		self.swim = 0
+		-- CLEARED, not left standing. It is a ONE-FRAME flag, and a flag
+		-- that is only ever set is a flag that latches: switching swimming
+		-- off mid-session would leave the last `true` in place and fire a
+		-- splash on every subsequent frame forever.
+		self.enteredWaterThisFrame = false
+		self.wasWet = false
 		return
 	end
+
 	if not swimZones then
 		swimZones = TagZones.new(SW.ZoneTag, { cooldown = 0, forceQueryable = true })
 	end
+
 	local wet = #swimZones:Overlapping(CFrame.new(self.pos), self.hitbox.Size) > 0
+
+	-- THE TRANSITION, not the state. The splash is an EVENT — it belongs
+	-- to the moment of entry, so it is measured as an edge and consumed
+	-- once. Driving along in water is not entering it.
+	self.enteredWaterThisFrame = wet and not (self.wasWet == true)
+	self.wasWet = wet
+
 	self.swim = Util.approach(self.swim or 0, if wet then 1 else 0, SW.BlendRate, dt)
+
 	if self.model then
 		self.model:SetAttribute(Names.SWIMMING, self.swim)
 	end
@@ -640,11 +702,167 @@ function Simulation:_updateSwim(dt: number)
 		self.model:SetAttribute(Names.WAVE_RISE, self.waveRise)
 		-- PUBLISHED, so the hull is drawn from the same clock the rise was
 		-- measured with. Two clocks advancing by dt from different start
-		-- moments drift apart, and then the visual crest and the burst
+		-- moments drift apart, and then the visual crest and the hop
 		-- that is supposed to accompany it are on different waves.
 		self.model:SetAttribute(Names.SEA_CLOCK, self.seaClock)
 	end
 
+	--== THE WATER HOP ================================================
+	-- The kart skips over the swell. It is the hop you get from spamming
+	-- jump across water, run automatically off the wave field.
+	--
+	-- IT LIVES HERE BECAUSE IT MUST MOVE THE WHOLE KART.
+	-- --------------------------------------------------
+	-- The first version drove the body motor from Rider, and it was
+	-- invisible for the same reason the flip's first two versions were:
+	-- a joint moves the things BELOW it and nothing else. The bodywork
+	-- rose; the wheels, the seat and the driver did not. A kart whose
+	-- shell lifts a stud off its own stationary wheels does not read as
+	-- skipping, it reads as nothing at all.
+	--
+	-- `Motor6D.Transform` is also client-local, so none of it ever
+	-- reached another player.
+	--
+	-- The render write moves everything jointed to the hitbox at once and
+	-- replicates by itself. Same lesson the flip paid for twice: move the
+	-- thing they are all attached to, not a list.
+	--
+	-- STILL PURELY VISUAL. `swimHop` is added to `visualPos` only, beside
+	-- `bob`, `squash` and `catch`. It never touches `pos`, `vertVel`,
+	-- `grounded`, the sweep or the ground probe — the kart drives dead
+	-- flat on the invisible floor the whole time.
+	-- THE WAVE DECIDES HOW BIG, NEVER WHETHER.
+	--
+	-- This used to launch only when the field was rising past a
+	-- threshold, and that is what made the rhythm wrong: hop, hop, gap,
+	-- hop, gap, hop, hop. The gaps were every moment the wave happened to
+	-- be falling. Spamming jump has no gaps, and the whole point of this
+	-- feature is to look like spamming jump.
+	--
+	-- So the launch is now unconditional while moving in water, and the
+	-- wave field sets the SIZE instead. The motion stays constant, the
+	-- variation stays, and nothing ever stops.
+	-- IT IS A PHASE, NOT AN INTEGRATION, AND THAT IS WHAT KILLED THE SNAP.
+	--
+	-- It was a real ballistic arc: an impulse at launch, gravity, a hard
+	-- stop at zero. That arc has a VELOCITY DISCONTINUITY at both ends —
+	-- 0 to +v when it launches and -v to 0 when it lands — and those two
+	-- corners are the snap. They cannot be tuned out, because they are
+	-- what a ballistic arc IS. A single jump gets away with it; two and a
+	-- half a second does not.
+	--
+	-- Driving the height from a phase lets the SHAPE be chosen instead of
+	-- inherited, and `sin^2` has zero slope at both ends: it eases out of
+	-- the water and settles back without a corner anywhere. `WaveHopSmooth`
+	-- blends between the two, so the ballistic feel is still available.
+	local driving = math.abs(self.speed) >= SW.WaveHopMinSpeed
+	if SW.WaveHopEnabled and (self.swim or 0) >= SW.WaveHopMinSwim and driving then
+		local pace = math.clamp(math.abs(self.speed) / math.max(self.H.MaxSpeed, 1), 0, 1)
+		local k = 1 + SW.WaveHopPaceArc * pace
+
+		-- The dials still describe an arc — `airtime = 2v/g`, `apex =
+		-- v*airtime/4` — because that is how the height and the rhythm
+		-- were solved and it keeps every earlier measurement meaningful.
+		-- Only the CURVE between those endpoints has changed.
+		local air = (2 * SW.WaveHopVelocity / SW.WaveHopGravity) / k
+		local rest = SW.WaveHopCooldown * (1 - SW.WaveHopPaceRest * pace)
+		local cycle = math.max(air + rest, 1e-3)
+		self.swimHopAir = air / cycle
+		-- Kept so an arc still running after the kart leaves the water
+		-- finishes at the speed it started at.
+		self.swimHopCycle = cycle
+
+		local phase = (self.swimHopPhase or 1) + dt / cycle
+		if phase >= 1 then
+			phase -= math.floor(phase)
+			-- A NEW CYCLE. Size is sampled once, here, so the hop cannot
+			-- change shape underneath itself — the same reason gravity
+			-- used to be captured at launch.
+			--
+			-- SYMMETRIC ABOUT ZERO: -FullRise..+FullRise maps to 0..1, so
+			-- a crest gives the biggest skip and a trough the smallest,
+			-- and the AVERAGE sits mid-range. Clamping at zero instead
+			-- looked reasonable and was not: the field falls half the
+			-- time, so half of all hops pinned to the floor scale.
+			local rise = (self.waveRise or 0) / SW.WaveHopFullRise
+			local strength = math.clamp((rise + 1) * 0.5, 0, 1)
+			local scale = SW.WaveHopMinScale + (1 - SW.WaveHopMinScale) * strength
+			-- Scaled by `swim` so the shoreline eases in rather than the
+			-- kart popping the moment one wheel is wet.
+			local peak = SW.WaveHopVelocity * air * 0.25 * k * scale * self.swim
+			self.swimHopPeak = peak
+			-- Same one-frame flag pattern as the splash.
+			self.swimHopLaunched = scale * self.swim
+		end
+		self.swimHopPhase = phase
+	elseif (self.swimHopPhase or 1) < (self.swimHopAir or 0) then
+		-- Left the water or slowed down mid-arc. Run the phase out to the
+		-- end of the airborne portion rather than dropping the kart,
+		-- which would be a corner in exactly the place we removed one.
+		self.swimHopPhase = (self.swimHopPhase or 1) + dt / math.max(self.swimHopCycle or 0.4, 1e-3)
+	else
+		self.swimHopPhase = 1
+	end
+
+	--== THE CURVE ====================================================
+	-- `para` is the ballistic parabola, `smooth` is sin^2. They have the
+	-- same apex and the same duration; they differ only at the ends:
+	--
+	--   para   slope +4 at launch, -4 at landing   -> two corners
+	--   smooth slope  0 at launch,  0 at landing   -> none
+	--
+	-- The landing squash falls out of the same maths. Its impulse is the
+	-- arrival slope, which the blend drives to zero as it smooths — so a
+	-- fully smooth hop lands with no thump WITHOUT a second dial to keep
+	-- in step.
+	do
+		local p = self.swimHopPhase or 1
+		local a = self.swimHopAir or 0
+		if a > 0 and p < a then
+			local u = p / a
+			local s = math.clamp(SW.WaveHopSmooth, 0, 1)
+			local para = 4 * u * (1 - u)
+			local smooth = math.sin(math.pi * u) ^ 2
+			self.swimHop = (self.swimHopPeak or 0) * (para + (smooth - para) * s)
+
+			-- PITCH FROM THE SLOPE OF THE CURVE, which is the same thing
+			-- velocity was before — nose up while climbing, through
+			-- neutral at the apex because that is where the slope is
+			-- zero, down on the way in.
+			local dPara = 4 - 8 * u
+			local dSmooth = math.pi * math.sin(2 * math.pi * u)
+			local slope = dPara + (dSmooth - dPara) * s
+			local slopeMax = 4 + (math.pi - 4) * s
+			self.swimHopSlope = slope / math.max(slopeMax, 1e-3)
+		else
+			self.swimHop = 0
+			self.swimHopSlope = 0
+		end
+	end
+
+	-- THE LANDING, THROUGH THE SQUASH SPRING THAT ALREADY EXISTS.
+	-- Impulsed on the frame the arc ends, never assigned — assigning it
+	-- is exactly how the kart's own landing bounce ended up snapping.
+	--
+	-- Its size is the ARRIVAL SLOPE, so `WaveHopSmooth` drives it to zero
+	-- as it smooths the curve. A fully smooth hop lands with no thump and
+	-- there is no second dial to keep in step.
+	if (self.swimHopWasUp == true) and (self.swimHop or 0) <= 0 then
+		local arrival = (1 - math.clamp(SW.WaveHopSmooth, 0, 1)) * (self.swimHopPeak or 0)
+		local push = arrival * SW.WaveHopLandSquash
+		if push > self.squashVel then
+			self.squashVel = push
+		end
+	end
+	self.swimHopWasUp = (self.swimHop or 0) > 0
+
+	-- PITCH FROM THE SLOPE OF THE CURVE, so it passes through neutral
+	-- exactly at the apex — that is where the slope is zero. NEGATIVE IS
+	-- NOSE-UP here, matching the real hop's own air pitch, which is
+	-- `-AirPitch * (vertVel / HopSpeed)`.
+	local vFrac = math.clamp(self.swimHopSlope or 0, -1, 1)
+	local deg = if vFrac >= 0 then vFrac * SW.WaveHopPitchUp else vFrac * SW.WaveHopPitchDown
+	self.swimHopPitch = -math.rad(deg)
 end
 
 --=====================================================================
@@ -674,7 +892,7 @@ function Simulation:StartTrick(rampCF: CFrame)
 	-- AIRTIME FROM THE ARC, not a fixed duration. A tall ramp and a low
 	-- one need different pacing, and gravity already knows the answer:
 	-- up and back down is 2v/g.
-	local airtime = 2 * TR.LaunchUp / math.max(H.Gravity, 1)
+	local airtime = 2 * TR.LaunchUp / math.max(self.H.Gravity, 1)
 	self.trickStart = os.clock()
 	self.trickUntil = self.trickStart + airtime * TR.Window
 	self.trickAirtime = airtime * TR.Window
@@ -700,15 +918,30 @@ function Simulation:StartTrick(rampCF: CFrame)
 	self.trickTurns = pick.turns
 	self.trickId = pick.id
 	self.trickLanded = false
+	-- Cleared per trick, or a bail on one ramp would silently cancel the
+	-- boost on the next one.
+	self.trickBailed = false
+	self.trickDone = false
 	return true
 end
 
 function Simulation:Step(dt: number, input): { [string]: any }
 	local events = {}
-	dt = math.min(dt, H.MaxTimestep) -- never integrate a huge frame
+	dt = math.min(dt, self.H.MaxTimestep)
 
 	local now = os.clock()
 	self:_updateSwim(dt)
+
+	if self.enteredWaterThisFrame then
+		events.splashed = 25
+	end
+	-- Consumed here and cleared, so a skip is heard once however many
+	-- sub-steps the frame ran.
+	if (self.swimHopLaunched or 0) > 0 then
+		events.leaped = self.swimHopLaunched
+		self.swimHopLaunched = 0
+	end
+
 	local frozen = self.held or now < self.frozenUntil
 
 	-- A held kart is pinned, not merely uncontrollable: zeroing speed
@@ -729,8 +962,12 @@ function Simulation:Step(dt: number, input): { [string]: any }
 	--
 	-- Added rather than switched between, so a device with both works with
 	-- either and there's no "which input wins" rule to get wrong.
-	local throttle = if frozen then 0 else math.clamp(self.seat.ThrottleFloat + input.touchThrottle, -1, 1)
-	local steerIn = if frozen then 0 else math.clamp(self.seat.SteerFloat + input.touchSteer, -1, 1)
+	local throttle = if frozen
+		then 0
+		else math.clamp(self.seat.ThrottleFloat + input.touchThrottle + (input.driveThrottle or 0), -1, 1)
+	local steerIn = if frozen
+		then 0
+		else math.clamp(self.seat.SteerFloat + input.touchSteer + (input.driveSteer or 0), -1, 1)
 
 	-- Applied to the RAW input, before smoothing, so the reversal feels
 	-- like the wheel is wired backwards rather than like the kart is
@@ -745,24 +982,33 @@ function Simulation:Step(dt: number, input): { [string]: any }
 	-- the only case that uses the fast rate; counter-steering still
 	-- counts as loading, because that's work.
 	local unwinding = math.abs(steerIn) < math.abs(self.steer)
-	local steerRate = if unwinding then H.SteerReturn else H.SteerSmoothing
+	local steerRate = if unwinding then self.H.SteerReturn else self.H.SteerSmoothing
 	-- A HULL LEANS ON THE RUDDER AND COMES ROUND A MOMENT LATER. This lag
 	-- is the single biggest cue that the vehicle has changed — your hands
 	-- read it long before any visual does.
 	if (self.swim or 0) > 0 then
 		steerRate *= 1 - (1 - SW.SteerRateScale) * self.swim
 	end
+	-- THE RAW INTENT, kept alongside the smoothed value.
+	--
+	-- `self.steer` is deliberately heavy — it is what the kart turns on,
+	-- and a wheel that snaps to full lock feels weightless. But anything
+	-- that wants to ANTICIPATE the turn needs the input, not the result:
+	-- the motorcycle's lean chases this, because a bike leans BEFORE it
+	-- changes direction and chasing the smoothed value made it lean
+	-- afterwards.
+	self.steerInput = steerIn
 	self.steer = Util.approach(self.steer, steerIn, steerRate, dt)
 
 	----------------------------------------------------------------
 	-- 1. STATE
 	----------------------------------------------------------------
 	if self.state == STATE_GRIP then
-		if pressed and self.grounded and math.abs(self.speed) > H.HopMinSpeed then
-			self.vertVel = H.HopSpeed
+		if pressed and self.grounded and math.abs(self.speed) > self.H.HopMinSpeed then
+			self.vertVel = self.H.HopSpeed
 			self.grounded = false
 			self.state = STATE_HOP
-			self.hopUntil = now + H.HopMinAir
+			self.hopUntil = now + self.H.HopMinAir
 		end
 	elseif self.state == STATE_HOP then
 		if self.grounded and now >= self.hopUntil then
@@ -773,8 +1019,8 @@ function Simulation:Step(dt: number, input): { [string]: any }
 			if
 				mayDrift
 				and input.driftHeld
-				and math.abs(steerIn) >= H.DriftEngageSteer
-				and self.speed > H.DriftMinSpeed
+				and math.abs(steerIn) >= self.H.DriftEngageSteer
+				and self.speed > self.H.DriftMinSpeed
 			then
 				self.state = STATE_DRIFT
 				self.driftDir = math.sign(steerIn)
@@ -790,12 +1036,12 @@ function Simulation:Step(dt: number, input): { [string]: any }
 			-- the only place the descent speed still exists to scale it by.
 		end
 	elseif self.state == STATE_DRIFT then
-		local newTier = tierFor(now - self.driftStart)
+		local newTier = tierFor(self.H, now - self.driftStart)
 		if newTier ~= self.tier then
 			self.tier = newTier
 			events.tierChanged = newTier
 		end
-		if not input.driftHeld or self.speed < H.DriftExitSpeed then
+		if not input.driftHeld or self.speed < self.H.DriftExitSpeed then
 			self:_endDrift(events)
 		end
 	end
@@ -921,7 +1167,7 @@ function Simulation:Step(dt: number, input): { [string]: any }
 	-- Clamped, and absent means 1. A deliberate exception to the
 	-- Consistency Rule: it is not derived from art, it is only ever
 	-- written by the developer console, and it dies with the kart.
-	local maxSpeed = H.MaxSpeed
+	local maxSpeed = self.H.MaxSpeed
 	-- WATER IS THICKER THAN AIR, and that is the entire handling change.
 	-- A scalar on a figure that already exists, so retuning the kart
 	-- retunes the boat and the two can never drift apart.
@@ -931,31 +1177,31 @@ function Simulation:Step(dt: number, input): { [string]: any }
 	do
 		local scale = self.model and self.model:GetAttribute(Names.DEV_SPEED_SCALE)
 		if type(scale) == "number" and scale == scale then
-			maxSpeed = H.MaxSpeed * math.clamp(scale, 0.1, 5)
+			maxSpeed = self.H.MaxSpeed * math.clamp(scale, 0.1, 5)
 		end
 	end
 
 	local speedNow = math.abs(self.speed)
-	local powerBand = Util.sampleCurve(H.AccelCurve, speedNow / maxSpeed)
+	local powerBand = Util.sampleCurve(self.H.AccelCurve, speedNow / maxSpeed)
 
 	local target, rate
 	local burnTarget = if stage then maxSpeed + stage.Speed else 0
 
 	if boosting and self.boostSpeed >= burnTarget then
 		-- A pad stronger than the burn wins; otherwise the burn does.
-		target, rate = self.boostSpeed, H.BoostAccel
+		target, rate = self.boostSpeed, self.H.BoostAccel
 	elseif stage then
 		target, rate = burnTarget, N.BurnAccel
 	elseif throttle > 0.05 then
-		target, rate = maxSpeed, H.Accel * powerBand
+		target, rate = maxSpeed, self.H.Accel * powerBand
 	elseif throttle < -0.05 then
 		if self.speed > 1 then
-			target, rate = 0, H.BrakeRate
+			target, rate = 0, self.H.BrakeRate
 		else
-			target, rate = -H.ReverseSpeed, H.Accel * powerBand
+			target, rate = -self.H.ReverseSpeed, self.H.Accel * powerBand
 		end
 	else
-		target, rate = 0, H.CoastRate
+		target, rate = 0, self.H.CoastRate
 	end
 	self.speed = Util.approach(self.speed, target, rate, dt)
 
@@ -978,8 +1224,8 @@ function Simulation:Step(dt: number, input): { [string]: any }
 		-- The symptom was "it goes slow really quick then goes fast",
 		-- which is this curve's dip and recovery with a 20x magnifier on
 		-- it, not the shape being wrong.
-		local driftAge = (now - self.driftStart) / H.DriftScrubWindow
-		local retain = H.DriftSpeedKeep * Util.sampleCurve(H.DriftScrubCurve, driftAge)
+		local driftAge = (now - self.driftStart) / self.H.DriftScrubWindow
+		local retain = self.H.DriftSpeedKeep * Util.sampleCurve(self.H.DriftScrubCurve, driftAge)
 		self.speed *= retain ^ dt
 	end
 
@@ -987,20 +1233,20 @@ function Simulation:Step(dt: number, input): { [string]: any }
 	-- 3. HEADING  — where the kart actually GOES.
 	----------------------------------------------------------------
 	local speedAbs = math.abs(self.speed)
-	local authority = math.clamp(speedAbs / H.TurnRampSpeed, 0, 1)
+	local authority = math.clamp(speedAbs / self.H.TurnRampSpeed, 0, 1)
 
 	-- BRIEFLY A PASSENGER after a square impact. This is what makes a
 	-- bounce read as being HIT rather than as the kart deciding to go the
 	-- other way. Short by design — see BounceLockout.
 	if now < (self.bounceUntil or 0) then
-		authority *= H.BounceLockSteer
+		authority *= self.H.BounceLockSteer
 	end
 
 	-- Ramp the blend linearly, then smoothstep it. Smoothstep has zero
 	-- slope at 0 and 1, so the kart eases in and out of the drift
 	-- instead of stepping into it.
 	local blendTarget = if drifting then 1 else 0
-	local blendStep = dt / (if drifting then H.DriftEnterTime else H.DriftExitTime)
+	local blendStep = dt / (if drifting then self.H.DriftEnterTime else self.H.DriftExitTime)
 	if self.driftBlend < blendTarget then
 		self.driftBlend = math.min(self.driftBlend + blendStep, blendTarget)
 	else
@@ -1019,7 +1265,7 @@ function Simulation:Step(dt: number, input): { [string]: any }
 
 	-- Normal steering. Heading DECREASES to turn right, hence the minus.
 	local ratio = math.clamp(speedAbs / maxSpeed, 0, 1)
-	local turn = H.TurnRate + (H.TurnRateTop - H.TurnRate) * ratio
+	local turn = self.H.TurnRate + (self.H.TurnRateTop - self.H.TurnRate) * ratio
 	-- Boats come round wide. Same scalar shape as everything else here.
 	if (self.swim or 0) > 0 then
 		turn *= 1 - (1 - SW.TurnScale) * self.swim
@@ -1029,7 +1275,7 @@ function Simulation:Step(dt: number, input): { [string]: any }
 
 	-- Drift rotation. Tighter than steering can manage — that's the reward.
 	local trim = math.clamp(steerIn * activeDir, -1, 1)
-	local driftTurn = -activeDir * (H.DriftTurnBase + trim * H.DriftTurnTrim)
+	local driftTurn = -activeDir * (self.H.DriftTurnBase + trim * self.H.DriftTurnTrim)
 
 	-- Crossfade rather than switch, then spin `forward` about the
 	-- current `up`. On a loop `up` is the track normal, so steering
@@ -1102,13 +1348,13 @@ function Simulation:Step(dt: number, input): { [string]: any }
 	-- the body angle and the turn rate, so all three arrive together.
 	local gripTarget
 	if self.state == STATE_HOP then
-		gripTarget = H.HopGrip
+		gripTarget = self.H.HopGrip
 	elseif drifting then
-		gripTarget = H.DriftGrip
+		gripTarget = self.H.DriftGrip
 	else
-		gripTarget = H.Grip + (H.DriftGrip - H.Grip) * eased
+		gripTarget = self.H.Grip + (self.H.DriftGrip - self.H.Grip) * eased
 	end
-	self.gripNow = Util.approach(self.gripNow, gripTarget, H.GripBlendRate, dt)
+	self.gripNow = Util.approach(self.gripNow, gripTarget, self.H.GripBlendRate, dt)
 
 	local gripRate = self.gripNow
 	self.travel = self.travel:Lerp(self.forward, math.min(gripRate * dt, 1))
@@ -1116,7 +1362,7 @@ function Simulation:Step(dt: number, input): { [string]: any }
 
 	-- Hard-cap the slip so momentum can never carry the kart sideways
 	-- or backwards, however hard you saw at the wheel.
-	local maxSlip = math.rad(H.MaxSlip)
+	local maxSlip = math.rad(self.H.MaxSlip)
 	local slipDot = math.clamp(self.travel:Dot(self.forward), -1, 1)
 	local slipAngle = math.acos(slipDot)
 	if slipAngle > maxSlip then
@@ -1162,19 +1408,19 @@ function Simulation:Step(dt: number, input): { [string]: any }
 	if self.state == STATE_DRIFT then
 		-- A committed drift is never quiet. The rear is loose regardless of
 		-- where the nose happens to be pointing.
-		effort = math.max(effort, H.TyreDriftLoad)
+		effort = math.max(effort, self.H.TyreDriftLoad)
 
 		-- Actively fighting it is the loudest thing you can do. Scaled by
 		-- how much lock is being used, so a nudge of correction is quieter
 		-- than a full stab.
 		if self.driftDir ~= 0 and math.sign(self.steer) == -self.driftDir then
-			effort = math.max(effort, H.TyreCounterLoad * math.abs(self.steer))
+			effort = math.max(effort, self.H.TyreCounterLoad * math.abs(self.steer))
 		end
 	end
 
 	-- Hard cornering at speed loads the tyres even when fully gripped —
 	-- that's the difference between a quiet turn and a loaded one.
-	effort = math.max(effort, math.abs(self.steer) * speedFrac * H.TyreCornerLoad)
+	effort = math.max(effort, math.abs(self.steer) * speedFrac * self.H.TyreCornerLoad)
 
 	self.tyreLoad = math.clamp(effort, 0, 1)
 
@@ -1250,7 +1496,7 @@ function Simulation:Step(dt: number, input): { [string]: any }
 		-- The floor. Floating is a trade, never a way to arrive stopped.
 		self.speed = math.max(self.speed, GL.MinFlightSpeed)
 	else
-		self.vertVel -= H.Gravity * dt
+		self.vertVel -= self.H.Gravity * dt
 	end
 	velocity += self.up * self.vertVel
 
@@ -1261,8 +1507,8 @@ function Simulation:Step(dt: number, input): { [string]: any }
 	-- StepHeight, so kerbs, ramp lips and the sharp apex of a wedge
 	-- don't register as walls. The ground probe below climbs them.
 	local size = self.hitbox.Size
-	local floor = size.Y * 0.5 - H.RideHeight -- box bottom rel. to origin
-	local lift = math.max(H.StepHeight + floor, 0)
+	local floor = size.Y * 0.5 - self.H.RideHeight -- box bottom rel. to origin
+	local lift = math.max(self.H.StepHeight + floor, 0)
 	local castSize = Vector3.new(size.X, math.max(size.Y - lift, 0.4), size.Z)
 
 	-- Box is oriented and lifted along OUR up, not the world's, so the
@@ -1338,7 +1584,7 @@ function Simulation:Step(dt: number, input): { [string]: any }
 			local away = self.pos - part.Position
 			away -= self.up * away:Dot(self.up) -- stay in the surface plane
 			if away.Magnitude > 1e-3 then
-				self.pos += away.Unit * H.Depenetrate * dt
+				self.pos += away.Unit * self.H.Depenetrate * dt
 			end
 		end
 	end
@@ -1346,7 +1592,7 @@ function Simulation:Step(dt: number, input): { [string]: any }
 	-- Swept slide. Each pass re-casts from the new position, so sliding
 	-- along one wall can't shove us through the next.
 	local remaining = velocity * dt
-	for _ = 1, H.CollisionPasses do
+	for _ = 1, self.H.CollisionPasses do
 		local travel = remaining.Magnitude
 		if travel < 1e-4 then
 			break
@@ -1355,19 +1601,19 @@ function Simulation:Step(dt: number, input): { [string]: any }
 		local hit = workspace:Blockcast(sweepFrame(), castSize, remaining, self.rayParams)
 		-- "Wall" is measured against OUR up, so a loop's vertical
 		-- section is drivable road rather than an obstacle.
-		if not hit or hit.Normal:Dot(self.up) >= H.MaxSlopeDot then
+		if not hit or hit.Normal:Dot(self.up) >= self.H.MaxSlopeDot then
 			self.pos += remaining
 			break
 		end
 
 		local dir = remaining.Unit
 		local reached = math.clamp(hit.Distance, 0, travel)
-		self.pos += dir * math.max(reached - H.SkinWidth, 0)
+		self.pos += dir * math.max(reached - self.H.SkinWidth, 0)
 
 		-- HOW SQUARE WAS THE HIT? 1 is dead-on, 0 is a graze.
 		local square = math.abs(dir:Dot(hit.Normal))
 
-		if square >= H.BounceMinDot and math.abs(self.speed) >= H.BounceMinSpeed then
+		if square >= self.H.BounceMinDot and math.abs(self.speed) >= self.H.BounceMinSpeed then
 			-- RECOIL, NOT REFLECT. The kart backs off the wall while
 			-- still FACING it, the way a car actually rebounds.
 			--
@@ -1395,15 +1641,15 @@ function Simulation:Step(dt: number, input): { [string]: any }
 			-- from the wall rather than leaving it resting against it.
 			local hitSpeed = math.abs(self.speed)
 			local frac = math.clamp(hitSpeed / maxSpeed, 0, 1)
-			local keep = H.BounceKeepSlow + (H.BounceKeepFast - H.BounceKeepSlow) * frac
-			self.speed = -math.max(hitSpeed * keep, H.BounceMinPush)
+			local keep = self.H.BounceKeepSlow + (self.H.BounceKeepFast - self.H.BounceKeepSlow) * frac
+			self.speed = -math.max(hitSpeed * keep, self.H.BounceMinPush)
 
 			-- Pushed clear along the surface normal as well. Without it
 			-- the kart can rest a hair inside the wall, re-trigger next
 			-- frame, and buzz against it.
-			self.pos += hit.Normal * H.SkinWidth
+			self.pos += hit.Normal * self.H.SkinWidth
 
-			self.bounceUntil = now + H.BounceLockout
+			self.bounceUntil = now + self.H.BounceLockout
 			events.bounced = square
 
 			-- A HARD, SQUARE HIT TAKES THE KART OFF YOU.
@@ -1417,17 +1663,17 @@ function Simulation:Step(dt: number, input): { [string]: any }
 			-- Goes through Spinout, so it respects a shield exactly like
 			-- every other hit in the game. A player holding one should not
 			-- discover that walls are the exception.
-			if hitSpeed >= H.WallStunSpeed then
+			if hitSpeed >= self.H.WallStunSpeed then
 				-- Scaled between the threshold and top speed, so a hit that
 				-- barely qualifies slews you and a flat-out one turns you
 				-- most of the way round.
 				local over = math.clamp(
-					(hitSpeed - H.WallStunSpeed) / math.max(maxSpeed - H.WallStunSpeed, 1),
+					(hitSpeed - self.H.WallStunSpeed) / math.max(maxSpeed - self.H.WallStunSpeed, 1),
 					0,
 					1
 				)
-				local revs = H.WallStunRevsMin + (H.WallStunRevsMax - H.WallStunRevsMin) * over
-				if self:Spinout(H.WallStunTime, H.WallStunKeep, H.WallStunFreeze, revs, true) then
+				local revs = self.H.WallStunRevsMin + (self.H.WallStunRevsMax - self.H.WallStunRevsMin) * over
+				if self:Spinout(self.H.WallStunTime, self.H.WallStunKeep, self.H.WallStunFreeze, revs, true) then
 					events.wallStunned = hitSpeed
 				end
 			end
@@ -1440,7 +1686,7 @@ function Simulation:Step(dt: number, input): { [string]: any }
 		-- GRAZE: the original slide. Wall-riding a corner has to stay
 		-- smooth, so anything short of a square hit keeps the old
 		-- behaviour exactly.
-		self.speed *= 1 - H.WallScrub * square
+		self.speed *= 1 - self.H.WallScrub * square
 
 		-- What's left, flattened onto the wall. Re-cast next pass.
 		local leftover = remaining - dir * reached
@@ -1452,9 +1698,9 @@ function Simulation:Step(dt: number, input): { [string]: any }
 	----------------------------------------------------------------
 	-- Five rays cast along -up, not world-down, so this works on a loop.
 	local probeRight = self.forward:Cross(self.up)
-	local reach = H.ProbeUp + H.RideHeight + H.GroundSnap
+	local reach = self.H.ProbeUp + self.H.RideHeight + self.H.GroundSnap
 	local castDir = -self.up * reach
-	local probeLift = self.up * H.ProbeUp
+	local probeLift = self.up * self.H.ProbeUp
 
 	-- SLOPE vs STEP
 	--
@@ -1472,10 +1718,10 @@ function Simulation:Step(dt: number, input): { [string]: any }
 	-- stops each stair riser reading as a wall.
 	local offsets = {
 		Vector3.zero, -- index 1 is the centre, and it's authoritative
-		self.forward * H.ProbeSpread,
-		-self.forward * H.ProbeSpread,
-		probeRight * H.ProbeSpread,
-		-probeRight * H.ProbeSpread,
+		self.forward * self.H.ProbeSpread,
+		-self.forward * self.H.ProbeSpread,
+		probeRight * self.H.ProbeSpread,
+		-probeRight * self.H.ProbeSpread,
 	}
 
 	local centreAlong, centreNormal = nil, nil
@@ -1484,11 +1730,11 @@ function Simulation:Step(dt: number, input): { [string]: any }
 
 	for i, offset in offsets do
 		local probe = workspace:Raycast(self.pos + offset + probeLift, castDir, self.rayParams)
-		local accepted = probe and probe.Normal:Dot(self.up) > H.MaxSlopeDot
+		local accepted = probe and probe.Normal:Dot(self.up) > self.H.MaxSlopeDot
 
 		-- See Config.Handling.GroundDebug. Centre probe only — it is
 		-- authoritative, and one line per failure is plenty.
-		if i == 1 and H.GroundDebug and not accepted then
+		if i == 1 and self.H.GroundDebug and not accepted then
 			-- Reuses Step's own `now` rather than a second os.clock() call
 			-- a few lines from the first one.
 			if now - (self.lastGroundLog or 0) > 0.5 then
@@ -1504,7 +1750,7 @@ function Simulation:Step(dt: number, input): { [string]: any }
 						("[Ground] centre probe hit %s but REJECTED — normal . up = %.2f, needs > %.2f. "):format(
 							probe.Instance:GetFullName(),
 							probe.Normal:Dot(self.up),
-							H.MaxSlopeDot
+							self.H.MaxSlopeDot
 						) .. "Likely an imported mesh with inverted/backward triangle normals."
 					)
 				end
@@ -1555,7 +1801,7 @@ function Simulation:Step(dt: number, input): { [string]: any }
 			-- direction of movement disagree.
 			local ahead = o.offset:Dot(self.travel) > 0
 
-			if ahead and step > H.StepTolerance and o.along > highest and step <= H.StepHeight then
+			if ahead and step > self.H.StepTolerance and o.along > highest and step <= self.H.StepHeight then
 				highest, highestNormal = o.along, o.normal
 			end
 		end
@@ -1574,7 +1820,7 @@ function Simulation:Step(dt: number, input): { [string]: any }
 
 	if highest then
 		local surfaceNormal = highestNormal
-		if H.StairSmoothing and hits > 1 and normalSum.Magnitude > 1e-3 then
+		if self.H.StairSmoothing and hits > 1 and normalSum.Magnitude > 1e-3 then
 			surfaceNormal = normalSum.Unit
 		end
 
@@ -1583,8 +1829,8 @@ function Simulation:Step(dt: number, input): { [string]: any }
 		-- Climbing is allowed to be generous; falling isn't. One value for
 		-- both meant a ramp taken at boost speed outran the snap and the
 		-- kart ended up inside it.
-		local gap = -highest - H.RideHeight
-		local allowed = if gap < 0 then H.GroundSnapUp else H.GroundSnap
+		local gap = -highest - self.H.RideHeight
+		local allowed = if gap < 0 then self.H.GroundSnapUp else self.H.GroundSnap
 
 		-- A HOP IS NOT A DIP IN THE ROAD.
 		--
@@ -1599,7 +1845,7 @@ function Simulation:Step(dt: number, input): { [string]: any }
 		-- those, so while the hop is live only a genuine touchdown counts
 		-- and the arc gets to finish.
 		if self.state == STATE_HOP then
-			allowed = math.min(allowed, H.HopSnap)
+			allowed = math.min(allowed, self.H.HopSnap)
 		end
 
 		if self.vertVel <= 0 and gap <= allowed then
@@ -1630,9 +1876,9 @@ function Simulation:Step(dt: number, input): { [string]: any }
 			-- seam that reads high for a frame. Following the road
 			-- downward is not noise, it is the road, and gravity should
 			-- never be argued with.
-			local correction = highest + H.RideHeight
-			if self.wasGrounded and correction > 0 and correction <= H.GroundSmooth then
-				correction *= math.min(H.GroundSmoothRate * dt, 1)
+			local correction = highest + self.H.RideHeight
+			if self.wasGrounded and correction > 0 and correction <= self.H.GroundSmooth then
+				correction *= math.min(self.H.GroundSmoothRate * dt, 1)
 			end
 
 			-- How hard we actually arrived. Read before the line below
@@ -1681,16 +1927,16 @@ function Simulation:Step(dt: number, input): { [string]: any }
 			-- ABSORBED NOW, RELEASED IN A MOMENT. See LandBounceDelay:
 			-- reversing the velocity on the contact frame is a direction
 			-- change, not a bounce. The kart squats here and leaves below.
-			if not self.wasGrounded and impact >= H.LandBounceMinDrop then
+			if not self.wasGrounded and impact >= self.H.LandBounceMinDrop then
 				-- Floored, because a gentle landing cannot produce enough
 				-- speed to escape GroundSnap on its own and would otherwise
 				-- be eaten by the probe. Safe to floor only because the
 				-- floor sits BELOW the threshold — see the config note.
 				self.bouncePending = math.min(
-					math.max(impact * H.LandBounceKeep, H.LandBounceMin),
-					H.LandBounceMax
+					math.max(impact * self.H.LandBounceKeep, self.H.LandBounceMin),
+					self.H.LandBounceMax
 				)
-				self.bounceAt = now + H.LandBounceDelay
+				self.bounceAt = now + self.H.LandBounceDelay
 				events.bouncedLanding = impact
 			end
 
@@ -1749,23 +1995,71 @@ function Simulation:Step(dt: number, input): { [string]: any }
 			-- angle is turns*2pi, which is the pose it started in — so it
 			-- cannot finish crooked however it is interrupted.
 			local t = math.clamp((now - self.trickStart) / math.max(self.trickAirtime, 1e-3), 0, 1)
-			-- t^n, not 1-(1-t)^n. See TR.Ease: the speed belongs at the
-			-- END, so the fastest part of the flip lands with the kart.
-			local swept = t ^ TR.Ease
+			-- AN S-CURVE, BIASED LATE — NOT A POWER CURVE.
+			--
+			-- It was `t ^ Ease`, which put peak angular velocity AT t=1:
+			-- 3.2 revs/sec on a single flip, 6.5 on a double, and then
+			-- zero on the very next frame. The flip was spinning fastest
+			-- at the exact instant it stopped dead, and that hard stop is
+			-- why it never felt satisfying however the numbers moved. The
+			-- same velocity discontinuity the water hop had, one layer up.
+			--
+			-- `smoothstep(t^bias)` keeps the late bias — peak speed lands
+			-- around t=0.69, so it still winds up into the landing — but
+			-- its derivative goes to ZERO at both ends. The kart eases out
+			-- of the ramp, whips through the middle, and SETTLES into the
+			-- final pose instead of being switched off in it.
+			--
+			-- At t=1 it is still exactly 1, so the whole-number-of-turns
+			-- guarantee is untouched: it cannot land crooked.
+			local s = t ^ TR.Ease
+			local swept = s * s * (3 - 2 * s)
 			self.trickAngle = self.trickTurns * math.pi * 2 * swept
-		elseif (self.trickAngle or 0) ~= 0 then
-			-- Finished. Snapped to exactly zero rather than left at a
-			-- rounding error, since the whole point is that it ends level.
-			self.trickAngle = 0
-			self.trickAxis = nil
-			-- THE REWARD, and only if the flip actually completed. Landing
-			-- early costs it, or the ramp is a boost dispenser and the
-			-- trick is decoration.
-			if self.trickLanded == false and (not TR.RequireLanding or self.grounded) then
+
+			-- BAILED OUT. Wheels down while still rotating is the case
+			-- RequireLanding is actually about, and it has to be caught
+			-- HERE, while it is happening — by the time the window closes
+			-- the kart is grounded either way and the two are
+			-- indistinguishable.
+			if self.grounded and (now - (self.trickStart or 0)) > TR.MinAirTime then
+				self.trickBailed = true
+			end
+		else
+			if (self.trickAngle or 0) ~= 0 then
+				-- Finished. Snapped to exactly zero rather than left at a
+				-- rounding error, since the point is that it ends level.
+				self.trickAngle = 0
+				self.trickAxis = nil
+				self.trickDone = true
+			end
+
+			-- THE REWARD FIRES ON TOUCHDOWN, NOT ON THE FRAME THE
+			-- ROTATION ENDS — and that distinction was a real bug.
+			--
+			-- `Window` is 0.82 deliberately, so the flip finishes BEFORE
+			-- the wheels arrive: 0.678s of rotation against 0.827s of
+			-- airtime, nine frames early. This used to test `grounded` in
+			-- the single frame the rotation ended, when the kart is by
+			-- construction still in the air — so the test failed, the
+			-- angle was zeroed, and the branch never ran again.
+			--
+			-- The boost was therefore lost on every clean jump and paid
+			-- out only when the actual airtime came in UNDER 0.678s —
+			-- i.e. exactly when you landed early, which is the one case
+			-- it was written to refuse. Precisely backwards.
+			--
+			-- Held as a pending flag and spent on the next grounded frame
+			-- instead. Bailing out mid-rotation is caught above, where it
+			-- can still be told apart from a clean landing.
+			if self.trickDone and self.trickLanded == false and (not TR.RequireLanding or self.grounded) then
+				self.trickDone = false
 				self.trickLanded = true
-				self:ApplyBoost(TR.BoostSpeed, TR.BoostTime)
-				events.boostFired = TR.BoostTier
-				events.trickLanded = self.trickId
+				if not self.trickBailed then
+					self:ApplyBoost(TR.BoostSpeed, TR.BoostTime)
+					events.boostFired = TR.BoostTier
+					events.trickLanded = self.trickId
+				end
+				self.trickBailed = false
 			end
 		end
 
@@ -1844,10 +2138,10 @@ function Simulation:Step(dt: number, input): { [string]: any }
 		self.airTime = 0
 		-- Chase the surface briskly; a slow chase sheds the kart on a
 		-- tight loop because gravity keeps pointing at the old normal.
-		self.up = self.up:Lerp(self.normal, math.min(H.SurfaceAlignRate * dt, 1))
+		self.up = self.up:Lerp(self.normal, math.min(self.H.SurfaceAlignRate * dt, 1))
 	else
 		self.airTime += dt
-		if self.airTime >= H.StickTime then
+		if self.airTime >= self.H.StickTime then
 			-- Genuinely airborne — but airborne over WHAT?
 			--
 			-- This used to settle straight back to world-up so you land
@@ -1862,9 +2156,9 @@ function Simulation:Step(dt: number, input): { [string]: any }
 			-- is oriented, and its normal stays our up. Only genuine open
 			-- air falls back to world-up, which is the case the original
 			-- rule was actually written for.
-			local probe = workspace:Raycast(self.pos, -self.up * H.AirSurfaceProbe, self.rayParams)
+			local probe = workspace:Raycast(self.pos, -self.up * self.H.AirSurfaceProbe, self.rayParams)
 			local settleTo = if probe then probe.Normal else Vector3.yAxis
-			self.up = self.up:Lerp(settleTo, math.min(H.AirAlignRate * dt, 1))
+			self.up = self.up:Lerp(settleTo, math.min(self.H.AirAlignRate * dt, 1))
 		end
 		-- Below StickTime we keep the old up untouched: that grace
 		-- period carries the kart across seams, stair nosings and panel
@@ -1898,7 +2192,7 @@ function Simulation:Step(dt: number, input): { [string]: any }
 	-- the stick instead of snapping to it. Still cosmetic: `travel` and
 	-- `forward` never hear about any of this.
 	local visualTrim = math.clamp(self.steer * activeDir, -1, 1)
-	local visualAngle = H.DriftVisualAngle + visualTrim * H.DriftVisualAngleTrim
+	local visualAngle = self.H.DriftVisualAngle + visualTrim * self.H.DriftVisualAngleTrim
 	self.driftAngle = -activeDir * math.rad(visualAngle) * eased
 
 	-- Spinning out overrides the drift angle entirely. Several fast
@@ -1922,6 +2216,7 @@ function Simulation:Step(dt: number, input): { [string]: any }
 		local fade = 1 - t
 		local wobble = math.sin(now * FX.SpinWobbleRate * math.pi * 2) * fade
 		self.lean = math.rad(FX.SpinWobble) * wobble
+		self.bikeLeanVelocity = 0
 		self.pitch = math.rad(FX.SpinPitch) * math.cos(now * FX.SpinWobbleRate * math.pi * 3) * fade
 	end
 
@@ -1929,6 +2224,36 @@ function Simulation:Step(dt: number, input): { [string]: any }
 	-- smoothing toward a steering target would fight it flat.
 	if not spinning then
 		local leanTarget = -self.steer * math.rad(FX.LeanAngle) + -activeDir * math.rad(FX.DriftLeanBonus) * eased
+		if self.isBike then
+			-- This is deliberately on `self.lean`, which is applied to the
+			-- hitbox at the final render write below. Applying it to the body
+			-- motor only was the reason the rider and wheels could bank while
+			-- the rest of the motorcycle appeared to stay behind.
+			local pace = math.clamp(math.abs(self.speed) / math.max(self.H.MaxSpeed, 1), 0, 1)
+			local t = (pace - BK.LeanLowAt) / math.max(BK.LeanHighAt - BK.LeanLowAt, 1e-3)
+			local leanReach = math.clamp(BK.LeanLow + (BK.LeanHigh - BK.LeanLow) * t, 0, BK.LeanHigh)
+			leanTarget = -self.steer * math.rad(leanReach)
+
+			--=====================================================
+			--  A DRIFTING BIKE BANKS HARDER THAN A TURNING ONE.
+			--
+			--  The kart's `leanTarget` above carries a drift term and
+			--  this branch was overwriting it outright, so a
+			--  motorcycle in a full powerslide leaned exactly as far
+			--  as one merely steering — which is why the drift had no
+			--  bank of its own to see.
+			--
+			--  `activeDir` and `eased` are the drift's own direction
+			--  and ramp, already computed for the kart, so this is the
+			--  same drift the rest of the machine agrees it is in.
+			--  Scaled by reach so a crawling bike still cannot throw
+			--  itself over, which is the rule the whole lean obeys.
+			--=====================================================
+			leanTarget += -activeDir
+				* math.rad(BK.DriftLeanBonus)
+				* eased
+				* math.clamp(leanReach / math.max(BK.LeanHigh, 1e-3), 0, 1)
+		end
 
 		-- Loading up for a drift that does not exist yet. The hop is the
 		-- only moment the player has already committed and the kart has
@@ -1942,7 +2267,17 @@ function Simulation:Step(dt: number, input): { [string]: any }
 		if self.state == STATE_HOP then
 			leanTarget += -self.steer * math.rad(FX.HopLean)
 		end
-		self.lean = Util.approach(self.lean, leanTarget, FX.LeanRate, dt)
+		if self.isBike then
+			-- A spring gives the motorcycle a little weight: it flows into
+			-- the bank, carries a trace of momentum through turn-in, then
+			-- settles itself on exit. This remains cosmetic because `lean`
+			-- is consumed only by the final render CFrame.
+			self.bikeLeanVelocity += (-BK.WholeLeanSpring * (self.lean - leanTarget) - BK.WholeLeanDamp * self.bikeLeanVelocity) * dt
+			self.lean += self.bikeLeanVelocity * dt
+			self.lean = math.clamp(self.lean, -math.rad(BK.LeanMax), math.rad(BK.LeanMax))
+		else
+			self.lean = Util.approach(self.lean, leanTarget, FX.LeanRate, dt)
+		end
 
 		local pitchTarget = math.rad(FX.PitchOnAccel) * (boosting and -1 or -throttle) * 0.5
 
@@ -1951,9 +2286,44 @@ function Simulation:Step(dt: number, input): { [string]: any }
 		-- it passes through zero at the apex and unwinds itself on
 		-- touchdown — no state to clear, and a ramp jump gets it free.
 		if not self.grounded then
-			local rise = math.clamp(self.vertVel / H.HopSpeed, -1, 1)
+			local rise = math.clamp(self.vertVel / self.H.HopSpeed, -1, 1)
 			pitchTarget += -math.rad(FX.AirPitch) * rise
 		end
+
+		-- A HULL TRIMS BOW-UP, and it does it for a real reason: below
+		-- planing speed a boat is climbing its own bow wave, so the nose
+		-- sits high and the stern squats. It is worst while ACCELERATING
+		-- through that hump and settles once the hull is up and planing.
+		--
+		-- Hence two terms rather than one. Throttle gives the big lift
+		-- while you are getting up to speed; the speed term is the
+		-- smaller trim it keeps once it is there. A single speed-based
+		-- lean would be wrong in the exact moment the player is looking
+		-- for it — pinning the throttle from rest would do nothing until
+		-- the speed had already arrived.
+		--
+		-- Reverse deliberately does NOT lift the bow: `math.max` drops
+		-- negative throttle, because a boat backing up settles by the
+		-- stern rather than rearing.
+		--
+		-- Negative is nose-up here, the same convention as the squat and
+		-- the air pitch above, so this SUBTRACTS. It also inherits
+		-- `FX.PitchRate` smoothing and the render write for free, which
+		-- is why it belongs here rather than in a system of its own.
+		if (self.swim or 0) > 0.001 then
+			local pace = math.clamp(math.abs(self.speed) / math.max(self.H.MaxSpeed, 1), 0, 1)
+			local drive = math.max(throttle, 0)
+			-- THE THROTTLE TERM FADES AS THE HULL GETS UP. That `1 - pace`
+			-- is the whole physical story: the lift comes from climbing
+			-- the bow wave, and once you are planing you are ON it, not
+			-- climbing it. Holding full bow-up at top speed would be a
+			-- boat permanently stuck at its hump — nose to the sky on a
+			-- flat-out straight, which is the one place a real hull is
+			-- flattest.
+			local bowUp = SW.TrimOnThrottle * drive * (1 - pace) + SW.TrimAtSpeed * pace
+			pitchTarget -= math.rad(bowUp) * self.swim
+		end
+
 		self.pitch = Util.approach(self.pitch, pitchTarget, FX.PitchRate, dt)
 	end
 
@@ -1975,6 +2345,29 @@ function Simulation:Step(dt: number, input): { [string]: any }
 	-- out of `squash` because that is clamped to a cosmetic range and a
 	-- hard landing needs to absorb several studs.
 	self.catch = Util.approach(self.catch or 0, 0, FX.LandCatchRecover, dt)
+	-- Guide is applied at the LAST possible point: collision/ground logic
+	-- may still run normally while the item is starting or ending, but it
+	-- can no longer overwrite a deliberate hover pose before rendering.
+	if self.guide then
+		local guide = self.guide
+		self.pos = guide.position
+		self.forward = guide.forward
+		self.travel = guide.forward
+		self.up = guide.up
+		self.speed = guide.speed
+		self.vertVel = 0
+		self.grounded = false
+		self.visualNormal = guide.up
+		self.driftAngle = 0
+		-- A guide may leave these nil to preserve the real FlipRamp trick
+		-- animation it deliberately launched on entry.
+		if guide.flipAngle ~= nil then
+			self.trickAngle = guide.flipAngle
+			self.trickAxis = guide.flipAxis
+		end
+		velocity = guide.forward * guide.speed
+		speedAbs = math.abs(guide.speed)
+	end
 	self.speedFrac = math.clamp(speedAbs / maxSpeed, 0, 1)
 	self.bob = if self.grounded
 		then math.sin(now * FX.BobSpeed) * FX.BobAmount * self.speedFrac
@@ -1990,8 +2383,8 @@ function Simulation:Step(dt: number, input): { [string]: any }
 	local right = look:Cross(up).Unit
 	look = up:Cross(right).Unit
 
-	-- Bob and squash ride along up, not world-Y.
-	local visualPos = self.pos + up * (self.bob - self.squash - (self.catch or 0))
+	-- Bob, squash and the water hop all ride along up, not world-Y.
+	local visualPos = self.pos + up * (self.bob - self.squash - (self.catch or 0) + (self.swimHop or 0))
 	local base = CFrame.fromMatrix(visualPos, right, up, -look)
 	-- THE FLIP GOES HERE, ON THE WHOLE ASSEMBLY.
 	--
@@ -2010,7 +2403,120 @@ function Simulation:Step(dt: number, input): { [string]: any }
 	-- pos/forward/up, and the simulation reads none of them back. The
 	-- sweep and the ground probe build their own frames, so collision is
 	-- untouched however far upside down the art is.
-	local render = base * CFrame.Angles(self.pitch, 0, self.lean)
+	--=================================================================
+	--  THE WHEELIE. Rotated about the REAR AXLE, not the centre.
+	--
+	--  A vehicle pivoting on its middle drives its back wheel down
+	--  through the road while the nose comes up. The rear axle is the
+	--  point a real one turns about, and using it means the back tyre
+	--  stays exactly where it was — it simply spins in place, which a
+	--  circle does invisibly.
+	--
+	--  The standard conjugation for rotating about a line through a
+	--  point, the same one Arc uses:
+	--
+	--      translate(pivot) . rotate . translate(-pivot)
+	--
+	--  ENTIRELY VISUAL, like everything else on this line. `pos`,
+	--  `forward`, `up`, the sweep and the ground probe are untouched, so
+	--  a bike stood on its back wheel is driving exactly as a flat one
+	--  would and cannot clear anything by doing it.
+	--
+	--  Tier-driven and asymmetric: up fast, down slow. Slamming back
+	--  level reads as the effect being switched off rather than ending.
+	local tiers = self.H.WheelieByTier
+	local wantWheelie = 0
+	if typeof(tiers) == "table" then
+		local burn = math.floor(self.burnStage or 0)
+		if burn > 0 then
+			wantWheelie = tiers[math.min(burn, #tiers)] or 0
+		end
+	end
+	local wheelieRate = if wantWheelie > (self.wheelie or 0) then self.H.WheelieRise else self.H.WheelieFall
+	self.wheelie = Util.approach(self.wheelie or 0, wantWheelie, wheelieRate, dt)
+
+	--=================================================================
+	--  THE STOPPIE. Brake hard and the rear comes up over the front.
+	--
+	--  BRAKING INPUT, NOT MEASURED DECELERATION. Both stop the bike
+	--  fast, but only one of them is the rider's doing — decelerating
+	--  into a wall would throw the tail up as if it had been a
+	--  beautifully judged stop, which is the opposite of what a crash
+	--  should look like. Walls get the wobble; brakes get this.
+	--
+	--  IT FADES OUT WITH SPEED, and that fall-off is the whole effect.
+	--  The tail rises while there is still speed to scrub and settles
+	--  as that runs out, so the bike comes down onto both wheels at
+	--  exactly the moment it stops — "elevates, then stops" with no
+	--  state to clear and nothing anywhere that has to detect having
+	--  stopped.
+	--
+	--  NOT WHILE A WHEELIE IS UP. They pivot about opposite ends and
+	--  fight over the same axis, and you cannot brake out of a boost
+	--  hard enough to deserve both. The wheelie wins because it is the
+	--  one the player earned.
+	--
+	--  GROUNDED ONLY: in mid-air there is no front tyre loaded for the
+	--  bike to pivot on, and the trick rotation already owns the air.
+	--=================================================================
+	local wantStoppie = 0
+	if self.H.StoppieAngle > 0 and self.grounded and (self.wheelie or 0) < 0.5 and throttle < -0.05 then
+		local pace = math.clamp(math.abs(self.speed) / math.max(self.H.MaxSpeed, 1), 0, 1)
+		local bite = math.clamp(
+			(pace - self.H.StoppieAt) / math.max(1 - self.H.StoppieAt, 1e-3),
+			0,
+			1
+		)
+		wantStoppie = self.H.StoppieAngle * bite * -throttle
+	end
+	local stoppieRate = if wantStoppie > (self.stoppie or 0) then self.H.StoppieRise else self.H.StoppieFall
+	self.stoppie = Util.approach(self.stoppie or 0, wantStoppie, stoppieRate, dt)
+
+	--=================================================================
+	--  A MOTORCYCLE LEANS ABOUT ITS CONTACT PATCH.
+	--
+	--  Rolling about the hitbox CENTRE swings the machine sideways out
+	--  of its own wheels. At the 20 degrees this used to reach that is
+	--  invisible; at GP angles the tyres leave the road on one side and
+	--  it reads as the model being tipped over rather than as a rider
+	--  leaning, which is why raising the angle alone was never going to
+	--  be enough.
+	--
+	--  The patch is exactly RideHeight below the hitbox centre — that is
+	--  what RideHeight MEANS — so this needs no second number to keep in
+	--  step, and it stays correct for any vehicle that sets one.
+	--
+	--  Same conjugation as the wheelie below: translate, rotate, undo.
+	--=================================================================
+	local render
+	if self.isBike then
+		local patch = Vector3.new(0, -self.H.RideHeight, 0)
+		render = base
+			* CFrame.Angles(self.pitch + (self.swimHopPitch or 0), 0, 0)
+			* CFrame.new(patch)
+			* CFrame.Angles(0, 0, self.lean)
+			* CFrame.new(-patch)
+	else
+		render = base * CFrame.Angles(self.pitch + (self.swimHopPitch or 0), 0, self.lean)
+	end
+	if (self.wheelie or 0) > 0.05 and self.H.WheelieAxle > 0 then
+		local pivot = Vector3.new(0, 0, self.H.WheelieAxle)
+		-- POSITIVE is nose-UP here. A right-hand rotation about +X tilts the
+		-- up vector toward +Z, and forward is -Z, so the nose rises. The
+		-- first version negated this and gave a stoppie: the bike rotated
+		-- nose-DOWN about its own rear axle and drove its front into the
+		-- road. `self.pitch` on the line above uses the opposite sign
+		-- because it is measured as an attitude, not applied as a lift.
+		render *= CFrame.new(pivot) * CFrame.Angles(math.rad(self.wheelie), 0, 0) * CFrame.new(-pivot)
+	end
+	-- THE STOPPIE, and it is the wheelie with both signs flipped: the
+	-- pivot moves to the FRONT axle (-Z is forward) and the rotation goes
+	-- negative, which is tail-up by the same right-hand rule that makes
+	-- positive nose-up above.
+	if (self.stoppie or 0) > 0.05 and self.H.StoppieAxle > 0 then
+		local pivot = Vector3.new(0, 0, -self.H.StoppieAxle)
+		render *= CFrame.new(pivot) * CFrame.Angles(-math.rad(self.stoppie), 0, 0) * CFrame.new(-pivot)
+	end
 	if (self.trickAngle or 0) ~= 0 and self.trickAxis then
 		render *= CFrame.fromAxisAngle(self.trickAxis, self.trickAngle)
 	end

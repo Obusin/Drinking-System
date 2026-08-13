@@ -29,6 +29,8 @@ local World = require(script.Parent.adapters.World)
 local AI = require(script.Parent.adapters.AI)
 local Moderation = require(script.Parent.adapters.Moderation)
 local Tuning = require(script.Parent.adapters.Tuning)
+local MatchControl = require(script.Parent.adapters.Match)
+local BotBrain = require(script.Parent.Parent.BotBrain)
 local Economy = require(script.Parent.adapters.Economy)
 
 local Code = Protocol.Code
@@ -55,6 +57,85 @@ Commands.ping = {
 --=====================================================================
 --  READ
 --=====================================================================
+
+-- WHAT HAVE THE BOTS LEARNED ON THIS TRACK?
+--
+-- A learner you cannot inspect is indistinguishable from one that is
+-- merely accumulating, and both look like "nothing is happening" from
+-- the driver's seat. This answers the two questions actually being
+-- asked: is anything being written down, and which corners are teaching
+-- them something.
+--
+-- Worst nodes first. Sixty-one rows in index order is data; the five
+-- that keep hurting is an answer.
+Commands.botbrain = {
+	permission = "VIEW_SERVER",
+	rate = { burst = 10, per = 5 },
+	validate = function(p)
+		return DevSchema.shape(p, {})
+	end,
+	run = function()
+		local Route = require(game:GetService("ReplicatedStorage").BloxKart.Route)
+		local status = BotBrain.status()
+		local rows = BotBrain.summary(12)
+		local pathNodes = #Route.path()
+		local done = BotBrain.progress(pathNodes)
+
+		-- A BAR, because "0.62" and "62%" both need reading and a bar
+		-- does not. Twenty cells is enough to see movement between two
+		-- checks a minute apart, which is the only comparison anyone
+		-- actually makes here.
+		local cells = 20
+		local filled = math.floor(done * cells + 0.5)
+		local bar = string.rep("#", filled) .. string.rep("-", cells - filled)
+
+		local head = ("[%s] %.0f%% learned  ·  %s · %s · %d node(s) · %d incident(s) · %d clean%s"):format(
+			bar,
+			done * 100,
+			if status.enabled then "learning ON" else "learning OFF",
+			if status.persisted then "saved to " .. tostring(status.key) else "SESSION ONLY (no datastore)",
+			status.nodes,
+			status.incidents,
+			status.cleans,
+			if status.unsaved then " · unsaved changes" else ""
+		)
+		return true, Code.OK, head, { status = status, nodes = rows, progress = done, pathNodes = pathNodes }
+	end,
+}
+
+-- Forget this track. Needed because editing a map invalidates learning
+-- that would otherwise keep applying to corners that no longer exist.
+-- SHOW ME THE PATH. Pushed to the CALLER and nobody else.
+--
+-- The markers used to be built on the server, in workspace, which means
+-- every player in the round saw a track covered in floating dots. A part
+-- is a part — there is no per-player visibility on one — so the only way
+-- to show this to an admin alone is for the admin's own client to draw
+-- it. This just says "you may".
+Commands.showpath = {
+	permission = "VIEW_SERVER",
+	rate = { burst = 6, per = 5 },
+	validate = function(p)
+		return DevSchema.shape(p, { on = DevSchema.optional(DevSchema.boolean()) })
+	end,
+	run = function(ctx, p)
+		local DevConsoleService = require(script.Parent.DevConsoleService)
+		DevConsoleService.push(ctx.player, "path", { on = p.on })
+		return true, Code.OK, "path view toggled for you only", { on = p.on }
+	end,
+}
+
+Commands.botbrainwipe = {
+	permission = "EDIT_WORLD",
+	rate = { burst = 2, per = 30 },
+	validate = function(p)
+		return DevSchema.shape(p, {})
+	end,
+	run = function()
+		BotBrain.wipe()
+		return true, Code.OK, "bot learning wiped for this place", {}
+	end,
+}
 
 Commands.snapshot = {
 	permission = "VIEW_SERVER",
@@ -199,6 +280,45 @@ Commands.clear_ai = {
 	elevate = { all = "CLEANUP_ALL" },
 	run = function(ctx, p)
 		return AI.remove(if p.all then nil else ctx.userId)
+	end,
+}
+
+--=====================================================================
+--  MATCH — owner-only because these controls affect every racer.
+--=====================================================================
+
+Commands.match_restart = {
+	permission = "MODIFY_CONFIG",
+	rate = { burst = 2, per = 20 },
+	destructive = true,
+	validate = function(p)
+		return DevSchema.shape(p, {})
+	end,
+	run = function()
+		return MatchControl.restart()
+	end,
+}
+
+Commands.match_finish = {
+	permission = "MODIFY_CONFIG",
+	rate = { burst = 2, per = 20 },
+	destructive = true,
+	validate = function(p)
+		return DevSchema.shape(p, {})
+	end,
+	run = function()
+		return MatchControl.finish()
+	end,
+}
+
+Commands.match_set_laps = {
+	permission = "MODIFY_CONFIG",
+	rate = { burst = 6, per = 10 },
+	validate = function(p)
+		return DevSchema.shape(p, { laps = DevSchema.intRange(1, 20) })
+	end,
+	run = function(_, p)
+		return MatchControl.setLaps(p.laps)
 	end,
 }
 

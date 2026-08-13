@@ -22,7 +22,9 @@ return {
 	-- mobile — but it also means you can only call your kart from one
 	-- spot, and a hub is meant to be somewhere you wander. The clearance
 	-- check below is the price of that freedom.
-	ToggleKeys = { Enum.KeyCode.G, Enum.KeyCode.ButtonY },
+	-- Face-top is Nitro while seated. D-pad left only calls/puts away a
+	-- lobby kart, so it cannot consume a driving action.
+	ToggleKeys = { Enum.KeyCode.G, Enum.KeyCode.DPadLeft },
 
 	-- Two states, because a prompt that does not say what it will do
 	-- next is a prompt you press to find out.

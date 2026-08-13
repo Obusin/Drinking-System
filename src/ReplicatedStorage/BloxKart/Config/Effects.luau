@@ -42,6 +42,47 @@ ShieldName = "Shield",
 		Color3.fromRGB(190, 90, 255), -- tier 3  purple
 	},
 
+	--== AUTHORED PARTICLE EMITTERS ====================================
+	-- Built in Studio, not here. The code owns `Enabled` on both groups
+	-- and `Color` on the thruster, and NOTHING else — rate, size,
+	-- texture, lifetime and the splash colours are art decisions.
+	--
+	-- MATCHED ON THE EMITTER ITSELF, never on the model holding it. The
+	-- thruster meshes learned this expensively: a Folder named `Thruster`
+	-- matched a container check and every descendant got painted. Because
+	-- these are matched by exact name AND `IsA("ParticleEmitter")`, the
+	-- `SplashVFX` / `ThrusterVFX` models can be renamed or restructured
+	-- without touching this list.
+	--
+	-- Both splash emitters share one list because they share one rule:
+	-- on in the water, off out of it.
+	SplashEmitterNames = { "SplashEmitter", "WheelSplashEmitter" },
+	ThrusterEmitterNames = { "ThrusterEmitter" },
+
+	-- Swim blend at which the spray becomes possible at all. Above the
+	-- hop's own threshold would leave the kart skipping dry; below it and
+	-- a wheel clipping a puddle sprays.
+	SplashMinSwim = 0.2,
+
+	-- A PARKED BOAT THROWS NO WATER. The rate follows speed rather than
+	-- the emitter being toggled, so it thins out as you slow instead of
+	-- a full plume popping back the instant you touch the throttle.
+	--
+	-- Below MinPace there is nothing to throw and it shuts off entirely;
+	-- from there it ramps to the AUTHORED rate at top speed. The authored
+	-- rate is the ceiling and is captured once at discovery — reading
+	-- `.Rate` back each frame would read the last write and ratchet it to
+	-- nothing, which is the trap the glider wings hit with `Size`.
+	SplashMinPace = 0.12, -- fraction of top speed before any spray
+	SplashRateFade = 6, -- per second, so it swells and dies rather than blinks
+
+	-- BOOSTING WITH NO TIER — an item boost, which has no charge colour
+	-- of its own. Matches Rig.ThrusterCentre so the exhaust spray and the
+	-- thruster mesh agree; the TIER colours come from TierColors above,
+	-- deliberately not restated, because a second copy of a palette is a
+	-- second copy that can drift.
+	ThrusterFxBoostColor = Color3.fromRGB(96, 178, 255),
+
 	--== DRIFT TRAILS ==================================================
 	TrailBaseColor = Color3.fromRGB(205, 205, 215), -- drifting, uncharged
 	TrailLifetime = 0.55, -- how long the ribbon lingers

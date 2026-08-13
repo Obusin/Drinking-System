@@ -26,6 +26,7 @@ local list = {
 	require(script.Lightning),
 	require(script.Scramble),
 	require(script.FakeBox),
+	require(script.Rainbow),
 }
 
 Items.All = list

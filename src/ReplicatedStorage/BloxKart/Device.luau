@@ -6,14 +6,17 @@
 	mobile and SpeedHud doesn't, the drift button lands on top of the
 	speedometer. Which is exactly what happened.
 
-	A KEYBOARD DISQUALIFIES, A TOUCHSCREEN DOESN'T QUALIFY
-	-----------------------------------------------------
-	Deliberately that way round. Plenty of laptops have touchscreens and
-	their owners are using the keyboard; a phone has no keyboard. Testing
-	`TouchEnabled` alone puts thumb controls on a desktop.
+TOUCH OWNS THE COMPOSITION
+--------------------------
+Roblox's mobile emulator reports both TouchEnabled and KeyboardEnabled.
+Treating a keyboard as an automatic desktop verdict therefore left the mobile
+HUD in its large desktop layout exactly where a phone needs compact controls.
+An actual touch-capable laptop can opt out with Touch.Mode = "never"; a touch
+device otherwise gets the touch-safe composition.
 --]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 
 local Config = require(ReplicatedStorage:WaitForChild("BloxKart"):WaitForChild("Config"))
@@ -31,7 +34,10 @@ function Device.touchLayout(): boolean
 	if mode == "never" then
 		return false
 	end
-	return UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+	if RunService:IsStudio() and Config.Touch.StudioPreview then
+		return true
+	end
+	return UserInputService.TouchEnabled
 end
 
 return Device

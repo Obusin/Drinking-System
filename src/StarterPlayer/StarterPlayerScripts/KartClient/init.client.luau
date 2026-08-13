@@ -28,6 +28,8 @@
 	adding a new reaction to "tier changed" means touching one place.
 --]]
 
+local CollectionService = game:GetService("CollectionService")
+local ContextActionService = game:GetService("ContextActionService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -50,13 +52,13 @@ local Boosters = require(script.Boosters)
 local Race = require(script.Race)
 local Match = require(script.Match)
 local MatchHud = require(script.MatchHud)
-local RewardHud = require(script.RewardHud)
 local Transition = require(script.Transition)
 local XpHud = require(script.XpHud)
 local Tally = require(script.Tally)
 local QuestHud = require(script.QuestHud)
 local Minimap = require(script.Minimap)
 local RaceHud = require(script.RaceHud)
+local LiveStandingsHud = require(script.LiveStandingsHud)
 local ControlsHud = require(script.ControlsHud)
 local VehicleHud = require(script.VehicleHud)
 local QueueHud = require(script.QueueHud)
@@ -67,6 +69,7 @@ local SpeedHud = require(script.SpeedHud)
 local ItemHud = require(script.ItemHud)
 local ThreatHud = require(script.ThreatHud)
 local FeedHud = require(script.FeedHud)
+local RivalSpotlight = require(script.RivalSpotlight)
 local Items = require(script.Items)
 -- The shared item CATALOGUE, not the client controller above it. Named
 -- apart because both modules are called Items and confusing them is a
@@ -79,23 +82,39 @@ local Props = require(script.Props)
 local Rider = require(script.Rider)
 local RemoteKarts = require(script.RemoteKarts)
 local RemoteAudio = require(script.RemoteAudio)
+local Crowd = require(script.Crowd)
 local Music = require(script.Music)
 local Spectate = require(script.Spectate)
+local Rainbow = require(script.Rainbow)
+local RouteGuide = require(script.RouteGuide)
+local IntermissionCamera = require(script.IntermissionCamera)
+local GridIntroCamera = require(script.GridIntroCamera)
 
 local H = Config.Hud
 local HANDLING = Config.Handling
 local IT = Config.Items
 local SPEC = Config.Spectate
 local HAP = Config.Haptics
+local AUDIO = Config.Audio
 
 local player = Players.LocalPlayer
+-- The server waits for this one-way acknowledgement before it creates and
+-- seats the initial race kart.  It is intentionally sent only after the
+-- systems below have installed their listeners, so the first Seated event
+-- cannot arrive while the driving client is still half-initialised.
+local clientReadyRemote = ReplicatedStorage.BloxKart:WaitForChild(Names.CLIENT_READY_REMOTE, 20)
+local kartAttachedRemote = ReplicatedStorage.BloxKart:WaitForChild(Names.KART_ATTACHED_REMOTE, 20)
 
 -- Shared empty events table for the frames a subsystem is skipped.
 -- Frozen so a stray write can't turn it into a real event next frame.
 local NO_EVENTS = table.freeze({})
 
 local humanoid: Humanoid? = nil
-local sim, effects, audio, camera, boosters, items = nil, nil, nil, nil, nil, nil
+local sim, effects, audio, camera, boosters, items, rainbow = nil, nil, nil, nil, nil, nil, nil
+-- `Humanoid.Seated` is normally enough, but can arrive before the rest of a
+-- streamed kart does. This prevents a property-change reconciliation from
+-- starting a second attach while the first is still waiting for the hitbox.
+local attachingModel: Model? = nil
 -- Which kart's lobby spawn placement has already been applied. Model
 -- IDENTITY, not a flag reset per round the way the grid's is — a lobby
 -- kart has no rounds. Falling out and being reseated into the SAME
@@ -110,10 +129,23 @@ local race = Race.new()
 -- kart to drive, and its HUD has to show "waiting for racers" before
 -- anyone has spawned.
 local match = Match.new()
+local intermissionCamera = IntermissionCamera.new()
+local gridIntroCamera = GridIntroCamera.new()
+-- The initial splash is the one thing that can cover an Intermission rail.
+-- Tell MatchService only after it has fully wiped away, so the server starts
+-- the rail clock when people can see it rather than while they are loading.
+local function confirmIntermissionVisible()
+	if player:GetAttribute(Names.SPLASH_DISMISSED) == true then
+		match:ConfirmIntermissionVisible()
+	end
+end
+player:GetAttributeChangedSignal(Names.SPLASH_DISMISSED):Connect(confirmIntermissionVisible)
+confirmIntermissionVisible()
 local matchHud = MatchHud.new()
-local rewardHud = RewardHud.new()
+local routeGuide = RouteGuide.new()
 local transition = Transition.new()
 local transitionRemote = ReplicatedStorage.BloxKart:WaitForChild(Names.TRANSITION_REMOTE, 10)
+local returnRemote = ReplicatedStorage.BloxKart:WaitForChild(Names.RETURN_REMOTE, 10)
 local xpHud = XpHud.new()
 local tally = Tally.new()
 -- Longer now that the panel shows in-flight progress itself: the
@@ -176,6 +208,14 @@ if transitionRemote then
 else
 	warn("[KartClient] no transition remote — cross-place teleports will not get a hold-cover wipe.")
 end
+matchHud:SetResultsActions(function()
+	-- The round loop returns to Intermission when Results expires. Hiding the
+	-- compact board is enough to keep watching the track until then.
+end, function()
+	if returnRemote then
+		returnRemote:FireServer()
+	end
+end)
 local questHud = QuestHud.new(tally)
 -- Knockable scenery. Built once and kept for the session: props are
 -- world geometry, not per-kart, and they must keep flying through a
@@ -202,7 +242,17 @@ end)
 task.spawn(function()
 	local ok, err = pcall(function()
 		local DevConsoleClient = require(script.DeveloperConsole.DevConsoleClient)
-		local allowed, grantedRole = DevConsoleClient.probe()
+		local allowed, grantedRole, code = DevConsoleClient.probe()
+		-- The server creates console remotes near the end of startup. A
+		-- client that wins that race gets a short bounded retry, while a
+		-- genuine permission denial stays silent and does not poll.
+		for _ = 1, 5 do
+			if allowed or (code ~= "UNAVAILABLE" and code ~= "INTERNAL") then
+				break
+			end
+			task.wait(0.5)
+			allowed, grantedRole, code = DevConsoleClient.probe()
+		end
 		if not allowed then
 			return
 		end
@@ -248,6 +298,7 @@ task.spawn(function()
 end)
 
 local hud = RaceHud.new()
+local liveStandings = LiveStandingsHud.new()
 
 -- THE LOBBY IS A PLACE YOU DRIVE, NOT A RACE.
 --
@@ -294,6 +345,7 @@ local function setDrivingHud(on: boolean)
 	-- Same race-only rule, same reason: nobody is racing you in the hub,
 	-- so a rear indicator there reports traffic, not threat.
 	threatHud:SetVisible(on and not lobby)
+	liveStandings:SetVisible(on and not lobby)
 	controls:SetVisible(on)
 	speedo:SetActive(on)
 end
@@ -488,7 +540,14 @@ if lobby then
 	print("[KartClient] LOBBY — race HUD off, kart button on.")
 end
 
+if not lobby then
+	-- Missions belong in the lobby/results flow. Even the collapsed tab is a
+	-- large, non-driving target on a phone and does not earn space over a race.
+	questHud:SetVisible(false)
+end
+
 local feedHud = FeedHud.new()
+local rivalSpotlight = RivalSpotlight.new()
 local respawn = Respawn.new()
 -- Made once rather than per kart: it holds motor state, not kart state,
 -- and rebuilding it on every respawn would drop a rumble mid-decay.
@@ -496,11 +555,10 @@ local haptics = Haptics.new()
 -- Outlives any kart: the soundtrack shouldn't restart because you
 -- respawned.
 local music = Music.new()
+local crowd = Crowd.new()
 -- Mobile only, and nil everywhere else — every call site is guarded, so
 -- desktop carries no touch code at all rather than an inert copy of it.
 local touch = if TouchHud.wanted() then TouchHud.new() else nil
-local progressRemote = ReplicatedStorage.BloxKart:WaitForChild("KartProgressReport", 10)
-local reportAt = 0
 local heartbeat: RBXScriptConnection? = nil
 
 local function getHumanoid(): Humanoid?
@@ -535,6 +593,10 @@ local function teardown()
 	if items then
 		items:Destroy()
 		items = nil
+	end
+	if rainbow then
+		rainbow:Destroy()
+		rainbow = nil
 	end
 	if camera then
 		-- Always restore, even mid-loop, or the player is left stuck in
@@ -629,13 +691,19 @@ local function step(dt: number)
 	end
 	if matchEvents.gridded then
 		camera:Snap()
+		-- Arm immediately after the local grid teleport, not when the server
+		-- later begins 3-2-1. That removes the normal-chase-camera pause
+		-- between seeing the player appear and seeing their intro move begin.
+		gridIntroCamera:Arm()
 	end
 	if matchEvents.countdown then
 		matchHud:Countdown(matchEvents.countdown)
+		audio:CountdownVoice(matchEvents.countdown)
 		audio:PlayTierNote(0) -- one beep per light
 	end
 	if matchEvents.go then
 		matchHud:Go()
+		audio:CountdownVoice(0)
 		audio:Boost(2)
 		camera:BoostPunch(1) -- a kick off the line, from the camera only
 	end
@@ -654,6 +722,9 @@ local function step(dt: number)
 
 	Input.update(dt)
 	local events = stepSim(sim, dt)
+	if rainbow then
+		rainbow:Update(sim, dt)
+	end
 
 	-- Publish OUR steer onto OUR kart so Rider can turn the wheel and the
 	-- front tyres. The VehicleSeat never sees a touch player's steering —
@@ -662,6 +733,9 @@ local function step(dt: number)
 	-- it stays local; other people's karts fall back to SteerFloat.
 	if sim.model then
 		sim.model:SetAttribute(Names.STEER, sim.steer)
+		-- The raw intent as well. The bike leans on this so the lean
+		-- LEADS the turn instead of trailing it; see Simulation.
+		sim.model:SetAttribute(Names.STEER_INPUT, sim.steerInput or sim.steer)
 		-- ...and the slide angle, so the front wheels can cancel it and
 		-- stay pointed down the road through a drift.
 		sim.model:SetAttribute(Names.DRIFT, sim.driftAngle)
@@ -712,6 +786,14 @@ local function step(dt: number)
 	-- The camera reacts to the DROP, not to the fact of landing. A drift
 	-- hop and a fall off a bridge both raise `landed`; only one of them
 	-- should move the camera, and the impact speed is the difference.
+	-- THE SMALL CROWD. A landed trick is a routine flourish — worth a
+	-- reaction, not worth the big sample. Fired on the LANDING rather
+	-- than the launch: a crowd cheers what you pulled off, not what you
+	-- attempted.
+	if events.trickLanded then
+		crowd:Cheer(false)
+	end
+
 	if events.bouncedLanding then
 		if camera then
 			camera:Land(events.bouncedLanding)
@@ -722,6 +804,16 @@ local function step(dt: number)
 		-- 0..1 and pitches itself from it.
 		audio:PlayBump(math.clamp(events.bouncedLanding / 140, 0.25, 1))
 	end
+	-- The bike wobbles when something hits it, and ONLY then. Fed from
+	-- the same events the camera shake uses, so a wobble can never
+	-- appear without a cause the player saw.
+	if events.bounced and sim and sim.model then
+		Rider.impact(sim.model, Config.Bike.WobbleOnBump * math.clamp(events.bounced, 0, 1))
+	end
+	if events.wallStunned and sim and sim.model then
+		Rider.impact(sim.model, Config.Bike.WobbleOnHit)
+	end
+
 	if events.wallStunned and camera then
 		camera:WallHit()
 	end
@@ -740,6 +832,27 @@ local function step(dt: number)
 		effects:Boost(events.boostFired)
 		audio:Boost(events.boostFired)
 		camera:BoostPunch(events.boostFired)
+	end
+
+	-- LEAVING THE GROUND. Ramps and water skips share one sound, pitched
+	-- by how big the leap is — see Audio:Leap.
+	--
+	-- Fired at the LAUNCH, because going up is the moment worth hearing;
+	-- the landing already has the bump and the splash.
+	--
+	-- Both ramp events already existed and nothing consumed them, so this
+	-- needed no new plumbing in Simulation.
+	if events.trickStarted or events.glideStarted then
+		audio:Leap(1)
+	elseif events.leaped then
+		-- QUIETER AND GATED, because this one fires up to 2.89 times a
+		-- second at top speed where a ramp fires once. Small skips stay
+		-- silent so only the meatier ones speak.
+		if events.leaped >= AUDIO.WaterLeapMinScale then
+			local over = (events.leaped - AUDIO.WaterLeapMinScale)
+				/ math.max(1 - AUDIO.WaterLeapMinScale, 1e-3)
+			audio:Leap(over, AUDIO.WaterLeapVolume)
+		end
 	end
 
 	-- The one nitro cue: a bar filling. Pitch rises with how many you
@@ -792,14 +905,8 @@ local function step(dt: number)
 	-- Lap triggers, same reasoning: after the move.
 	local lapEvents = race:Update(sim)
 	tally:Lap(lapEvents)
-	if lapEvents.checkpoint then
-		audio:PlayTierNote(0) -- soft "do" per checkpoint
-	end
 	if lapEvents.lapDone then
 		audio:PlayTierNote(if lapEvents.finished then 3 else 1)
-	end
-	if lapEvents.rejected then
-		hud:FlashRejected()
 	end
 	hud:Update(race)
 
@@ -864,8 +971,11 @@ local function step(dt: number)
 		--
 		-- Missing a gate is meant to be recoverable, so the message has
 		-- to say what to recover.
-		local owed = race:NextCheckpoint()
-		alertText = if owed then ("%s  ·  CHECKPOINT %d"):format(H.WrongWayText, owed) else H.WrongWayText
+		-- No gate is "owed" any more — checkpoints stopped gating laps, so
+		-- naming one would send the player back for something that was
+		-- never going to stop them finishing. Turning round is the whole
+		-- instruction.
+		alertText = H.WrongWayText
 		alertColour = H.WrongWayColor
 	elseif sim:IsScrambled() then
 		alertText, alertColour = H.ScrambledText, H.ScrambledColor
@@ -886,12 +996,15 @@ local function step(dt: number)
 		audio:PlayTierNote(0)
 	end
 
-	-- Items: pickup, use, and being hit. Racing only — you're free to
-	-- roll around between rounds, but not to collect a stack or drop a
-	-- mine while the grid is forming. The server enforces this too; this
-	-- half is so the HUD and the sounds agree with it.
-	-- `devForceRace` is a developer-console override; see its declaration.
-	local itemEvents = if match:IsRacing() or devForceRace then items:Update(sim, Input) else NO_EVENTS
+	-- Items are live during Racing and in the lobby practice ring, but not
+	-- while a race grid is forming. The server follows the same policy;
+	-- keeping this client gate aligned prevents a legitimate lobby pickup
+	-- from spinning forever in an unusable slot.
+	-- A finish is final before the server's takeover attribute has necessarily
+	-- replicated back. Stop reading item input on this frame as well, so a
+	-- last-moment button press cannot fire after the official time is banked.
+	local finished = race.finished or sim.model:GetAttribute(Shared.FINISH_PLACE) ~= nil
+	local itemEvents = if (match:IsRacing() or lobby or devForceRace) and not finished then items:Update(sim, Input) else NO_EVENTS
 	-- One click per name the roulette cycles past, then the reveal.
 	tally:Items(itemEvents)
 	if itemEvents.ticks then
@@ -902,6 +1015,9 @@ local function step(dt: number)
 	end
 	if itemEvents.used then
 		audio:Boost(2)
+		if itemEvents.throwForward then
+			Rider.Throw(sim.model)
+		end
 	end
 	-- An item that refused to fire. Lightning and Scramble both need
 	-- somebody ahead, so in first place Q did nothing at all and gave no
@@ -958,18 +1074,11 @@ local function step(dt: number)
 		audio:PlayTierNote(3)
 	end
 
-	-- Publish progress so every other client can rank the field. Rate
-	-- limited: standings only need to be roughly current, and firing a
-	-- remote every frame per player is the kind of thing that quietly
-	-- eats a server.
-	reportAt -= dt
-	if reportAt <= 0 then
-		reportAt = 0.25
-		if progressRemote then
-			progressRemote:FireServer(race:ProgressScore(sim))
-		end
-	end
-	itemHud:Update(items:HeldSlots(), race:Place(sim), race:FieldSize())
+	-- Standings are server-projected from each live kart's route position.
+	-- There is deliberately no client progress report here: even a clamped
+	-- client lap bank was an authority seam that could be forged.
+	itemHud:Update(items:HeldSlots())
+	liveStandings:SetMyPlace(race:Place(sim), race:FieldSize(sim))
 
 	-- The rear strip runs off the SAME held reading the INCOMING banner
 	-- uses, not a second call to threatTo. Two readers asking the same
@@ -994,7 +1103,10 @@ local function waitForHitbox(model: Model): BasePart?
 		return hitbox
 	end
 
-	local found = model:WaitForChild("Hitbox", 2)
+	-- The server deliberately gives the client a full attachment window. Match
+	-- that window here: a slow initial replication must not turn a healthy
+	-- seated player into an inert kart just because the hitbox took >2 seconds.
+	local found = model:WaitForChild("Hitbox", 8)
 	if found and found:IsA("BasePart") then
 		return found
 	end
@@ -1022,21 +1134,36 @@ local function waitForVehicleSpawnCf(model: Model): CFrame?
 end
 
 local function onSeated(active: boolean, seatPart: BasePart?)
-	teardown()
-
 	if not (active and seatPart and seatPart:IsA("VehicleSeat")) then
+		attachingModel = nil
+		teardown()
 		return
 	end
 
 	local model = seatPart:FindFirstAncestorOfClass("Model")
+	if sim and sim.model == model then
+		return -- duplicate Seated/SeatPart notification for the same kart
+	end
+	if not model or attachingModel == model then
+		return
+	end
+	attachingModel = model
+	teardown()
+
 	local hitbox = model and waitForHitbox(model)
 	if not (model and hitbox and hitbox:IsA("BasePart")) then
 		warn("[KartClient] No Hitbox found on the seated model.")
+		attachingModel = nil
 		return
 	end
 
 	local spawnCf = if model ~= vehicleSpawnAppliedFor then waitForVehicleSpawnCf(model) else nil
-	sim = Simulation.new(model, hitbox, seatPart, player.Character)
+	-- THE VEHICLE'S OWN HANDLING. Looked up from the replicated kind
+	-- rather than sent as numbers: Config.Vehicles is shared, so both
+	-- ends resolve the same table and there is no second copy to drift.
+	local kind = model:GetAttribute(Names.VEHICLE_KIND)
+	local vehicle = Config.Vehicles.Kinds[if type(kind) == "string" then kind else Config.Vehicles.Default]
+	sim = Simulation.new(model, hitbox, seatPart, player.Character, vehicle and vehicle.handling)
 
 	-- A LOBBY KART SPAWNS WHERE YOU WERE STANDING, NOT WHERE IT WAS BUILT.
 	--
@@ -1062,6 +1189,15 @@ local function onSeated(active: boolean, seatPart: BasePart?)
 	camera = CameraRig.new(sim)
 	boosters = Boosters.new()
 	items = Items.new(model)
+	rainbow = Rainbow.new(model)
+
+	-- This is a lifecycle acknowledgement, not a movement request. The server
+	-- validates that this is our currently owned, actually occupied kart before
+	-- it marks the join as drive-ready and lets the splash reveal the race.
+	if kartAttachedRemote and kartAttachedRemote:IsA("RemoteEvent") then
+		kartAttachedRemote:FireServer(model)
+	end
+	attachingModel = nil
 
 	Input.bind(getHumanoid)
 	camera:Engage(seatPart)
@@ -1071,7 +1207,7 @@ local function onSeated(active: boolean, seatPart: BasePart?)
 		controls:Flash() -- remind them of the keys on getting in
 	end
 	setDrivingHud(true)
-	if touch then
+	if touch and UserInputService:GetLastInputType().Name:sub(1, 7) ~= "Gamepad" then
 		touch:SetActive(true)
 	end
 	heartbeat = RunService.Heartbeat:Connect(step)
@@ -1087,6 +1223,17 @@ local function onCharacter(character: Model)
 	end
 	humanoid = h
 	h.Seated:Connect(onSeated)
+	-- A networked seat can become occupied before this LocalScript observes the
+	-- Seated signal. Reconcile the state as well as listening for transitions;
+	-- this is the recovery path that makes the first race kart reliable.
+	local function reconcileSeat()
+		local seatPart = h.SeatPart
+		if h.Sit and seatPart and seatPart:IsA("VehicleSeat") then
+			onSeated(true, seatPart)
+		end
+	end
+	h:GetPropertyChangedSignal("SeatPart"):Connect(reconcileSeat)
+	task.defer(reconcileSeat)
 	-- Dying while seated never fires Seated(false), so clean up here or
 	-- the bindings leak and the camera stays Scriptable after respawn.
 	h.Died:Connect(function()
@@ -1113,6 +1260,25 @@ end
 -- loop, which used to make the first kart spawn look attached but inert.
 startCharacterHandling()
 
+-- Server-side attach retry. This is intentionally idempotent: if the normal
+-- Seated path already built Simulation it simply acknowledges that same kart;
+-- if the event was missed, reconciling the current seat builds it first.
+if kartAttachedRemote and kartAttachedRemote:IsA("RemoteEvent") then
+	kartAttachedRemote.OnClientEvent:Connect(function(model)
+		if typeof(model) ~= "Instance" or not model:IsA("Model") then
+			return
+		end
+		local h = humanoid
+		local seatPart = h and h.SeatPart
+		if h and h.Sit and seatPart and seatPart:IsA("VehicleSeat") and seatPart:IsDescendantOf(model) then
+			onSeated(true, seatPart)
+			if sim and sim.model == model then
+				kartAttachedRemote:FireServer(model)
+			end
+		end
+	end)
+end
+
 --=====================================================================
 --  START
 --=====================================================================
@@ -1121,19 +1287,45 @@ startCharacterHandling()
 -- A pad plugged in mid-session should just start working. Refresh()
 -- re-asks what the controller supports; without this, rumble is decided
 -- once at join and a player who connects a pad later never gets any.
-UserInputService.GamepadConnected:Connect(function()
-	haptics:Refresh()
+UserInputService.GamepadConnected:Connect(function(pad)
+	haptics:Refresh(pad)
 end)
 UserInputService.GamepadDisconnected:Connect(function()
 	haptics:Stop()
 	haptics:Refresh()
+end)
+UserInputService.LastInputTypeChanged:Connect(function(inputType)
+	haptics:UseGamepad(inputType)
+	-- A touch-capable tablet can still be played with a controller. Do not
+	-- leave its custom touch pad active: it disables PlayerModule and would
+	-- otherwise take the controller's VehicleSeat movement with it.
+	if touch and sim then
+		if inputType.Name:sub(1, 7) == "Gamepad" then
+			touch:SetActive(false)
+		elseif inputType == Enum.UserInputType.Touch then
+			touch:SetActive(true)
+		end
+	end
 end)
 
 WorldFilter.start()
 
 -- Character handling already started above, so this can boot without putting
 -- Seated behind another startup yield.
-Rider.start()
+Rider.start(function(kart: Model)
+	-- Rider has already waited for the rig to replicate before calling us.
+	-- Do not touch a stale or another player's model: Simulation is the only
+	-- writer for our current kart's position, and Race owns the last known
+	-- good checkpoint.
+	if not (sim and sim.model == kart) then
+		return
+	end
+	local target = race:RespawnCFrame() or sim.spawnCF
+	if target then
+		warn("[KartClient] local kart rig stayed incomplete; returning to the last checkpoint.")
+		sim:RespawnAt(target + target.UpVector * Config.Respawn.RespawnLift)
+	end
+end)
 
 -- Item boxes spin whether or not you're driving.
 Items.startBoxes()
@@ -1149,6 +1341,19 @@ RemoteKarts.start()
 -- Everyone else's engines and tyres, worked out from how their karts
 -- move. Without it a race is silent except for your own kart.
 RemoteAudio.start()
+
+	-- Do not acknowledge client setup until the server has finished creating
+	-- the shared race services/remotes. This prevents each client module from
+	-- independently winning a startup race and falling through its timeout.
+	local serverReadyDeadline = os.clock() + 10
+	while not ReplicatedStorage.BloxKart:GetAttribute(Names.SERVER_READY) and os.clock() < serverReadyDeadline do
+		task.wait(0.05)
+	end
+	if clientReadyRemote and clientReadyRemote:IsA("RemoteEvent") then
+		clientReadyRemote:FireServer()
+else
+	warn("[KartClient] client-ready remote unavailable; server will use its spawn fallback.")
+end
 
 -- Checkpoint sanity check, once. Delayed rather than immediate: tagged
 -- parts stream in with the rest of Workspace, so counting them on the
@@ -1174,16 +1379,6 @@ end
 --
 -- Held rather than shown on arrival. It lands as the flag drops and the
 -- panel opens a moment later; showing it here would race the phase.
-local serverReward = nil
-local rewardRemote = ReplicatedStorage.BloxKart:WaitForChild(Names.REWARD_REMOTE, 10)
-if rewardRemote then
-	rewardRemote.OnClientEvent:Connect(function(msg)
-		if typeof(msg) == "table" then
-			serverReward = msg
-		end
-	end)
-end
-
 -- XP as it lands, not ten laps later on the results screen.
 local xpRemote = ReplicatedStorage.BloxKart:WaitForChild(Names.XP_REMOTE, 10)
 if xpRemote then
@@ -1200,37 +1395,86 @@ end
 -- racers who did best. preview() survives as the fallback, and it is
 -- what the FINISH shot uses — at that moment the server has not sent
 -- anything yet, and a provisional board over your own finish is right.
-local function buildRewardPayload()
-	local payload
-	if serverReward and serverReward.standings then
-		payload = RewardHud.fromServer(serverReward.standings, serverReward.xpGained)
-	else
-		payload = RewardHud.preview()
-		if serverReward then
-			payload.xpGained = serverReward.xpGained
+--=====================================================================
+--  THE HORN
+--
+--  Played LOCALLY the instant it is pressed and relayed separately, so
+--  it never feels like it lagged for the one person guaranteed to be
+--  listening for it. The server rebroadcasts to everybody else and does
+--  NOT echo it back, or the presser would hear it twice a round-trip
+--  apart.
+--
+--  Audio:Horn owns the cooldown and reports whether it actually
+--  sounded, so a swallowed press costs no network message either.
+--=====================================================================
+local hornRemote = ReplicatedStorage.BloxKart:WaitForChild(Names.HORN_REMOTE, 10)
+
+local function onHorn(_action, state: Enum.UserInputState)
+	if state ~= Enum.UserInputState.Begin then
+		return Enum.ContextActionResult.Pass
+	end
+	if audio and audio:Horn() and hornRemote then
+		hornRemote:FireServer()
+	end
+	return Enum.ContextActionResult.Sink
+end
+ContextActionService:BindAction("KartHorn", onHorn, false, table.unpack(Config.Audio.HornKeys))
+
+if hornRemote then
+	hornRemote.OnClientEvent:Connect(function(who: Player)
+		-- Find the honker's kart by owner. Nothing to play it at means
+		-- they are not driving, which is not an error.
+		if typeof(who) ~= "Instance" or not who:IsA("Player") then
+			return
 		end
-	end
-	if serverReward then
-		payload.level = serverReward.level
-		payload.stats = RewardHud.statsFrom(serverReward.level)
-		-- Session-only, and the panel's PREVIEW line says so. It is shown
-		-- anyway because a balance that never moves is indistinguishable
-		-- from a balance that is broken.
-		payload.balance = { bolt = serverReward.level.bolt or 0, nitro = 0 }
-	end
-	return payload
+		for _, kart in CollectionService:GetTagged("Kart") do
+			if kart:GetAttribute(Names.OWNER) == who.UserId then
+				RemoteAudio.playHorn(kart)
+				break
+			end
+		end
+	end)
 end
 
 local feedRemote = ReplicatedStorage.BloxKart:WaitForChild(Names.FEED_REMOTE, 10)
 if feedRemote then
 	feedRemote.OnClientEvent:Connect(function(msg)
-		if typeof(msg) == "table" and msg.victim then
+	if typeof(msg) == "table" and msg.victim then
 			feedHud:Add(tostring(msg.item), msg.by, tostring(msg.victim), msg.icon)
+			if msg.victimUserId == player.UserId then
+				rivalSpotlight:Show({
+					kind = "hit",
+					item = msg.item,
+					opponent = { name = msg.by or "Track hazard", userId = msg.byUserId },
+				})
+			end
 			-- And hear it. The feed already reached us with everything
 			-- needed; it was only ever drawing the line.
 			RemoteAudio.playHit(msg.kart, msg.id)
+			-- THE BIG CROWD. A hit landing is the spectacle the feed
+			-- exists to announce, so it is the moment worth the larger
+			-- sample. Rate-limited inside Cheer, which matters here
+			-- because a pile-up raises several of these at once.
+			crowd:Cheer(true)
 		end
 	end)
+end
+
+local rivalRemote = ReplicatedStorage.BloxKart:WaitForChild(Names.OVERTAKE_REMOTE, 10)
+if rivalRemote then
+	rivalRemote.OnClientEvent:Connect(function(message)
+		rivalSpotlight:Show(message)
+	end)
+end
+
+local liveStandingsRemote = ReplicatedStorage.BloxKart:WaitForChild(Names.LIVE_STANDINGS_REMOTE, 10)
+if liveStandingsRemote and liveStandingsRemote:IsA("RemoteEvent") then
+	liveStandingsRemote.OnClientEvent:Connect(function(entries)
+		liveStandings:Update(entries)
+	end)
+	-- RemoteEvents do not replay a broadcast that happened while this client
+	-- was loading, so ask once for the current compact snapshot.
+	liveStandingsRemote:FireServer()
 end
 
 -- Gamepad sticks HOLD a value rather than reporting movement, so they
@@ -1349,7 +1593,6 @@ end
 -- The board your own finish puts up, and the one the flag puts up, are
 -- SEPARATE EVENTS. One flag for both meant an early finisher never saw
 -- the final standings.
-local resultsShown = false
 
 -- EVERY PHASE CHANGE THAT MOVES THE PLAYER OR THE SCREEN GOES BEHIND THE
 -- WIPE. There are three, and they are all cuts:
@@ -1366,6 +1609,20 @@ local gridWiped = false
 
 RunService.Heartbeat:Connect(function(dt)
 	local phase = match:Phase()
+	-- This runs after the driving step, deliberately overriding the chase
+	-- camera during Intermission only. At Grid the authored shot releases,
+	-- then the normal camera snaps to the kart's confirmed grid position.
+	intermissionCamera:Update(
+		dt,
+		phase == Shared.Phase.Intermission and player:GetAttribute(Names.SPLASH_DISMISSED) == true
+	)
+	-- It is armed on the exact local grid teleport above, so this begins as
+	-- soon as OUR kart is ready rather than waiting through other players'
+	-- loading barrier.
+	gridIntroCamera:Update(dt, phase == Shared.Phase.Grid, sim)
+	-- Visual guide only. Every client draws the same authored BotPath, but
+	-- this module never writes input, kart state, race progress, or AI.
+	routeGuide:Update(phase == Shared.Phase.Racing)
 
 	----------------------------------------------------------------
 	-- CROSSING THE LINE
@@ -1384,25 +1641,11 @@ RunService.Heartbeat:Connect(function(dt)
 		spectate:BeginFinish(mineNow)
 	end
 
-	-- The board arrives when the shot has played, not the instant the
-	-- line is crossed. This is the whole difference between an ending
-	-- and a screen change.
+	-- The finish shot ends naturally in spectate. Final standings belong
+	-- solely to the server Results phase, never to an individual finish.
 	if finishAt and not finishShown and os.clock() >= finishAt + SPEC.FinishHold then
 		finishShown = true
 		spectate:EndFinish()
-		-- Your board, over your finish. Provisional — the race is still
-		-- running — and dismissing it with SPECTATE is how you get back
-		-- to watching. The FINAL board is a separate event at the flag.
-		--
-		-- SKIPPED IF THE FLAG HAS ALREADY DROPPED. Finishing on the last
-		-- lap puts both boards up within a second of each other, which
-		-- is two wipes and two panels for one ending. The final one is
-		-- better in every way, so it wins.
-		if not rewardHud:IsShowing() and phase ~= Shared.Phase.Results then
-			transition:Play(function()
-				rewardHud:Show(buildRewardPayload())
-			end)
-		end
 	end
 
 	if phase ~= lastPhase then
@@ -1445,14 +1688,9 @@ RunService.Heartbeat:Connect(function(dt)
 			gridWiped = true
 			transition:Play()
 		elseif was == Shared.Phase.Results then
-			-- Closing the board. Hidden on the covered frame so the panel
-			-- never visibly pops off the screen.
-			transition:Play(function()
-				resultsShown = false
-				finishAt, finishShown = nil, false
-				serverReward = nil
-				rewardHud:Hide()
-			end)
+			-- Results is an overlay, not a spatial cut. Cleanup is immediate
+			-- so a busy grid wipe can never leave stale UI behind.
+			finishAt, finishShown = nil, false
 		end
 	end
 
@@ -1473,41 +1711,13 @@ RunService.Heartbeat:Connect(function(dt)
 		end
 	end
 
-	----------------------------------------------------------------
-	-- THE FINAL BOARD, at the flag.
-	--
-	-- Its own event, tracked separately from the one your own finish
-	-- put up. They used to share a flag, so an early finisher's
-	-- provisional board blocked the real one from ever appearing — you
-	-- crossed the line in first, saw a board with three names on it, and
-	-- that was the last thing you saw of the race.
-	----------------------------------------------------------------
-	if phase == Shared.Phase.Results then
-		if not resultsShown then
-			resultsShown = true
-			-- Built BEFORE the wipe and shown behind it, so the panel is
-			-- already assembled the moment the band clears.
-			local payload = buildRewardPayload()
-			transition:Play(function()
-				-- Closed first, because a provisional board may still be
-				-- up and Show refuses to redraw over itself.
-				rewardHud:Hide()
-				rewardHud:Show(payload)
-			end)
-		end
-	elseif resultsShown and not transition.busy then
-		-- Fallback for any exit the phase-change branch above missed —
-		-- a board must never be able to outlive the round.
-		resultsShown = false
-		serverReward = nil
-		rewardHud:Hide()
-	end
-
 	matchHud:Update(match)
 	feedHud:Update()
+	rivalSpotlight:Update()
 	xpHud:Update()
 	if mainMenu and mainMenu:IsOpen() then
 		music:Update(dt, match:Phase())
+		crowd:Update(dt, match:Phase())
 		return
 	end
 	-- OUTSIDE step(), which returns early the moment there is no
@@ -1530,6 +1740,7 @@ RunService.Heartbeat:Connect(function(dt)
 	-- Here rather than in step() because the soundtrack has to play in
 	-- the lobby, and step() returns early whenever there is no kart.
 	music:Update(dt, match:Phase())
+	crowd:Update(dt, match:Phase())
 
 	-- Spectating, once our own kart has crossed the line. Here rather
 	-- than in step() because step() returns early the moment the AI takes
@@ -1551,7 +1762,8 @@ RunService.Heartbeat:Connect(function(dt)
 	end
 	spectate:Update(dt, match:Phase(), done, readSpectateMove())
 	matchHud:SetSpectating(spectate:StatusText())
-	matchHud:SuppressResults(rewardHud:IsShowing())
+	-- MatchHud is the sole lightweight results presentation.
+	matchHud:SuppressResults(false)
 	-- Outside step() on purpose: the pad has to keep fading after you
 	-- leave the kart, and step() returns early once there's no simulation.
 	if touch then

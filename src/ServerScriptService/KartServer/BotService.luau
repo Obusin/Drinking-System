@@ -48,6 +48,7 @@ local Standings = require(BloxKart:WaitForChild("Standings"))
 local Match = require(BloxKart:WaitForChild("Match"))
 local Util = require(BloxKart:WaitForChild("Util"))
 local KartService = require(script.Parent.KartService)
+local BotBrain = require(script.Parent.BotBrain)
 local MatchService = require(script.Parent.MatchService)
 local RaceService = require(script.Parent.RaceService)
 local ProjectileService = require(script.Parent.ProjectileService)
@@ -57,12 +58,103 @@ local CollectionService = game:GetService("CollectionService")
 
 local B = Config.Bots
 local H = Config.Handling
+local M = Config.Match
 local log = Util.logger("BotService", B.Debug)
 
 local BotService = {}
 
 local bots = {}
 local rng = Random.new()
+local avatarDescriptions = {}
+local avatarDescriptionFailed = {}
+local avatarNames = {}
+local avatarNameFailed = {}
+
+local function botAvatarUserIdForSlot(slot: number): number?
+	local pool = B.AvatarPool
+	if type(pool) ~= "table" or #pool == 0 then
+		return nil
+	end
+
+	local raw = pool[(slot % #pool) + 1]
+	if type(raw) == "number" then
+		return raw
+	end
+	if type(raw) == "table" and type(raw.userId) == "number" then
+		return raw.userId
+	end
+	return nil
+end
+
+local function avatarNameFor(userId: number): string?
+	if avatarNames[userId] then
+		return avatarNames[userId]
+	end
+	if avatarNameFailed[userId] then
+		return nil
+	end
+
+	local ok, name = pcall(function()
+		return Players:GetNameFromUserIdAsync(userId)
+	end)
+	if ok and type(name) == "string" and name ~= "" then
+		avatarNames[userId] = name
+		return name
+	end
+
+	avatarNameFailed[userId] = true
+	warn(("[BotService] could not resolve bot avatar name for userId %d: %s"):format(userId, tostring(name)))
+	return nil
+end
+
+local function avatarDescriptionFor(userId: number): HumanoidDescription?
+	if avatarDescriptions[userId] then
+		return avatarDescriptions[userId]
+	end
+	if avatarDescriptionFailed[userId] then
+		return nil
+	end
+
+	local ok, description = pcall(function()
+		return Players:GetHumanoidDescriptionFromUserId(userId)
+	end)
+	if ok and typeof(description) == "Instance" and description:IsA("HumanoidDescription") then
+		avatarDescriptions[userId] = description
+		return description
+	end
+
+	avatarDescriptionFailed[userId] = true
+	warn(("[BotService] could not load bot avatar description for userId %d: %s"):format(userId, tostring(description)))
+	return nil
+end
+
+local function publishBotIdentity(bot)
+	if not (bot.kart and bot.kart.Parent) then
+		return
+	end
+	bot.kart:SetAttribute(Names.RACER_NAME, bot.name)
+	if bot.avatarUserId then
+		bot.kart:SetAttribute(Names.BOT_AVATAR_USER_ID, bot.avatarUserId)
+	else
+		bot.kart:SetAttribute(Names.BOT_AVATAR_USER_ID, nil)
+	end
+end
+
+-- The simulation still applies every item effect. This marker only keeps
+-- the resulting forced trajectory out of route-learning evidence.
+local function markExternalInterference(bot, duration: number, source: string)
+	if duration <= 0 then
+		return
+	end
+	local total = duration + B.LearnExternalGrace
+	bot.externalInterferenceUntil = math.max(bot.externalInterferenceUntil or 0, os.clock() + total)
+	bot.segmentExternallyDisrupted = true
+	log("%s learning paused for %.1fs after %s", bot.name, total, source)
+end
+
+local function learningInterrupted(bot): boolean
+	return bot.segmentExternallyDisrupted == true or os.clock() < (bot.externalInterferenceUntil or 0)
+end
 
 -- THE VOID ZONES, one query set for every bot rather than one each.
 --
@@ -161,8 +253,8 @@ end
 -- Measured off the racing line rather than off the geometry, so it sees
 -- a corner coming before the kart is in it.
 local function bendAt(u: number, ahead: number, up: Vector3): number
-	local a = Route.tangentAt(u)
-	local b = Route.tangentAt(u + ahead)
+	local a = Route.tangentAt(u, nil, Route.path())
+	local b = Route.tangentAt(u + ahead, nil, Route.path())
 	if not (a and b) then
 		return 0
 	end
@@ -209,9 +301,121 @@ end
 local lineParts: { BasePart } = {}
 local lineNodeCount = -1
 
-local function drawRacingLine()
-	local nodes = Route.nodes()
-	if #nodes == lineNodeCount then
+-- Same rule the client applies: one pad at a time, and a global guard so
+-- a row of overlapping pads cannot stack into one enormous boost.
+local function checkPads(bot)
+	if not bot.padZones then
+		return
+	end
+	local now = os.clock()
+	if now < (bot.padNextAt or 0) then
+		return
+	end
+	local cf, size = bot.sim.hitbox.CFrame, bot.sim.hitbox.Size
+	for _, entry in bot.padZones do
+		if entry.zone:Touch(cf, size) then
+			bot.padNextAt = now + Config.Boosters.GlobalCooldown
+			bot.sim:ApplyBoost(entry.def.Speed, entry.def.Duration)
+			break
+		end
+	end
+end
+
+--=====================================================================
+--  WATCHING THE PEOPLE.
+--
+--  A player carrying speed cleanly through a corner proves it works, and
+--  that is better evidence than a bot discovering it over ninety laps.
+--
+--  OBSERVED, NOT REPORTED. The kart's position replicates to the server
+--  anyway, so the route position is computed here and there is no
+--  message to forge. That matters because this feeds behaviour that gets
+--  SAVED — a client-reported version would let one modified player teach
+--  every bot on the server to drive into a wall, permanently.
+--
+--  Only clean, unboosted node crossings count. A player through a corner
+--  at 160 because of a nitro is not proof the corner is takeable at 160,
+--  and crediting it would teach bots to arrive somewhere they cannot
+--  physically turn.
+--=====================================================================
+local watched: { [Model]: { node: number, hurt: boolean } } = {}
+local nextReport = 0
+
+local function watchPlayers()
+	if not (B.LearnEnabled and B.LearnFromPlayers) then
+		return
+	end
+	local nodes = #Route.path()
+	if nodes == 0 then
+		return
+	end
+	for _, kart in KartService.allKarts() do
+		local hitbox = kart.PrimaryPart
+		-- Bots are already reporting their own experience; this is only
+		-- the people.
+		if hitbox and kart:GetAttribute(Names.OWNER) then
+			local seen = watched[kart]
+			local u = Route.nearestU(hitbox.Position, Route.path(), seen and seen.node + 0.0 or nil)
+			local at = math.floor(u) % nodes
+
+			-- Boost of any kind disqualifies the crossing. What is being
+			-- learned is what the KART can do here, not what a pick-up
+			-- did for it.
+			local boosting = kart:GetAttribute(Names.BOOSTING) == true
+
+			if not seen then
+				watched[kart] = { node = at, hurt = boosting, at = os.clock() }
+			else
+				-- WENT BACKWARDS A LONG WAY = they were put back. A
+				-- respawn is the clearest signal a player can give about
+				-- a stretch of track, and it needs no client message —
+				-- the position jump IS the report.
+				--
+				-- Guarded against the lap wrap, which is also a big
+				-- negative step and means the opposite thing.
+				local back = seen.node - at
+				if back > nodes * 0.25 and back < nodes * 0.75 then
+					BotBrain.wentOff(seen.node)
+					seen.node = at
+					seen.hurt = boosting
+					seen.at = os.clock()
+				elseif at ~= seen.node then
+					-- TOOK FAR TOO LONG counts too, same as for bots —
+					-- a stretch people crawl through is one bots should
+					-- not be flinging themselves at either.
+					local span = Route.segmentLength(seen.node, Route.path())
+					local expect = span / math.max(H.MaxSpeed * B.LearnSlowPace, 1)
+					local took = os.clock() - (seen.at or os.clock())
+					if took > expect * B.LearnSlowFactor then
+						BotBrain.wasSlow(seen.node)
+					elseif not seen.hurt then
+						BotBrain.playerPass(seen.node)
+					end
+					seen.node = at
+					seen.hurt = boosting
+					seen.at = os.clock()
+				elseif boosting then
+					seen.hurt = true
+				end
+			end
+		end
+	end
+	-- Karts come and go every round; without this the table grows by one
+	-- entry per kart that has ever existed.
+	for kart in watched do
+		if not kart.Parent then
+			watched[kart] = nil
+		end
+	end
+end
+
+local function drawRacingLine(force: boolean?)
+	local nodes = Route.path()
+	-- The guard is "has the path changed", which is right for the
+	-- per-frame call and wrong for a deliberate redraw: after a preflight
+	-- rebuild the count is often identical while the nodes themselves
+	-- moved.
+	if #nodes == lineNodeCount and not force then
 		return
 	end
 	for _, p in lineParts do
@@ -245,10 +449,36 @@ local function drawRacingLine()
 		marker(node.position + Vector3.yAxis * 2, 4, Color3.fromRGB(90, 170, 255), true)
 		-- Sampled between nodes, so the CURVE is visible rather than
 		-- guessed at from the checkpoints.
+		-- RED MEANS THERE IS NOTHING UNDER IT.
+		--
+		-- The line between two nodes is a Catmull-Rom curve, and on a
+		-- tight corner it bows OUTSIDE the road — so a path can be made
+		-- entirely of nodes that sit on tarmac and still run through the
+		-- air between them. Bots follow the curve, not the nodes, so that
+		-- is a real hole and not a drawing artefact.
+		--
+		-- Drawn in red rather than reported in a log line because the fix
+		-- is spatial: you need to see WHICH stretch to put another node
+		-- on, and a number cannot tell you that.
+		local up = node.parts[1].CFrame.UpVector
 		for k = 1, 7 do
-			local at = Route.pointAt(i - 1 + k / 8)
+			local at = Route.pointAt(i - 1 + k / 8, nil, Route.path())
 			if at then
-				marker(at + Vector3.yAxis * 1.5, 1.1, Color3.fromRGB(255, 230, 120), false)
+				local solid = Route.hasGround(at, up)
+				-- THREE STATES, NOT TWO. A gap with a launcher near it is
+				-- a JUMP and the road is supposed to stop — colouring
+				-- that the same as a hole reports every ramp on the
+				-- track as a fault, and a check that cries wolf is one
+				-- you learn to scroll past.
+				local colour, size
+				if solid then
+					colour, size = Color3.fromRGB(255, 230, 120), 1.1
+				elseif Route.launcherNear(at, Config.Race.RouteJumpLookout) then
+					colour, size = Color3.fromRGB(120, 200, 255), 1.6 -- a jump
+				else
+					colour, size = Color3.fromRGB(255, 70, 70), 2.2 -- a hole
+				end
+				marker(at + up * 1.5, size, colour, false)
 			end
 		end
 
@@ -260,19 +490,29 @@ local function drawRacingLine()
 		-- green markers sitting well inside the kerb — and a gate WIDER
 		-- than the tarmac shows up as green out in the scenery, which is
 		-- the setup mistake that puts bots off the track.
-		local tangent = Route.tangentAt(i - 1)
-		if tangent then
-			local across = tangent:Cross(Vector3.yAxis)
-			if across.Magnitude > 1e-4 then
-				across = across.Unit
-				-- Each side its own distance. A checkpoint is rarely centred
-				-- on its road, and one averaged number is too tight where
-				-- there's room and too generous over the drop.
-				local l = math.max(node.leftWidth - B.EdgeMargin, 0)
-				local r = math.max(node.rightWidth - B.EdgeMargin, 0)
-				marker(node.position - across * l + Vector3.yAxis * 1.5, 1.6, Color3.fromRGB(120, 230, 140), false)
-				marker(node.position + across * r + Vector3.yAxis * 1.5, 1.6, Color3.fromRGB(120, 230, 140), false)
-			end
+		-- THE SAME `across` THE WIDTHS WERE MEASURED WITH, read back off
+		-- the node rather than derived again.
+		--
+		-- This used to recompute it as `tangentAt(i-1) x world-up`, and
+		-- that is a different vector: the widths use a CENTRED tangent
+		-- (next minus prev) and the part's OWN up. On a corner the two
+		-- headings diverge, and on a banked one the ups do as well — so
+		-- the markers were drawn beside the road while the numbers they
+		-- represent were measured across it. The markers were wrong, not
+		-- the widths.
+		local across = node.across
+		if across.Magnitude > 1e-4 then
+			-- Each side its own distance. A gate is rarely centred on its
+			-- road, and one averaged number is too tight where there's
+			-- room and too generous over the drop.
+			local l = math.max(node.leftWidth - B.EdgeMargin, 0)
+			local r = math.max(node.rightWidth - B.EdgeMargin, 0)
+			-- Lifted along the NODE's up, not world up, or the markers
+			-- float off the surface on a banked corner — the same
+			-- mismatch that put them beside the road in the first place.
+			local lift = node.parts[1].CFrame.UpVector * 1.5
+			marker(node.position - across * l + lift, 1.6, Color3.fromRGB(120, 230, 140), false)
+			marker(node.position + across * r + lift, 1.6, Color3.fromRGB(120, 230, 140), false)
 		end
 
 		if node.halfWidth < narrowest then
@@ -356,7 +596,13 @@ local function drive(bot, dt: number)
 	-- Where we are on the racing line. Re-projected each step rather than
 	-- integrated, so a bot that gets knocked off, spun or respawned finds
 	-- its way back instead of steering at a point it has long passed.
-	bot.u = Route.nearestU(sim.pos)
+	-- HINTED WITH THE PREVIOUS u, so the search is a window rather than
+	-- the whole lap. Without it the nearest point can flip to a distant
+	-- stretch that happens to pass close by, and the bot turns to chase
+	-- it — which is the circling. Every OTHER call here stays global on
+	-- purpose: a respawn or a grid placement genuinely does not know
+	-- where it is, and a window around a stale u would strand it.
+	bot.u = Route.nearestU(sim.pos, Route.path(), bot.u)
 
 	local speed = math.abs(sim.speed)
 	local bend = bendAt(bot.u, B.CornerLookahead, sim.up)
@@ -364,7 +610,7 @@ local function drive(bot, dt: number)
 	-- Asymmetric, because a checkpoint is rarely centred on its road and
 	-- one averaged number is too generous on exactly the side with the
 	-- drop. Both sides are probed with rays, not read off the gate.
-	local roomL, roomR = Route.roomAt(bot.u)
+	local roomL, roomR = Route.roomAt(bot.u, bot.branch, Route.path())
 	roomL = math.max(roomL - B.EdgeMargin, 0)
 	roomR = math.max(roomR - B.EdgeMargin, 0)
 
@@ -377,7 +623,12 @@ local function drive(bot, dt: number)
 	-- something goes wrong and decays when it doesn't. That's enough,
 	-- because the failure it has to stop repeating is entirely local: one
 	-- corner, taken too wide, every lap.
-	local caution = bot.caution[math.floor(bot.u) % math.max(#Route.nodes(), 1)] or 0
+	-- THE BOT'S OWN NERVES PLUS THE CIRCUIT'S REPUTATION. One is what
+	-- this driver has learned this race; the other is what every bot has
+	-- learned here across every session. They add, because a corner can
+	-- be both generally nasty and personally unlucky.
+	local hereIdx = math.floor(bot.u) % math.max(#Route.path(), 1)
+	local caution = (bot.caution[hereIdx] or 0) + BotBrain.dangerAt(hereIdx) * B.CautionMax
 	if caution > 0 then
 		local pull = math.clamp(caution * B.CautionPull, 0, 1)
 		roomL *= 1 - pull
@@ -412,8 +663,75 @@ local function drive(bot, dt: number)
 	-- Scaled to the room available on the side it is heading for. Done
 	-- here rather than at spawn because the road width changes along the
 	-- lap, and a line chosen once cannot know that.
-	local sideRoom = if bot.lineBias >= 0 then roomR else roomL
-	local offset = bot.lineBias * sideRoom * B.LineSpread + wander
+	--=============================================================
+	--  STRAIGHT OFF THE LINE, THEN FIND YOUR LINE.
+	--
+	--  `lineBias` and `wander` are live from the first frame, so the
+	--  moment the lights go out every bot immediately sets off toward
+	--  its own randomly-chosen side of a road it has not looked at yet.
+	--  Eight of them doing that at once is the weaving at the start —
+	--  it is not a bug in any one behaviour, it is every behaviour
+	--  arriving at full strength before there is any information.
+	--
+	--  A real grid launches straight and sorts itself out over the
+	--  first few seconds. This ramps the personality in over
+	--  `SettleTime` instead of switching it on, so they leave the line
+	--  pointed forwards and fan out as they go.
+	--=============================================================
+	local settle = 1
+	local since = MatchService.racingSince()
+	if since then
+		local racing = workspace:GetServerTimeNow() - since
+		settle = math.clamp(racing / math.max(B.SettleTime, 1e-3), 0, 1)
+		-- Eased, or the bias arrives as a step at the end of the ramp
+		-- and they all twitch outward on the same frame.
+		settle = settle * settle * (3 - 2 * settle)
+	end
+	bot.settle = settle
+
+	----------------------------------------------------------------
+	-- THE RACING LINE, WHICH THEY DID NOT HAVE.
+	--
+	-- The line was a RANDOM bias per bot plus a sine wander. That is a
+	-- personality, not a plan: it takes no notice of where the corners
+	-- are, so a bot would sit on the outside through an apex and cut
+	-- across the exit for no reason. From outside it reads exactly as
+	-- "makes bad decisions", because it is not making any.
+	--
+	-- A real line is geometric: OUTSIDE on the way in, INSIDE at the
+	-- apex, and let it run wide on exit. That is one signed number —
+	-- the road's own curvature — read at two places:
+	--
+	--   curvature AHEAD  a corner is coming, so move to its outside
+	--   curvature HERE   I am in it, so take the inside
+	--
+	-- `Route.curvatureAt` is signed, and the sign convention lands the
+	-- right way round with no correction: NEGATIVE is a left turn, so
+	-- `sign(k)` is already "which side is the inside".
+	--
+	-- The bias and wander survive at a fraction of their old strength.
+	-- Two bots on identical lines look like one bot drawn twice, and the
+	-- variety is worth keeping — it just should not be the plan.
+	----------------------------------------------------------------
+	local path = Route.path()
+	local kHere = Route.curvatureAt(bot.u, sim.up, bot.branch, path)
+	local kSoon = Route.curvatureAt(bot.u + B.ApexLook, sim.up, bot.branch, path)
+
+	local tight = math.clamp(math.abs(kHere) / B.ApexFullCurve, 0, 1)
+	local coming = math.clamp(math.abs(kSoon) / B.ApexFullCurve, 0, 1)
+
+	-- Fraction of the available road, -1 (hard left) to +1 (hard right).
+	-- Wide is negated because the outside of a corner is the side away
+	-- from the way it turns.
+	local wide = -math.sign(kSoon) * coming * B.ApexWide
+	local apex = math.sign(kHere) * tight * B.ApexTight
+	-- The apex wins as it arrives: you cannot still be setting up for a
+	-- corner you are already in.
+	local lineWant = wide * (1 - tight) + apex
+
+	local sideRoom = if lineWant >= 0 then roomR else roomL
+	local biasRoom = if bot.lineBias >= 0 then roomR else roomL
+	local offset = (lineWant * sideRoom + bot.lineBias * biasRoom * B.LineSpread + wander) * settle
 
 	----------------------------------------------------------------
 	-- TRAFFIC
@@ -465,6 +783,129 @@ local function drive(bot, dt: number)
 	-- rather than a number someone guessed.
 	----------------------------------------------------------------
 
+	----------------------------------------------------------------
+	-- A SOFT EDGE, THEN THE HARD ONE.
+	--
+	-- The clamp below is a wall the bot is happy to lean on: every term
+	-- above — the line bias, the wander, a dodge — can push past the
+	-- limit, and clamping simply parks the bot AT it. So a field spent
+	-- the race tracking the outer edge, which on most corners is the
+	-- barrier, and any nudge put them into it.
+	--
+	-- A clamp says "you may not go further". It never says "you are
+	-- already too far", and those are different instructions.
+	--
+	-- So the last stretch of road before the edge is now a spring rather
+	-- than a wall. Inside `EdgeSoft` studs of the limit the offset is
+	-- pushed back toward the middle, harder the closer it gets — the
+	-- bot still uses the whole road when it has a reason to, and drifts
+	-- off the paint when it does not.
+	----------------------------------------------------------------
+	local limit = if offset >= 0 then roomR else roomL
+	if limit > 1e-3 then
+		local slack = limit - math.abs(offset)
+		if slack < B.EdgeSoft then
+			-- 0 at the soft line, 1 at the edge. Squared so the push is
+			-- gentle where it starts and firm where it matters.
+			local how = math.clamp(1 - slack / B.EdgeSoft, 0, 1)
+			offset -= math.sign(offset) * how * how * B.EdgeSoft * B.EdgePush
+		end
+	end
+
+	----------------------------------------------------------------
+	-- RAMPS, WHICH BOTS COULD NOT SEE AT ALL.
+	--
+	-- There was no mention of GlideRamp or FlipRamp anywhere in this
+	-- file, so a bot hit one only by accident — and a ramp the field
+	-- never uses is a piece of track that may as well not be built.
+	--
+	-- A GLIDE RAMP IS TAKEN EVERY TIME. It is a shortcut across a gap;
+	-- declining it is not a personality, it is a mistake, and a bot that
+	-- drives past the interesting part of the track looks broken.
+	--
+	-- A FLIP RAMP IS A CHOICE. It is a boost, not a route, so it is
+	-- rolled per bot per approach — some take it, some do not, which is
+	-- where variety belongs.
+	--
+	-- Implemented as a PULL ON THE OFFSET, not as a new aim point. The
+	-- bot keeps following the racing line and simply drifts onto the
+	-- ramp's lateral position as it closes — so everything downstream
+	-- (the soft edge, traffic, the clamp) still applies, and a ramp
+	-- hanging over the void cannot drag a bot off the road.
+	----------------------------------------------------------------
+	bot.rampAhead = 0
+	if B.SeekRamps and (bot.settle or 1) > 0.5 then
+		local nose = sim.pos + sim.forward * 2
+		-- Same convention as everywhere else: right is positive, so a
+		-- ramp's `want` drops straight into `offset` with no sign fixing.
+		local fwd = Route.tangentAt(bot.u, bot.branch, Route.path())
+		local across = if fwd then fwd:Cross(sim.up) else nil
+		if across and across.Magnitude > 1e-4 then
+			across = across.Unit
+			local bestPull, bestAt = 0, nil
+			for _, tag in { Config.Glide.RampTag, Config.Trick.RampTag } do
+				local definite = tag == Config.Glide.RampTag
+				for _, ramp in CollectionService:GetTagged(tag) do
+					if ramp:IsA("BasePart") then
+						local span = ramp.Position - nose
+						local along = span:Dot(sim.forward)
+						-- Ahead, within reach, and roughly on our road.
+						if along > 0 and along < B.RampSeekRange and span.Magnitude < B.RampSeekRange then
+							local want = span:Dot(across)
+							-- Closer means commit harder, so a bot lines up
+							-- gradually instead of jinking at the last moment.
+							local urgency = 1 - math.clamp(along / B.RampSeekRange, 0, 1)
+							local take = definite or bot.takesFlips
+							if take and urgency > bestPull then
+								bestPull, bestAt = urgency, want
+							end
+						end
+					end
+				end
+			end
+			if bestAt then
+				offset += (bestAt - offset) * bestPull * B.RampSeekPull
+				-- COMMITTED. A ramp needs SPEED to fire — a FlipRamp
+				-- refuses below Trick.MinSpeed — and the throttle rules
+				-- below have no idea a ramp is there. `bot.jumping` does
+				-- not cover it either: that means "the route crosses a
+				-- gap", and a flip ramp is usually a bump on solid road.
+				--
+				-- So the bot read the ramp's approach as a bend, lifted,
+				-- arrived under the threshold, and drove over a launcher
+				-- that did nothing. It was not failing the trick; it was
+				-- never starting one.
+				bot.rampAhead = bestPull
+			end
+		end
+	end
+
+	----------------------------------------------------------------
+	-- STEERING HOME. Set when the bot has stopped making progress.
+	--
+	-- Everything above builds a line with a personality — a bias, a
+	-- wander, a dodge, a ramp. All of it is what put the bot round the
+	-- side of a tube in the first place, so while it is lost the whole
+	-- lot is overruled and it simply drives the centreline until it is
+	-- moving down the track again.
+	--
+	-- A plain override rather than another weighted term: the point of
+	-- this state is that the usual reasoning is what failed.
+	----------------------------------------------------------------
+	if (bot.homeFor or 0) > 0 then
+		bot.homeFor = math.max(bot.homeFor - dt, 0)
+		offset = 0
+	elseif BotBrain.tameAt(hereIdx) > B.LearnTameAt then
+		-- LEARNED: bots keep taking forever through this node. That is
+		-- the tunnel signature — nothing crashes, nothing leaves the
+		-- road, and nobody gets anywhere. Drive the centre and stop
+		-- being clever, because the cleverness is what got them stuck.
+		--
+		-- Eased rather than snapped to zero: a node that flips this on
+		-- mid-corner should not yank the wheel.
+		offset *= 1 - math.clamp(BotBrain.tameAt(hereIdx), 0, 1)
+	end
+
 	offset = math.clamp(offset, -roomL, roomR)
 
 	----------------------------------------------------------------
@@ -493,13 +934,13 @@ local function drive(bot, dt: number)
 	-- Applied AFTER the corner shortening above, because shortening it
 	-- for a bend is precisely how you fall back under the limit.
 	lookahead = math.max(lookahead, speed * B.ControlLag * B.LookaheadLagMargin)
-	local aheadU = bot.u + lookahead / Route.segmentLength(bot.u)
-	local aim = Route.pointAt(aheadU)
+	local aheadU = bot.u + lookahead / Route.segmentLength(bot.u, Route.path())
+	local aim = Route.pointAt(aheadU, bot.branch, Route.path())
 	if not aim then
 		return
 	end
 
-	local tangent = Route.tangentAt(aheadU)
+	local tangent = Route.tangentAt(aheadU, bot.branch, Route.path())
 	if tangent then
 		local across = tangent:Cross(sim.up)
 		if across.Magnitude > 1e-4 then
@@ -541,7 +982,7 @@ local function drive(bot, dt: number)
 	local ledge, jump = false, false
 	local nose = sim.pos + sim.forward * (B.LedgeLook + speed * B.LedgeLookPerSpeed)
 	if not (Route.hasGround(aim, sim.up) and Route.hasGround(nose, sim.up)) then
-		local beyond = Route.pointAt(aheadU + B.JumpSpan)
+		local beyond = Route.pointAt(aheadU + B.JumpSpan, bot.branch, Route.path())
 		if beyond and Route.hasGround(beyond, sim.up) then
 			jump = true
 		else
@@ -559,7 +1000,7 @@ local function drive(bot, dt: number)
 	if ledge or jump then
 		-- Both want the same line — the centre, where the road is and
 		-- where a jump is surveyed from. They differ entirely on throttle.
-		local centre = Route.pointAt(aheadU)
+		local centre = Route.pointAt(aheadU, bot.branch, Route.path())
 		if centre then
 			aim = centre
 		end
@@ -610,7 +1051,7 @@ local function drive(bot, dt: number)
 	right = if right.Magnitude > 1e-4 then right.Unit else Vector3.zero
 
 	-- FEED-FORWARD. The single biggest change here.
-	local kappaPath = Route.curvatureAt(aheadU, sim.up)
+	local kappaPath = Route.curvatureAt(aheadU, sim.up, bot.branch, Route.path())
 
 	-- FEEDBACK, as pure pursuit in curvature form: k = 2y/L² is the arc
 	-- that actually passes THROUGH the aim point. The old dot-product was
@@ -659,7 +1100,20 @@ local function drive(bot, dt: number)
 	-- outside that reads as a bot skipping ahead, which is what it was.
 	--
 	-- Where you fell is not where you were. Store where you were.
-	if sim.grounded and math.abs(actualOffset) <= room then
+	-- ROAD UNDER ME, not "near the middle of a number I measured".
+	--
+	-- This used to require `|offset| <= room`, and in a tube that never
+	-- holds: `room` comes from rays fired sideways, which in a rounded
+	-- section hit the wall curving upward a few studs out. So the bot is
+	-- "unsafe" for the entire tunnel, `safeU` stops updating at the
+	-- entrance, and a fall at the far end puts it back before the tunnel.
+	-- That is the "sent back very far" — it was never about the fall, it
+	-- was about the last point that qualified.
+	--
+	-- `hasGround` asserts the thing actually being claimed: this is a
+	-- place worth coming back to. The offset test stays as a cheap
+	-- accept, so nothing gets slower on ordinary road.
+	if sim.grounded and (math.abs(actualOffset) <= room or Route.hasGround(sim.pos, sim.up)) then
 		bot.safeU = bot.u
 		bot.safeCF = CFrame.lookAt(sim.pos, sim.pos + sim.forward, sim.up)
 	end
@@ -791,6 +1245,56 @@ local function drive(bot, dt: number)
 	----------------------------------------------------------------
 	local ease = bend * B.CornerBrake * (2 - bot.skill)
 
+	----------------------------------------------------------------
+	-- THE CORNER HAS A SPEED LIMIT, AND IT IS NOT A GUESS.
+	--
+	-- The lift above is proportional to how sharp the bend is and takes
+	-- NO ACCOUNT OF HOW FAST THE BOT IS GOING. A kart at 95 and one at
+	-- 40 get the same throttle cut into the same corner, so the fast one
+	-- arrives at a corner it physically cannot turn through and
+	-- understeers into the wall. No racing line fixes that — only
+	-- arriving slower does.
+	--
+	-- This kart's own steering model gives the limit exactly, with no
+	-- grip constant to invent. Full lock at speed v yields yaw rate
+	-- turn(v), so the tightest curvature it can hold is turn(v)/v:
+	--
+	--     turn(v) = TurnRate + (TurnRateTop - TurnRate) * v/MaxSpeed
+	--     hold k   <=>   turn(v)/v >= k
+	--     solving  ->    v <= TurnRate / (k + (TurnRate - TurnRateTop)/MaxSpeed)
+	--
+	-- Which says a 50-stud radius tops out near 85 studs/s and a 20-stud
+	-- hairpin near 42 — numbers the bend-based lift had no way to know.
+	--
+	-- A MARGIN, because driving at exactly the limit IS understeer: the
+	-- kart needs steering left over to correct with. Better bots use
+	-- more of it, which is what skill should mean.
+	----------------------------------------------------------------
+	local kWorst = 0
+	for k = 0, 4 do
+		local at = bot.u + k * (B.CornerLookahead / 4)
+		kWorst = math.max(kWorst, math.abs(Route.curvatureAt(at, sim.up, bot.branch, Route.path())))
+	end
+	local fade = (H.TurnRate - H.TurnRateTop) / math.max(H.MaxSpeed, 1)
+	local vLimit = H.TurnRate / math.max(kWorst + fade, 1e-4)
+
+	-- LEARNING BUYS MARGIN, NOT SPEED. A naive bot leaves 12% of the
+	-- corner limit unused because it needs steering left over to correct
+	-- with; one that has never got this corner wrong does not need as
+	-- much. That is the entire mechanism by which experience makes them
+	-- quicker, and it is bounded by physics rather than by a dial —
+	-- nothing here can ask for a corner speed the kart cannot hold.
+	local learned = BotBrain.confidenceAt(hereIdx)
+	local margin = B.CornerMargin + (B.CornerMarginLearned - B.CornerMargin) * learned
+	vLimit *= margin * (B.CornerMarginSkill + (1 - B.CornerMarginSkill) * bot.skill)
+
+	-- Only bites when actually too fast. Below the limit this is zero and
+	-- the bot is on full throttle, which is the half the bend-based rule
+	-- got wrong in the other direction — it lifted on every bend whether
+	-- it needed to or not.
+	local over = math.clamp(speed / math.max(vLimit, 1) - 1, 0, 1)
+	ease = math.max(ease, over * B.CornerBrakeHard)
+
 	-- Throttle isn't a smooth function of anything for a human: they
 	-- lift, reapply, and hold it slightly wrong throughout. A bot pinned
 	-- at exactly 1.000 down every straight is a bot.
@@ -810,7 +1314,7 @@ local function drive(bot, dt: number)
 	-- to lift is overruled — including the corner-braking above, which
 	-- reads a ramp's approach as a bend and would take the pace off at
 	-- exactly the wrong moment.
-	if bot.jumping then
+	if bot.jumping or (bot.rampAhead or 0) > B.RampCommitAt then
 		c.touchThrottle = math.max(c.touchThrottle, B.JumpThrottle)
 	elseif (bot.ledgeFor or 0) > 0 then
 		-- Off the edge of the world beats every other consideration.
@@ -887,13 +1391,62 @@ local function drive(bot, dt: number)
 	local aheadBend, aheadAt = 0, 0
 	for k = 1, 6 do
 		local at = bot.u + k * (B.DriftScanAhead / 6)
-		local b = bendAt(at, B.CornerLookahead, sim.up)
+		local b = bendAt(at, B.DriftBendLookahead, sim.up)
 		if b > aheadBend then
 			aheadBend, aheadAt = b, at
 		end
 	end
 
-	if not bot.driftPlan and aheadBend >= B.DriftBend and speed >= B.DriftMinSpeed then
+	--=============================================================
+	--  DO NOT START A DRIFT YOU HAVE NO ROOM FOR.
+	--
+	--  A drift is a controlled slide OUTWARD, and nothing here ever
+	--  asked whether there was road out there to slide onto. A bot
+	--  already sitting near the edge would commit to one and leave the
+	--  track every time — which is the single most common way they get
+	--  off the grid.
+	--
+	--  Also suppressed during the launch settle: drifting off the line
+	--  before the field has spread out is most of the opening-corner
+	--  chaos, and a bot that just drives the first corner cleanly beats
+	--  one that slides into the wall.
+	--=============================================================
+	-- Validate the WHOLE proposed manoeuvre, not only the road under the
+	-- kart right now. A narrow entry or exit is just as capable of turning
+	-- an otherwise good apex into a wall hit.
+	local entry = aheadAt - B.DriftEntry * bot.skill
+	local exit = aheadAt + B.DriftHold
+	local function driftWindowSafe(): boolean
+		local samples = math.max(B.DriftSafetySamples, 2)
+		for sample = 0, samples - 1 do
+			local at = entry + (exit - entry) * sample / (samples - 1)
+			local node = math.floor(at) % math.max(#path, 1)
+			local left, right = Route.roomAt(at, bot.branch, path)
+			left = math.max(left - B.EdgeMargin, 0)
+			right = math.max((right or left) - B.EdgeMargin, 0)
+			-- Conservatively reserve drift room on both sides: the planner's
+			-- line and drift direction can change through an S-bend.
+			if math.min(left, right) < B.DriftNeedRoom then
+				return false
+			end
+			if not BotBrain.driftOkAt(node) or BotBrain.tameAt(node) > B.LearnTameAt then
+				return false
+			end
+		end
+		return true
+	end
+	local haveRoom = driftWindowSafe()
+
+	if
+		not bot.driftPlan
+		and aheadBend >= B.DriftBend
+		and speed >= B.DriftMinSpeed
+		and haveRoom
+		and not learningInterrupted(bot)
+		and (bot.settle or 1) >= B.DriftAfterSettle
+		-- LEARNED: this corner keeps putting bots into a wall, so it is
+		-- not one to be sideways in. Everywhere else still drifts.
+	then
 		-- Rolled once per corner. A bot that takes every drift perfectly
 		-- is one you can never out-drive; missing some is what leaves the
 		-- door open.
@@ -901,8 +1454,8 @@ local function drive(bot, dt: number)
 			bot.driftPlan = {
 				-- Entered BEFORE the apex, and how early is skill: a good
 				-- driver commits sooner and carries more through.
-				entry = aheadAt - B.DriftEntry * bot.skill,
-				exit = aheadAt + B.DriftHold,
+				entry = entry,
+				exit = exit,
 			}
 		else
 			-- Remember we declined this one, so it isn't re-rolled every
@@ -1149,6 +1702,9 @@ local function checkHazards(bot)
 	end
 
 	local landed = bot.sim:Spinout(item.SpinTime, item.SpeedKeep, item.StunTime)
+	if landed then
+		markExternalInterference(bot, math.max(item.SpinTime or 0, item.StunTime or 0), item.Id)
+	end
 	if landed and (item.SpinTime or 0) > 0 then
 		bot.item = nil
 	end
@@ -1240,6 +1796,26 @@ local function step(dt: number)
 			continue
 		end
 
+		-- A finished racer gets a tiny coast for the finish camera, then parks.
+		-- This intentionally bypasses the normal bot loop: a completed kart
+		-- must never collect a box, learn from traffic, or throw a power-up.
+		if bot.finished and racing then
+			if not bot.parked and now < (bot.parkAt or now) then
+				bot.controls.touchThrottle = 0
+				bot.controls.touchSteer = 0
+				bot.sim:Step(dt, bot.controls)
+			elseif not bot.parked then
+				bot.parked = true
+				bot.controls.touchThrottle = 0
+				bot.controls.touchSteer = 0
+				local body = bot.kart.PrimaryPart
+				if body then
+					body.Anchored = true
+				end
+			end
+			continue
+		end
+
 		----------------------------------------------------------------
 		-- BACK TO THE GRID
 		--
@@ -1258,7 +1834,7 @@ local function step(dt: number)
 				bot.needsGrid = false
 				bot.sim:RespawnAt(grid)
 				bot.sim:ResetForRound()
-				bot.u = Route.nearestU(grid.Position)
+				bot.u = Route.nearestU(grid.Position, Route.path())
 				bot.lastU = nil
 				-- The grid IS a known-good position, and last round's is
 				-- not — reviving to a corner from the previous race would
@@ -1276,9 +1852,18 @@ local function step(dt: number)
 				-- carries last round's position in the sequence into the
 				-- new one and is credited a lap for reaching a gate it
 				-- passed before the restart.
-				bot.nextIdx = 1
+				-- The lap's DISTANCE counter, not a sequence index. Reset
+				-- for the same reason the old one was: carrying last
+				-- round's progress into a new one credits a lap that was
+				-- driven before the restart.
+				bot.lapU = 0
+				bot.lastNodeIdx = -1
+				bot.lastU = nil
 				bot.airFor = 0
 				bot.item = nil
+				bot.finished = nil
+				bot.parked = nil
+				bot.parkAt = nil
 				bot.heldSteer = 0
 				table.clear(bot.sawSteer)
 				log("%s on the grid", bot.name)
@@ -1363,19 +1948,61 @@ local function step(dt: number)
 		-- says which test tripped and how far it got, which is the
 		-- evidence needed to actually diagnose it.
 		--------------------------------------------------------------
+		-- RAMPS ARE LEGITIMATE AIR, AND THIS USED TO NOT KNOW THAT.
+		--
+		-- The thresholds were chosen when the only way off the ground was
+		-- a hop, and the comment above still claims they sit "well beyond
+		-- any legitimate jump". The glider broke that: 2*46/24 is 3.83s of
+		-- ballistic airtime against a 4s limit, and the flare CAPS the
+		-- descent, so a real glide runs longer than the arc says and
+		-- routinely trips it. The bot was then teleported back mid-flight.
+		-- Apex is 44 studs too, against a 60-stud ceiling that an elevated
+		-- ramp clears easily.
+		--
+		-- So the watchdog now measures UNEXPLAINED air only. A glide or a
+		-- trick is a state the simulation knows about; while one is
+		-- running there is nothing to recover from, and the safety net is
+		-- still there for everything else.
+		--  AND A PLAIN RAMP OVER A GAP, which this still did not cover.
+		--
+		--  Glides and tricks were excused, but the commonest long flight
+		--  is neither: an ordinary launch across a gap the route crosses.
+		--  `bot.jumping` is already the flag for exactly that — "the road
+		--  carries on over there, this is a ramp and not a cliff" — and
+		--  the watchdog was not consulting it. A landing far enough away
+		--  therefore exceeded MaxAirTime mid-flight and the bot was
+		--  yanked back, which is the same failure the glider had.
+		--
+		--  LATCHED, because `jumping` is about the road ahead and can go
+		--  false in the last moments of a flight that is going perfectly
+		--  well. It is cleared on touchdown.
+		--
+		--  EXCUSED IS NOT UNLIMITED. A deliberate jump gets a much longer
+		--  leash, not an infinite one, so a bot that genuinely ends up
+		--  flying forever is still recovered — it just is not interrupted
+		--  for doing the thing the track asked it to do.
 		if bot.sim.grounded then
+			bot.airLaunched = false
+		elseif bot.jumping then
+			bot.airLaunched = true
+		end
+
+		local excused = bot.sim.state == "glide" or (bot.sim.trickUntil or 0) > os.clock()
+		local limit = if bot.airLaunched then B.MaxAirTimeJumping else B.MaxAirTime
+		local ceiling = if bot.airLaunched then B.MaxAboveRouteJumping else B.MaxAboveRoute
+		if bot.sim.grounded or excused then
 			bot.airFor = 0
 		else
 			bot.airFor = (bot.airFor or 0) + dt
 		end
 
 		local above = 0
-		local onLine = Route.pointAt(bot.u)
+		local onLine = Route.pointAt(bot.u, bot.branch, Route.path())
 		if onLine then
 			above = bot.sim.pos.Y - onLine.Y
 		end
 
-		if (bot.airFor or 0) > B.MaxAirTime or above > B.MaxAboveRoute then
+		if not excused and ((bot.airFor or 0) > limit or above > ceiling) then
 			warn(
 				("[BotService] %s recovered by the flying watchdog — airborne %.1fs, %.0f studs above the racing line, speed %.0f. This is a safety net; the cause is still unknown."):format(
 					bot.name,
@@ -1385,6 +2012,14 @@ local function step(dt: number)
 				)
 			)
 			bot.airFor = 0
+			-- LEARNED FROM, like every other way of ending up somewhere
+			-- you should not be. The comment above says the cause is
+			-- unknown, and that is exactly why it is worth recording:
+			-- bots repeatedly launching into space at one node is a fact
+			-- about that node whether or not anyone knows the mechanism,
+			-- and approaching it more carefully is the right response to
+			-- a hazard you cannot explain.
+			BotService.noteWentOff(bot)
 			BotService.revive(bot)
 		end
 
@@ -1450,6 +2085,7 @@ local function step(dt: number)
 				drive(bot, dt)
 				collect(bot)
 				checkHazards(bot)
+				checkPads(bot)
 				if bot.item and now >= bot.itemAt then
 					useItem(bot)
 				end
@@ -1470,15 +2106,43 @@ local function step(dt: number)
 				-- means the counter simply stops advancing until it comes
 				-- back for it, so a bot that flies over half the track
 				-- gains nothing at all from the trip.
-				local n = #Route.nodes()
-				if n > 0 then
+				--=================================================
+				--  ONE LAP RULE FOR EVERYONE.
+				--
+				--  Bots used to need every path node index IN ORDER,
+				--  while players need the finish line plus 80% of the
+				--  route driven. Two different rules producing one
+				--  number that placement sorts on.
+				--
+				--  On a dense path that is 61 indices a bot has to hit
+				--  exactly. One miss — a knock, a respawn, a windowed
+				--  nearestU stepping over it — and `nextIdx` stalls, so
+				--  the lap never counts and the bot sits a whole lap
+				--  behind in the standings while driving perfectly well.
+				--  That is the placement being wrong, and it was never
+				--  about the bot.
+				--
+				--  Now it accumulates forward route distance exactly as
+				--  Race.luau does, and banks a lap on passing the start
+				--  node having covered `LapNeed` of the path. Same
+				--  question, same answer, whoever is asking.
+				--=================================================
+				local n = #Route.path()
+				if n > 0 and bot.lastU then
+					local step = bot.u - bot.lastU
+					if step < -n * 0.5 then
+						step += n -- unwrapped: crossing node 0
+					end
+					-- Small forward steps only. A big jump is a respawn
+					-- or a teleport, and neither is distance driven.
+					if step > 0 and step < n * Config.Race.LapStepMax then
+						bot.lapU = (bot.lapU or 0) + step
+					end
+
 					local at = math.floor(bot.u) % n
-					local want = bot.nextIdx % n
-					if at == want then
-						bot.nextIdx += 1
-						-- Node 0 is the line. Reaching it having taken every
-						-- other gate in order is a completed lap.
-						if want == 0 then
+					if at == 0 and (bot.lastNodeIdx or -1) ~= 0 then
+						if (bot.lapU or 0) >= n * Config.Race.LapNeed then
+							bot.lapU = 0
 							bot.laps += 1
 							-- A lap survived is evidence the caution worked,
 							-- so let it fade. Otherwise one incident makes a
@@ -1486,35 +2150,135 @@ local function step(dt: number)
 							-- server's life.
 							BotService.decayCaution(bot)
 
-							-- CROSSING THE LINE. Without this a bot can
-							-- complete every lap and never be counted, so
-							-- `finishers` never reaches the size of the
-							-- field and the round runs out the clock with
-							-- everyone parked on the start straight.
-							--
-							-- Reported once: FINISH_PLACE guards it here and
-							-- MatchService checks it again, so a bot still
-							-- driving after the flag can't take a second
-							-- place.
-							if
-								bot.laps >= Config.Race.TotalLaps
-								and not bot.kart:GetAttribute(Match.FINISH_PLACE)
-							then
-								local since = MatchService.racingSince()
-								if since then
-									MatchService.botFinished(
-										bot.kart,
-										bot.name,
-										workspace:GetServerTimeNow() - since
-									)
-								end
-							end
+							-- NEW LAP, NEW WAY THROUGH THE SPLITS. Chosen
+							-- once at spawn, a bot takes the same side of
+							-- every fork for the whole race, which is the
+							-- variety the fork was built for not happening.
+							-- Re-rolled here rather than mid-lap, because
+							-- swapping branches while approaching one is a
+							-- bot changing its mind at the divider.
+							bot.branch = math.random(1, 4)
+
 						end
+					end
+					-- Edge-triggered: the lap banks on ARRIVING at node 0,
+					-- not on every frame spent sitting on it.
+					bot.lastNodeIdx = at
+				end
+
+				-- ONE OFFICIAL FINISH RULE. `bot.laps` above exists only for
+				-- branch/caution learning; it must never decide placement or a
+				-- finish. RaceService projects this bot's physical kart onto the
+				-- same authored path, samples the same end zone, and banks the
+				-- same route-distance proof as it does for a player.
+				if not bot.kart:GetAttribute(Match.FINISH_PLACE) and RaceService.canFinish(bot.kart) then
+					local since = MatchService.racingSince()
+					if since then
+						MatchService.botFinished(bot.kart, bot.name, workspace:GetServerTimeNow() - since)
+					end
+				end
+				--=================================================
+				--  GOING NOWHERE FAST.
+				--
+				--  Every recovery so far asks "is it off the track" or
+				--  "is it in the air". None of them ask the question a
+				--  tube actually poses: the bot is ON the road, moving
+				--  at speed, upright, and making NO PROGRESS ALONG IT.
+				--
+				--  In a rounded section the lateral direction curves
+				--  around the barrel, so a bot that drifts off the
+				--  centreline can drive round the circumference instead
+				--  of down the length. Nothing is wrong by any existing
+				--  test — it is simply orbiting.
+				--
+				--  Measured on `u`, unwrapped, because that is the only
+				--  thing that means "further round the lap". Speed is
+				--  deliberately part of it: a bot sat still at the
+				--  lights is not lost, and one pinned against a wall is
+				--  already handled by the stuck check.
+				--=================================================
+				if bot.lastU then
+					local step = bot.u - bot.lastU
+					local nodes = #Route.path()
+					if nodes > 0 and step < -nodes * 0.5 then
+						step += nodes
+					end
+					if step > B.LostStep or math.abs(bot.sim.speed) < B.LostMinSpeed then
+						bot.lostFor = 0
+					else
+						bot.lostFor = (bot.lostFor or 0) + dt
 					end
 				end
 				bot.lastU = bot.u
+
+				--=================================================
+				--  WHAT THIS NODE JUST DID TO THIS BOT.
+				--
+				--  Reported per NODE CROSSING rather than per frame,
+				--  so a bot grinding a wall for a second logs one
+				--  incident and not sixty. `wallHere` latches while
+				--  inside a node and is banked when it leaves.
+				--=================================================
+				local hereNode = math.floor(bot.u) % math.max(#Route.path(), 1)
+				if hereNode ~= bot.lastNode then
+					if bot.lastNode then
+						-- HOW LONG SHOULD THIS HAVE TAKEN? The segment's
+						-- own length at an unremarkable pace — so a long
+						-- straight is not reported for being long, and a
+						-- short tunnel is not excused for being short.
+						local span = Route.segmentLength(bot.lastNode, Route.path())
+						local expect = span / math.max(H.MaxSpeed * B.LearnSlowPace, 1)
+						local took = now - (bot.nodeAt or now)
+						local interrupted = learningInterrupted(bot)
+						if not interrupted then
+							if bot.wallHere then
+								BotBrain.hitWall(bot.lastNode)
+							elseif took > expect * B.LearnSlowFactor then
+								BotBrain.wasSlow(bot.lastNode)
+							else
+								BotBrain.gotThrough(bot.lastNode)
+							end
+						end
+					end
+					bot.lastNode = hereNode
+					bot.wallHere = false
+					-- If this segment starts under an item effect, keep it
+					-- excluded even if the effect expires just before it ends.
+					bot.segmentExternallyDisrupted = now < (bot.externalInterferenceUntil or 0)
+					bot.nodeAt = now
+				end
+
+				if (bot.lostFor or 0) > B.LostTime then
+					bot.lostFor = 0
+					-- STEER HOME FIRST, revive only if that fails. A
+					-- teleport is jarring and visible; being nudged back
+					-- onto the line is neither, and in a tube it is
+					-- usually all that is needed.
+					bot.homeFor = B.LostSteerHome
+					bot.lostTries = (bot.lostTries or 0) + 1
+					if bot.lostTries > B.LostTriesBeforeRevive then
+						bot.lostTries = 0
+						warn(
+							("[BotService] %s was going nowhere near node %.1f — steering home did not work, putting it back. Usually a rounded section where the lateral axis curves around the barrel."):format(
+								bot.name,
+								bot.u
+							)
+						)
+						BotService.noteWentOff(bot)
+						BotService.revive(bot)
+					end
+				end
 			end
-			bot.sim:Step(dt, bot.controls)
+			-- EVENTS WERE BEING THROWN AWAY. The simulation already
+			-- reports a wall hit; nothing server-side was listening, so
+			-- "this bot keeps hitting things" was unknowable.
+			--
+			-- Latched rather than counted: one contact is one incident
+			-- for this node however many frames it lasts.
+			local events = bot.sim:Step(dt, bot.controls)
+			if typeof(events) == "table" and (events.wallStunned or events.bounced) then
+				bot.wallHere = true
+			end
 		end)
 		if not ok then
 			warn("[BotService] " .. bot.name .. " step failed: " .. tostring(err))
@@ -1536,29 +2300,11 @@ local function step(dt: number)
 			)
 		end
 
-		-- Progress, so bots appear in the standings and the missile's
-		-- route entry. Written directly: the server owns these karts, so
-		-- there's no report to relay.
-		-- A FINISHED KART'S SCORE IS FROZEN.
-		--
-		-- Its race is over and where it finished is the truth. Once the
-		-- AI takes a kart over it carries on driving, and letting it keep
-		-- writing progress meant a player who crossed the line FIRST had
-		-- their standing overwritten by whatever the AI had managed since
-		-- — which is how finishing first showed up as last.
-		--
-		-- Frozen rather than cleared, so it still ranks ahead of everyone
-		-- who hasn't finished. That is what finishing first means.
-		local nodes = #Route.nodes()
-		if nodes > 0 and not bot.kart:GetAttribute(Match.FINISH_PLACE) then
-			-- The fraction to the next node, not a hard zero. Sending 0
-			-- meant a bot's place only moved when it crossed a gate, so
-			-- it could never gain on anybody in between — and against a
-			-- player who WAS reporting sub-checkpoint progress, the bot
-			-- always looked like it was sitting still.
-			local u = bot.u or 0
-			bot.kart:SetAttribute(Standings.ATTRIBUTE, Standings.score(bot.laps, math.floor(u), u % 1))
-		end
+		-- RaceService is the sole writer of KartProgress, RacePlace and
+		-- RaceFieldSize for EVERY racer. BotService has its own `bot.u` for
+		-- steering, but publishing it used a second lap bank between the
+		-- server standings ticks and could make a bot look ahead on a
+		-- different ruler than a player.
 		-- And its steering, so Rider turns the wheel and the front tyres.
 		bot.kart:SetAttribute(Names.STEER, bot.sim.steer)
 		bot.kart:SetAttribute(Names.DRIFT, bot.sim.driftAngle)
@@ -1604,7 +2350,7 @@ end
 -- different bot would drift out of step with the real one the first time
 -- either changed, and the whole point is that a taken-over kart drives
 -- like every other bot.
-local function makeBot(name: string, racer: any, kart: Model, hitbox: BasePart, seat: Instance)
+local function makeBot(name: string, racer: any, kart: Model, hitbox: BasePart, seat: Instance, avatarUserId: number?)
 	-- Rolled before the table, so cruise can be derived from it.
 	local skill = rng:NextNumber(B.SkillMin, B.SkillMax)
 
@@ -1618,6 +2364,8 @@ local function makeBot(name: string, racer: any, kart: Model, hitbox: BasePart, 
 
 	local bot = {
 		name = name,
+		fallbackName = name,
+		avatarUserId = avatarUserId,
 		racer = racer,
 		kart = kart,
 		sim = Simulation.new(kart, hitbox, seat),
@@ -1657,7 +2405,6 @@ local function makeBot(name: string, racer: any, kart: Model, hitbox: BasePart, 
 		-- mod the node count. Sequential, so skipping a gate stalls
 		-- progress until the bot comes back for it — the same rule a
 		-- player is held to.
-		nextIdx = 1,
 		-- Seconds off the ground, for the flying watchdog.
 		airFor = 0,
 		driftPlan = nil,
@@ -1668,6 +2415,21 @@ local function makeBot(name: string, racer: any, kart: Model, hitbox: BasePart, 
 		-- that goes with it. revive() keeps the second and deliberately
 		-- throws away the first — see the comment there.
 		safeU = nil,
+		lostFor = 0,
+		loopNode = nil,
+		loopAt = 0,
+		loopCount = 0,
+		lapU = 0,
+		lastNodeIdx = -1,
+		rampAhead = 0,
+		nodeAt = 0,
+		airLaunched = false,
+		lastNode = nil,
+		wallHere = false,
+		externalInterferenceUntil = 0,
+		segmentExternallyDisrupted = false,
+		homeFor = 0,
+		lostTries = 0,
 		safeCF = nil,
 		-- Seconds left of "there's no road that way". Held briefly
 		-- rather than read per frame, or a bot skimming an edge
@@ -1680,6 +2442,30 @@ local function makeBot(name: string, racer: any, kart: Model, hitbox: BasePart, 
 		-- that stretch. Per bot: it's a driver learning a circuit, not
 		-- a fact about the circuit.
 		caution = {},
+		--=============================================================
+		--  WHICH WAY IT TAKES AT A FORK.
+		--
+		--  Two checkpoints sharing an order is an authored SPLIT — left
+		--  way and right way, same progress. The route's node for that
+		--  order is the centroid of the two, which is the wall between
+		--  them, and every bot drove at it.
+		--
+		--  A bot now commits to one gate and steers through it. Picked
+		--  at random per bot so a field spreads across both ways rather
+		--  than filing down one, and re-rolled each lap so the same bot
+		--  does not take the same line all race — the variety the split
+		--  was built for only shows up if they actually vary.
+		--
+		--  Any number works: it is taken modulo the number of gates at
+		--  whichever fork is reached, so it is meaningful at a
+		--  three-way split and harmless where there is no fork at all.
+		--=============================================================
+		branch = math.random(1, 4),
+		-- A glide ramp is a route and always taken; a flip ramp is a
+		-- boost, so whether this bot bothers is personality. Rolled once
+		-- at spawn — a bot that changes its mind about the same ramp
+		-- every lap reads as indecision rather than character.
+		takesFlips = math.random() < 0.6,
 		dbg = {},
 		boxes = TagZones.new(Config.Items.BoxTag, { cooldown = Config.Items.PickupCooldown, forceQueryable = true }),
 		drops = TagZones.new(Config.Items.DropTag, { cooldown = 0.5, forceQueryable = true }),
@@ -1687,7 +2473,35 @@ local function makeBot(name: string, racer: any, kart: Model, hitbox: BasePart, 
 		-- hazards are detected by whoever hits them, and nothing was
 		-- doing that on their behalf.
 		hazards = TagZones.new(Config.Items.HazardTag, { cooldown = 0.5, forceQueryable = true }),
+		--=============================================================
+		--  BOOST PADS, WHICH BOTS COULD NOT USE AT ALL.
+		--
+		--  `Boosters` lives in StarterPlayerScripts, so it is a CLIENT
+		--  module and the server never ran it. Bots drove over every pad
+		--  on the track and nothing happened — so on any circuit with
+		--  pads they were slower than a player for a reason that had
+		--  nothing to do with driving.
+		--
+		--  The definitions still come from Config.Boosters.Pads, so what
+		--  a pad DOES cannot differ between bots and players. Only the
+		--  touch loop is repeated, and it is eight lines.
+		--=============================================================
+		padZones = (function()
+			local zones = {}
+			for _, def in Config.Boosters.Pads do
+				table.insert(zones, {
+					def = def,
+					zone = TagZones.new(def.Tag, {
+						cooldown = Config.Boosters.Cooldown,
+						forceQueryable = Config.Boosters.ForceQueryable,
+					}),
+				})
+			end
+			return zones
+		end)(),
+		padNextAt = 0,
 	}
+	publishBotIdentity(bot)
 	return bot
 end
 
@@ -1788,13 +2602,50 @@ function BotService.takeOver(kart: Model, name: string): boolean
 	bot.sim.travel = pose.LookVector
 
 	bot.laps = Standings.lapsFrom(kart:GetAttribute(Standings.ATTRIBUTE))
-	bot.u = Route.nearestU(bot.sim.pos)
-	bot.nextIdx = math.floor(bot.u) + 1
+	bot.u = Route.nearestU(bot.sim.pos, Route.path())
+	-- Taking over mid-race: no distance banked for this lap yet, and no
+	-- previous `u` to measure a step against.
+	bot.lapU = 0
+	bot.lastNodeIdx = -1
+	bot.lastU = nil
 	bot.safeU = bot.u
 	-- No rig: the finished player is still sitting in it, which is
 	-- exactly what it should look like.
 	table.insert(bots, bot)
 	log("%s handed to the AI", name)
+	return true
+end
+
+-- Finish takeover is deliberately not a normal race takeover. It preserves
+-- the kart and a short visible coast, but permanently removes it from every
+-- competitive bot behaviour until the next grid resets it.
+function BotService.parkFinished(kart: Model, name: string): boolean
+	local target = nil
+	for _, bot in bots do
+		if bot.kart == kart then
+			target = bot
+			break
+		end
+	end
+	if not target then
+		if not BotService.takeOver(kart, name) then
+			return false
+		end
+		for _, bot in bots do
+			if bot.kart == kart then
+				target = bot
+				break
+			end
+		end
+	end
+	if not target then
+		return false
+	end
+	target.finished = true
+	target.parked = false
+	target.parkAt = os.clock() + M.FinishDriveTime
+	target.item = nil
+	target.itemAt = math.huge
 	return true
 end
 
@@ -1906,7 +2757,7 @@ function BotService.fill()
 	-- as a track that isn't finished.
 	-- A parked bot needs no racing line, and checking a rig on an
 	-- unfinished track is exactly what idle mode is for.
-	if #Route.nodes() == 0 and not B.Idle then
+	if #Route.path() == 0 and not B.Idle then
 		-- Same rule as the trim below: a taken-over kart belongs to a
 		-- player and is not this function's to delete, whatever the
 		-- track looks like.
@@ -1978,6 +2829,7 @@ function BotService.fill()
 
 	while owned < want do
 		local name = B.Names[(owned % #B.Names) + 1] .. tostring(owned + 1)
+		local avatarUserId = botAvatarUserIdForSlot(owned)
 		local racer, kart = KartService.addBot(name)
 		local hitbox = kart.PrimaryPart
 		local seat = kart:FindFirstChild("Seat")
@@ -1986,7 +2838,7 @@ function BotService.fill()
 			break
 		end
 
-		local bot = makeBot(name, racer, kart, hitbox, seat)
+		local bot = makeBot(name, racer, kart, hitbox, seat, avatarUserId)
 		table.insert(bots, bot)
 		owned += 1
 		BotService.seatRig(bot)
@@ -2017,10 +2869,25 @@ end
 -- to produce one looked like a bug in the seating rather than a missing
 -- asset.
 --
--- An authored model still wins if there is one — that's how you dress
--- the drivers later.
-local function buildRig(): Model?
-	local template = ServerStorage:FindFirstChild(B.RigName)
+-- Avatar identities win when assigned. An authored model remains the fallback,
+-- so tracks without a roster can still use a local BotRig.
+local function buildRig(userId: number?): Model?
+	local description = if userId then avatarDescriptionFor(userId) else nil
+	if description then
+		local ok, rig = pcall(function()
+			return Players:CreateHumanoidModelFromDescription(description, Enum.HumanoidRigType.R15)
+		end)
+		if ok and rig and rig:FindFirstChildOfClass("Humanoid") then
+			return rig
+		end
+		warn(("[BotService] could not build dressed bot rig for userId %d: %s"):format(userId, tostring(rig)))
+	end
+
+	-- RECURSIVE, for the same reason Assets.luau is: art gets filed. Once
+	-- the shared art is a Package it lives one folder deeper than it did
+	-- when this was written, and a top-level-only search finds nothing
+	-- and falls through to the default rig without saying why.
+	local template = ServerStorage:FindFirstChild(B.RigName, true)
 	if template and template:IsA("Model") and template:FindFirstChildOfClass("Humanoid") then
 		return template:Clone()
 	end
@@ -2053,7 +2920,18 @@ function BotService.seatRig(bot)
 	-- Built off the main path because CreateHumanoidModelFromDescription
 	-- yields, and filling a grid shouldn't wait on six network calls.
 	task.spawn(function()
-		local rig = buildRig()
+		if bot.avatarUserId then
+			local resolvedName = avatarNameFor(bot.avatarUserId)
+			if resolvedName then
+				bot.name = resolvedName
+				if bot.racer then
+					bot.racer.Name = resolvedName
+				end
+				publishBotIdentity(bot)
+			end
+		end
+
+		local rig = buildRig(bot.avatarUserId)
 		if not rig then
 			return
 		end
@@ -2206,15 +3084,72 @@ end
 --=====================================================================
 -- On the module rather than a local, because step() calls it and step is
 -- defined above this point. A `local function` here would be nil there.
+--=====================================================================
+--  A RESPAWN LOOP IS NOT A DIFFICULT CORNER.
+--
+--  Sometimes a bot comes back, fails immediately, comes back again, and
+--  keeps going. Every cycle reports the same node, so within a minute
+--  one stretch has fifty incidents against it and the brain concludes
+--  the corner is lethal — when what is actually broken is the place it
+--  is being PUT BACK, which may be inside geometry, under the road, or
+--  facing a wall.
+--
+--  That is the data being corrupted by the recovery rather than by the
+--  track, and it is worth catching for that reason alone: a poisoned
+--  node vetoes drifting and tames the line for every bot, permanently,
+--  from evidence that describes a bug.
+--
+--  Two responses, in order:
+--    STOP RECORDING   the loop teaches nothing true
+--    MOVE THE TARGET  put it back somewhere else entirely
+--=====================================================================
+local function loopingAt(bot, node: number): boolean
+	local now = os.clock()
+	-- A different node means whatever happened is not a loop; reset.
+	if bot.loopNode ~= node or now - (bot.loopAt or 0) > B.ReviveLoopWindow then
+		bot.loopNode, bot.loopAt, bot.loopCount = node, now, 1
+		return false
+	end
+	bot.loopAt = now
+	bot.loopCount = (bot.loopCount or 0) + 1
+	return bot.loopCount > B.ReviveLoopCount
+end
+
 function BotService.noteWentOff(bot)
-	local nodes = #Route.nodes()
+	local nodes = #Route.path()
 	if nodes == 0 then
 		return
 	end
 	-- The node it was last SAFE at, not the one nearest the wreck. Where
 	-- it left is the useful fact; where it landed is noise.
 	local key = math.floor(bot.safeU or bot.u or 0) % nodes
+
+	-- Recovery remains necessary; blaming the last safe corner for a
+	-- confirmed item/hazard displacement does not.
+	if learningInterrupted(bot) then
+		return
+	end
+
+	-- LOOPING? Then this is not evidence. Nudge the recovery point down
+	-- the road instead — the usual cause is the spot it is being put
+	-- back at, not the corner it is being blamed on.
+	if loopingAt(bot, key) then
+		bot.safeU = (bot.safeU or bot.u or 0) + B.ReviveLoopSkip
+		if bot.loopCount % 5 == 1 then
+			warn(
+				("[BotService] %s is stuck in a respawn loop at node %d (%d times). Not recording it — a loop teaches nothing true — and moving the recovery point forward. Check that node for geometry the kart can spawn inside."):format(
+					bot.name,
+					key,
+					bot.loopCount
+				)
+			)
+		end
+		return
+	end
+
 	bot.caution[key] = math.min((bot.caution[key] or 0) + 1, B.CautionMax)
+	-- And into the shared brain, so the next session starts knowing.
+	BotBrain.wentOff(key)
 
 	-- The approach matters as much as the corner — a bot that goes off at
 	-- four was usually already too fast at three.
@@ -2272,6 +3207,7 @@ function BotService.revive(bot)
 	if not bot.kart.Parent then
 		local _, kart = KartService.addBot(bot.name)
 		bot.kart = kart
+		publishBotIdentity(bot)
 		local hitbox = kart.PrimaryPart
 		local seat = kart:FindFirstChild("Seat")
 		if not (hitbox and seat) then
@@ -2300,8 +3236,8 @@ function BotService.revive(bot)
 	-- So keep the progress (u is right, and it earned it) and discard the
 	-- position. Back to the middle of the road, facing along it.
 	if bot.safeU then
-		local at = Route.pointAt(bot.safeU)
-		local tangent = Route.tangentAt(bot.safeU)
+		local at = Route.pointAt(bot.safeU, bot.branch, Route.path())
+		local tangent = Route.tangentAt(bot.safeU, bot.branch, Route.path())
 		if at and tangent then
 			bot.sim:RespawnAt(CFrame.lookAt(at + Vector3.yAxis * 4, at + tangent + Vector3.yAxis * 4))
 			bot.u = bot.safeU
@@ -2312,9 +3248,9 @@ function BotService.revive(bot)
 
 	-- Never got a clean lap position — spun off the grid, say. Only now is
 	-- projecting the wreck onto the line the best we can do.
-	local u = Route.nearestU(bot.sim.pos)
-	local at = Route.pointAt(u)
-	local tangent = Route.tangentAt(u)
+	local u = Route.nearestU(bot.sim.pos, Route.path())
+	local at = Route.pointAt(u, bot.branch, Route.path())
+	local tangent = Route.tangentAt(u, bot.branch, Route.path())
 	if at and tangent then
 		bot.sim:RespawnAt(CFrame.lookAt(at + Vector3.yAxis * 5, at + tangent + Vector3.yAxis * 5))
 		bot.u = u
@@ -2407,6 +3343,9 @@ function BotService.applyHit(kart: Model, effect): string?
 				bot.sim:Scramble(effect.reverse)
 				landed = true
 			end
+			if landed then
+				markExternalInterference(bot, math.max(effect.spin or 0, effect.stun or 0, effect.reverse or 0), tostring(effect.item))
+			end
 			-- Same rule as a player: a hit that SPINS you costs your stack.
 			if landed and (effect.spin or 0) > 0 and bot.item then
 				bot.item = nil
@@ -2423,6 +3362,27 @@ function BotService.all()
 end
 
 function BotService.start()
+	-- Loaded once, before any bot drives. A track with no saved brain is
+	-- one the bots have not met yet, which is the same thing an empty
+	-- table means — so a DataStore that is down costs nothing but memory
+	-- of previous sessions.
+	BotBrain.start()
+	-- Validate a loaded brain before any bot consults it. The old
+	-- round-end-only call let a changed route influence the first race.
+	BotBrain.reshape(#Route.path())
+
+	-- Saved between rounds by MatchService, which is the only place that
+	-- knows when the field is idle.
+	MatchService.onRoundLearned = function()
+		-- CHECKED BEFORE SAVING, and every round. Route.preflight has
+		-- just rebuilt the path, so this is the first moment the true
+		-- node count is known — and the last moment before more lessons
+		-- are written against indices that may no longer mean the same
+		-- corners.
+		BotBrain.reshape(#Route.path())
+		BotBrain.save()
+
+	end
 	-- The same tagged parts the player's Respawn watches. One instance,
 	-- no cooldown of its own — see the declaration.
 	voidZones = TagZones.new(Config.Respawn.VoidTag, { cooldown = 0, forceQueryable = true })
@@ -2453,7 +3413,20 @@ function BotService.start()
 			return
 		end
 		step(accum)
+		-- Runs on the same tick as the bots and at the same rate. It is
+		-- one windowed route lookup per human kart, which is a fraction
+		-- of what a single bot costs.
+		watchPlayers()
 		accum = 0
+
+		-- THE LEARNING BAR, PRINTED. So a server can be started and left
+		-- alone: the console command answers when asked, this one speaks
+		-- up on its own. Guarded on the clock rather than the tick, and
+		-- it only prints when the percentage has actually moved.
+		if os.clock() >= (nextReport or 0) then
+			nextReport = os.clock() + B.LearnReportEvery
+			BotBrain.report(#Route.path())
+		end
 	end)
 end
 

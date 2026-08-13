@@ -40,6 +40,7 @@ local QuestService = require(script.QuestService)
 local PlayerVehicleService = require(script.PlayerVehicleService)
 local QueueService = require(script.QueueService)
 local ReturnService = require(script.ReturnService)
+local RainbowService = require(script.RainbowService)
 
 -- FIRST OF ALL: say what this is. Before any service starts, so a
 -- server that dies on startup still tells you which code died — and so
@@ -97,6 +98,7 @@ if racing then
 end
 
 RaceService.start()
+RainbowService.start()
 -- After RaceService: it waits on the KartItemHit remote that one makes.
 ProjectileService.start()
 
@@ -171,7 +173,7 @@ if racing then
 	-- round, and handed back before the next grid. Hooks rather than
 	-- requires, so MatchService never learns BotService exists.
 	MatchService.onFinished = function(kart, who)
-		BotService.takeOver(kart, who .. " (AI)")
+		BotService.parkFinished(kart, who .. " (FINISHED)")
 	end
 	-- The flag: every kart still driven by a person carries on without
 	-- them, so the results play over a moving track.
@@ -219,3 +221,7 @@ statsRemote.OnServerEvent:Connect(function(player, batch)
 	Progress.report(player, batch)
 end)
 
+-- This is the final boot barrier, after every service above has created the
+-- remotes it owns. A joining client waits for this marker before it tells
+-- KartService that it is ready to receive a character/kart handoff.
+ReplicatedStorage.BloxKart:SetAttribute(Names.SERVER_READY, true)

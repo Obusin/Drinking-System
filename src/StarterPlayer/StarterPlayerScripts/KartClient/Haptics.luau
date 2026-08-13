@@ -46,7 +46,6 @@ local Config = require(BloxKart:WaitForChild("Config"))
 
 local HAP = Config.Haptics
 
-local PAD = Enum.UserInputType.Gamepad1
 local LARGE = Enum.VibrationMotor.Large
 local SMALL = Enum.VibrationMotor.Small
 local LTRIG = Enum.VibrationMotor.LeftTrigger
@@ -55,13 +54,42 @@ local RTRIG = Enum.VibrationMotor.RightTrigger
 local Haptics = {}
 Haptics.__index = Haptics
 
--- Cached once: IsMotorSupported is a call into the engine and this runs
--- every frame.
-local function supports(motor): boolean
+local function isGamepad(inputType: Enum.UserInputType?): boolean
+	return inputType ~= nil and inputType.Name:sub(1, 7) == "Gamepad"
+end
+
+local function connectedGamepads(): { Enum.UserInputType }
+	local ok, pads = pcall(function()
+		return UserInputService:GetConnectedGamepads()
+	end)
+	return if ok then pads else {}
+end
+
+local function contains(pads: { Enum.UserInputType }, wanted: Enum.UserInputType): boolean
+	for _, pad in pads do
+		if pad == wanted then
+			return true
+		end
+	end
+	return false
+end
+
+-- Ask the engine which pad can actually vibrate.  Gamepad1 is usually
+-- correct, but a wireless pad reconnected after another device can land in a
+-- different Gamepad slot; hardcoding slot 1 silently drops rumble there.
+local function supports(pad: Enum.UserInputType, motor): boolean
 	local ok, yes = pcall(function()
-		return HapticService:IsMotorSupported(PAD, motor)
+		return HapticService:IsMotorSupported(pad, motor)
 	end)
 	return ok and yes
+end
+
+local function stopPad(pad: Enum.UserInputType)
+	for _, motor in { LARGE, SMALL, LTRIG, RTRIG } do
+		pcall(function()
+			HapticService:SetMotor(pad, motor, 0)
+		end)
+	end
 end
 
 function Haptics.new()
@@ -75,6 +103,7 @@ function Haptics.new()
 		hasSmall = false,
 		hasTriggers = false,
 		enabled = false,
+		pad = nil :: Enum.UserInputType?,
 		-- Last value written per motor, so a frame that wants the same
 		-- number doesn't call into the engine again.
 		lastLarge = -1,
@@ -90,18 +119,53 @@ end
 -- Re-checks what the connected controller can do. Called at startup and
 -- whenever a gamepad is connected, because a player who plugs a pad in
 -- mid-race should get rumble without rejoining.
-function Haptics:Refresh()
-	local ok, vibrates = pcall(function()
-		return HapticService:IsVibrationSupported(PAD)
-	end)
-	self.enabled = HAP.Enabled and ok and vibrates and UserInputService.GamepadEnabled
-	if not self.enabled then
+
+function Haptics:Refresh(preferred: Enum.UserInputType?)
+	local pads = connectedGamepads()
+	local last = UserInputService:GetLastInputType()
+	local pad = if isGamepad(preferred) and contains(pads, preferred) then preferred
+		elseif isGamepad(last) and contains(pads, last) then last
+		else pads[1]
+
+	local oldPad = self.pad
+	if oldPad and oldPad ~= pad then
+		-- Caches belong to a physical controller, not the feature. Without
+		-- this, the old pad can keep rumbling and a new pad can be skipped
+		-- because its desired value happens to equal the old cached value.
+		stopPad(oldPad)
+		self.lastLarge, self.lastSmall = -1, -1
+		self.lastLeft, self.lastRight = -1, -1
+	end
+
+	if not pad then
+		self.enabled = false
+		self.hasLarge, self.hasSmall, self.hasTriggers = false, false, false
+		self.pad = nil
 		return
 	end
-	self.hasLarge = supports(LARGE)
-	self.hasSmall = supports(SMALL)
+
+	local ok, vibrates = pcall(function()
+		return HapticService:IsVibrationSupported(pad)
+	end)
+	self.pad = pad
+	self.enabled = HAP.Enabled and ok and vibrates
+	if not self.enabled then
+		self.hasLarge, self.hasSmall, self.hasTriggers = false, false, false
+		return
+	end
+	self.hasLarge = supports(pad, LARGE)
+	self.hasSmall = supports(pad, SMALL)
 	-- Both, or neither: one-sided trigger rumble feels like a fault.
-	self.hasTriggers = supports(LTRIG) and supports(RTRIG)
+	self.hasTriggers = supports(pad, LTRIG) and supports(pad, RTRIG)
+end
+
+-- Called when a player actively uses a different connected controller. Input
+-- remains Roblox's normalised KeyCode mapping; only the optional feedback has
+-- to follow the physical device.
+function Haptics:UseGamepad(inputType: Enum.UserInputType)
+	if isGamepad(inputType) then
+		self:Refresh(inputType)
+	end
 end
 
 function Haptics:_set(motor, value: number, cacheKey: string)
@@ -115,8 +179,12 @@ function Haptics:_set(motor, value: number, cacheKey: string)
 		return
 	end
 	self[cacheKey] = value
+	local pad = self.pad
+	if not pad then
+		return
+	end
 	pcall(function()
-		HapticService:SetMotor(PAD, motor, value)
+		HapticService:SetMotor(pad, motor, value)
 	end)
 end
 
@@ -208,9 +276,12 @@ function Haptics:Update(dt: number, sim)
 			local over = (slip - HAP.TriggerThreshold) / math.max(1 - HAP.TriggerThreshold, 1e-3)
 			traction = over * HAP.TriggerSlip * grounded
 		end
-		local throttle = sim.speed and sim.speed > 0
-		self:_set(RTRIG, if throttle then traction else 0, "lastRight")
-		self:_set(LTRIG, if throttle then 0 else traction, "lastLeft")
+		-- Speed says nothing about the driver's intent: a kart can be moving
+		-- quickly while braking.  Read the seat input so tyre feedback goes
+		-- to the trigger the player is actually using.
+		local braking = sim.seat and sim.seat.ThrottleFloat < -0.1
+		self:_set(RTRIG, if braking then 0 else traction, "lastRight")
+		self:_set(LTRIG, if braking then traction else 0, "lastLeft")
 	end
 end
 

@@ -220,8 +220,11 @@ function Scaler.build(page: Instance, ctx)
 	local text = Ui.section(page, "Text", "scale5")
 	Ui.label(text, "Scaled text with a ceiling, so it shrinks on phones without ballooning on monitors.", true)
 
+	-- `Ui.slider`, not `Ui.number` — there has never been a `Ui.number`,
+	-- and calling it threw on the plugin's FIRST BUILD, which is why the
+	-- whole window failed to open rather than just this row.
 	local maxSize = 32
-	Ui.number(text, "Max text size", maxSize, function(v)
+	Ui.slider(text, "Max text size", 8, 96, maxSize, 1, function(v)
 		maxSize = math.max(1, math.floor(v))
 	end)
 

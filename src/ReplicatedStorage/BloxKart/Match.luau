@@ -43,6 +43,10 @@ Match.RACERS = "Racers"
 Match.HUMANS = "Humans"
 Match.READY = "Ready" -- how many have readied up
 Match.ROUND = "Round" -- increments per race; clients watch it to reset
+-- The server's active lap target. It defaults to Config.Race.TotalLaps,
+-- but is published separately so an authorised live-match override reaches
+-- both player clients and BotService without a server restart.
+Match.LAPS = "TotalLaps"
 
 -- Attributes on each kart.
 Match.FINISH_PLACE = "FinishPlace"
@@ -58,6 +62,13 @@ Match.RETIRE_AT = "RetireAt"
 -- Remotes.
 Match.FINISH_REMOTE = "KartMatchFinish"
 Match.READY_REMOTE = "KartMatchReady"
+-- Client -> server once its own kart has received and applied GridCF. The
+-- server uses this only to decide when the countdown may begin; it never
+-- accepts a position from the client.
+Match.GRID_READY_REMOTE = "KartMatchGridReady"
+-- Client -> server after ReplicatedFirst's splash has fully uncovered. This
+-- starts the intermission clock only when the cinematic is actually visible.
+Match.INTERMISSION_VISIBLE_REMOTE = "KartMatchIntermissionVisible"
 -- Client -> server: "I just fell in the void". The victim respawns
 -- either way; this is only so the server can work out whether somebody
 -- put them there and deserves the credit. Only the server knows who hit

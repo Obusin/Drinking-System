@@ -110,7 +110,7 @@ return {
 	--
 	-- Sending people back is what makes the lobby the centre of the
 	-- game rather than a loading screen they saw once.
-	ReturnAfterRounds = 3,
+	ReturnAfterRounds = nil,
 
 	-- Seconds on the results board before the teleport fires, so a
 	-- player sees what they earned before the screen changes.

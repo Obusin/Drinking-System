@@ -43,6 +43,8 @@ local Arc = {}
 function Arc.build(page: Instance, ctx)
 	local copies, sweep, radius, rise = 12, 180, 20, 0
 	local axis, flip = "Y", 1
+	-- Which EDGE stays flush. See the note on `fitRadius`.
+	local align = "Inside"
 	local base: BasePart? = nil
 
 	local ghost = Ghost.new("Arc")
@@ -65,6 +67,61 @@ function Arc.build(page: Instance, ctx)
 		return cf.UpVector, cf.RightVector
 	end
 
+	-- The box's width along an arbitrary direction — the support function
+	-- of an oriented box, which is exact for any rotation rather than
+	-- assuming the part is axis-aligned.
+	local function extentAlong(part: BasePart, dir: Vector3): number
+		local cf, s = part.CFrame, part.Size
+		return math.abs(dir:Dot(cf.RightVector)) * s.X
+			+ math.abs(dir:Dot(cf.UpVector)) * s.Y
+			+ math.abs(dir:Dot(cf.LookVector)) * s.Z
+	end
+
+	--=====================================================================
+	--  THE RADIUS IS DERIVED FROM THE PART, NOT TYPED.
+	--
+	--  This is the whole difference between an arc tool you fight and one
+	--  you use, and it is why Archimedes has an Alignment control.
+	--
+	--  A typed radius has no reason to agree with the part's own length,
+	--  so consecutive copies overlap or leave a wedge — and on a curved
+	--  track that is a gap you then have to go and fill, once per segment.
+	--
+	--  Joined edge to edge, the copies ARE a regular polygon whose side is
+	--  the part's length:
+	--
+	--      apothem = L / (2 * tan(step/2))
+	--      radius  = apothem + align * W/2
+	--
+	--  Measured: 24 copies of a 20-stud part gives 75.958, and the gap
+	--  between consecutive edges comes out at 0.000000 studs. Any other
+	--  radius does not.
+	--
+	--  ALIGNMENT picks which edge is the flush one:
+	--    Inside   the inner edge — the parts fan outward. Banked corners.
+	--    Centre   the centreline. What a naive arc does.
+	--    Outside  the outer edge — the parts fan inward.
+	--  Free hands the radius back to you, for when you want a gap.
+	--=====================================================================
+	local function fitRadius(part: BasePart, spin: Vector3, out: Vector3, stepDeg: number): number
+		if align == "Free" then
+			return radius
+		end
+		local step = math.rad(math.abs(stepDeg))
+		if step < 1e-4 then
+			return radius -- a straight line has no circle
+		end
+		local tangent = spin:Cross(out)
+		if tangent.Magnitude < 1e-4 then
+			return radius
+		end
+		local L = extentAlong(part, tangent.Unit)
+		local W = extentAlong(part, out)
+		local apothem = L / (2 * math.tan(step / 2))
+		local sign = if align == "Inside" then 1 elseif align == "Outside" then -1 else 0
+		return apothem + sign * W * 0.5
+	end
+
 	local function poses(): { CFrame }
 		local part = base
 		if not part or not part.Parent or copies < 1 or math.abs(radius) < 1e-3 then
@@ -72,9 +129,9 @@ function Arc.build(page: Instance, ctx)
 		end
 
 		local spin, out = frame(part)
-		local pivot = part.Position + out * (radius * flip)
 		-- Derived, not typed. See the note above.
 		local stepDeg = sweep / copies
+		local pivot = part.Position + out * (fitRadius(part, spin, out, stepDeg) * flip)
 
 		local list = {}
 		for i = 1, copies do
@@ -108,7 +165,17 @@ function Arc.build(page: Instance, ctx)
 		copies = math.floor(v)
 		refresh()
 	end)
-	local radiusKnob = Ui.slider(sec, "Radius", 1, 200, radius, 0.5, function(v)
+
+	-- SNAP THE EDGES TOGETHER. With anything but Free the radius stops
+	-- being an input and becomes a RESULT — the copies join edge to edge
+	-- and there is no gap left to fill afterwards.
+	Ui.label(sec, "Snap edges", true)
+	local _, setAlign = Ui.choice(sec, { "Inside", "Centre", "Outside", "Free" }, align, function(name)
+		align = name
+		refresh()
+	end)
+
+	local radiusKnob = Ui.slider(sec, "Radius (Free only)", 1, 200, radius, 0.5, function(v)
 		radius = v
 		refresh()
 	end)
@@ -156,11 +223,21 @@ function Arc.build(page: Instance, ctx)
 
 		sourceLabel.Text = ("From: %s"):format(base.Name)
 		ghost:update(base, poses())
-		ctx.status(("%d × %.2f° = %.0f°%s"):format(
+
+		-- THE DERIVED RADIUS IS REPORTED, because it is now an output and
+		-- an output you cannot see is a number you cannot trust. It is
+		-- also the fastest way to spot a part whose long axis is not the
+		-- one you thought: the radius comes out wildly wrong immediately.
+		local spin, out = frame(base)
+		local step = sweep / math.max(copies, 1)
+		local r = fitRadius(base, spin, out, step)
+		ctx.status(("%d × %.2f° = %.0f°%s  ·  R %.2f (%s)"):format(
 			copies,
-			sweep / math.max(copies, 1),
+			step,
 			sweep,
-			if math.abs(sweep - 360) < 0.01 then "  ·  closed ring" else ""
+			if math.abs(sweep - 360) < 0.01 then "  ·  closed ring" else "",
+			r,
+			if align == "Free" then "typed" else align:lower() .. " edge flush"
 		))
 	end
 
@@ -204,6 +281,7 @@ function Arc.build(page: Instance, ctx)
 	radiusKnob.set(radius)
 	riseKnob.set(rise)
 	setAxis(axis)
+	setAlign(align)
 	refresh()
 end
 

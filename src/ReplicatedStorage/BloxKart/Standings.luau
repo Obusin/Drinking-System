@@ -3,9 +3,9 @@
 
 	HOW PROGRESS IS MEASURED
 	------------------------
-	One monotonic number per racer:
+One route-distance number per racer:
 
-		score = laps * 1e6  +  checkpoints * 1e3  +  fraction to the next * 999
+	score = laps * 1e6  +  fraction of authored route distance * 999999
 
 	Sorting descending gives the running order. Using a single scalar
 	rather than comparing lap-then-checkpoint-then-distance means the
@@ -27,11 +27,17 @@
 
 local CollectionService = game:GetService("CollectionService")
 local Names = require(script.Parent:WaitForChild("Names"))
+local Route = require(script.Parent:WaitForChild("Route"))
 
 local Standings = {}
 
 Standings.ATTRIBUTE = "KartProgress"
 Standings.REMOTE = "KartProgressReport"
+-- Written only by RaceService. Unlike progress, these are the server's
+-- complete view of the field, so the owner's HUD remains correct when
+-- streaming unloads distant racers from this client.
+Standings.PLACE_ATTRIBUTE = "RacePlace"
+Standings.FIELD_ATTRIBUTE = "RaceFieldSize"
 
 -- Every kart currently in the world. Parented-and-a-Model checked
 -- because CollectionService keeps handing out tagged instances for a
@@ -54,8 +60,8 @@ function Standings.allKarts(): { Model }
 	return out
 end
 
--- Collapse lap / checkpoint / sub-checkpoint position into one
--- comparable number.
+-- Legacy packer kept for old inspection tooling. Live standings use
+-- routeScore below, which gives unequal BotPath segments their true weight.
 --
 -- `frac` is 0..1 — HOW FAR TO THE NEXT CHECKPOINT, not metres from the
 -- last one. Metres was wrong twice over: it clamped at 999, so everyone
@@ -69,6 +75,13 @@ end
 -- for the bots it was literally true.
 function Standings.score(laps: number, checkpoints: number, frac: number): number
 	return laps * 1e6 + checkpoints * 1e3 + math.clamp(frac, 0, 0.999) * 1000
+end
+
+-- The current route-aware score. Kept beside the legacy packed helper above
+-- while older tools still inspect its checkpoint-shaped fields; every live
+-- racer now uses this path-distance version instead.
+function Standings.routeScore(laps: number, u: number, path): number
+	return math.max(0, laps) * 1e6 + Route.progressAt(u, path) * 999999
 end
 
 -- Laps out of a packed score. The counterpart to Route.passedFrom,

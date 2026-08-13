@@ -259,4 +259,38 @@ function RemoteAudio.playHit(kart: Model?, itemId: string?)
 	v:Play()
 end
 
+--=====================================================================
+--  SOMEBODY ELSE'S HORN
+--
+--  Played AT their kart, so it arrives from the right direction and
+--  falls off with distance — which is the entire point of a horn. Our
+--  own is played locally by `Audio:Horn` and the server never echoes it
+--  back, so this is only ever other people.
+--
+--  Pooled like the hits, for the same reason: a lobby leaning on the
+--  key is a lot of one-second sounds.
+--=====================================================================
+local hornVoices: { Sound } = {}
+local nextHorn = 1
+
+function RemoteAudio.playHorn(kart: Model?)
+	if not kart or not kart.PrimaryPart or A.HornSoundId == "" then
+		return
+	end
+	local s = hornVoices[nextHorn]
+	if not s then
+		s = Instance.new("Sound")
+		s.Name = "RemoteHorn"
+		s.SoundId = A.HornSoundId
+		s.Volume = A.HornVolume
+		s.RollOffMaxDistance = A.HornRollOff
+		s.RollOffMode = Enum.RollOffMode.InverseTapered
+		hornVoices[nextHorn] = s
+	end
+	nextHorn = nextHorn % 4 + 1
+	s.PlaybackSpeed = 1 + (math.random() * 2 - 1) * A.HornPitchVary
+    s.Parent = kart.PrimaryPart
+	s:Play()
+end
+
 return RemoteAudio

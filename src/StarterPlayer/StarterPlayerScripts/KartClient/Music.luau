@@ -30,14 +30,18 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local SoundService = game:GetService("SoundService")
+local Players = game:GetService("Players")
 
 local BloxKart = ReplicatedStorage:WaitForChild("BloxKart")
 local Config = require(BloxKart:WaitForChild("Config"))
 local Shared = require(BloxKart:WaitForChild("Match"))
+local Names = require(BloxKart:WaitForChild("Names"))
 local Util = require(BloxKart:WaitForChild("Util"))
 
 local M = Config.Music
 local P = Shared.Phase
+local player = Players.LocalPlayer
+local loadingList = if typeof(M.Loading) == "string" and M.Loading ~= "" then { M.Loading } else {}
 
 local Music = {}
 Music.__index = Music
@@ -68,11 +72,21 @@ function Music.new()
 		list = nil, -- which playlist the queue was built from
 		want = 0, -- volume we're heading toward
 		playing = nil,
+		intermissionOneShotDone = false,
 	}, Music)
 
 	-- Advance on its own, so a playlist runs continuously without anything
 	-- polling for the end of a track.
 	sound.Ended:Connect(function()
+		-- The authored intermission theme is a one-shot. A short track must
+		-- not restart halfway through the camera rail — that reads like a
+		-- broken intro rather than intentional music direction.
+		if self.list == loadingList then
+			self.intermissionOneShotDone = true
+			self.playing = nil
+			self.want = 0
+			return
+		end
 		self:_next()
 	end)
 
@@ -80,6 +94,12 @@ function Music.new()
 end
 
 function Music:_listFor(phase: string?): { string }
+	-- The first visible intermission owns the loading track. This sits here,
+	-- rather than in ReplicatedFirst's old boot player, so it begins only after
+	-- the splash is gone and it can crossfade normally into the Grid/Race list.
+	if phase == P.Intermission and #loadingList > 0 then
+		return loadingList
+	end
 	if phase == P.Racing or phase == P.Grid then
 		return M.Race
 	end
@@ -112,16 +132,28 @@ end
 -- Called every frame with the current match phase. Switching playlists
 -- is a fade-out, a swap, and a fade-in — never a cut.
 function Music:Update(dt: number, phase: string?)
+	-- Music used to start while the opaque splash was still on screen. Keep the
+	-- sound object alive (the rest of the client expects it), but do not select
+	-- or play a track until ReplicatedFirst has actually revealed the game.
+	if player:GetAttribute(Names.SPLASH_DISMISSED) ~= true then
+		self.want = 0
+		self.sound.Volume = Util.approach(self.sound.Volume, 0, M.FadeRate, dt)
+		return
+	end
 	local list = self:_listFor(phase)
 
 	if list ~= self.list then
 		self.list = list
 		table.clear(self.queue)
+		self.intermissionOneShotDone = false
 		-- Started from silence so the new list fades up rather than
 		-- arriving at whatever volume the old one was at.
 		self.want = if #list > 0 then M.Volume else 0
 		self.sound.Volume = 0
 		self:_next()
+	end
+	if self.list == loadingList and self.intermissionOneShotDone then
+		self.want = 0
 	end
 
 	self.sound.Volume = Util.approach(self.sound.Volume, self.want, M.FadeRate, dt)

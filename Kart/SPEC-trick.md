@@ -94,6 +94,32 @@ never drift out of sync with the originals.
 Only fires if the flip **completed**. Landing early costs it, or the
 ramp is a boost dispenser and the trick is decoration.
 
+### It fires on TOUCHDOWN, not when the rotation ends
+
+This was backwards and is worth remembering, because the two moments
+look like one thing and are not.
+
+`Window` is 0.82 deliberately, so the flip finishes **before** the
+wheels arrive — 0.678 s of rotation against 0.827 s of airtime, nine
+frames early. The reward used to be tested in the single frame the
+rotation ended, checking `grounded`… at a moment when the kart is *by
+construction* still in the air. The test failed, `trickAngle` was
+zeroed, and the branch never ran again.
+
+So the boost was **lost on every clean jump**, and paid out only when
+actual airtime came in under 0.678 s — that is, exactly when you landed
+early, which is the one case it was written to refuse.
+
+| what happens | before | now |
+|---|---|---|
+| clean jump, flip completes in the air | **no boost** | boost on landing |
+| land early, mid-rotation | **boost** | no boost |
+
+It is now held as a pending flag and spent on the next grounded frame.
+Bailing out is caught **while it is happening**, during the spin —
+by the time the window closes the kart is grounded either way and the
+two cases are indistinguishable.
+
 ---
 
 ## Dials

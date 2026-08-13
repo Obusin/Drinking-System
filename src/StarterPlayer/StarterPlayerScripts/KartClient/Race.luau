@@ -21,6 +21,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local BloxKart = ReplicatedStorage:WaitForChild("BloxKart")
 
 local Config = require(BloxKart:WaitForChild("Config"))
+local Match = require(BloxKart:WaitForChild("Match"))
 local TagZones = require(BloxKart:WaitForChild("TagZones"))
 local Standings = require(BloxKart:WaitForChild("Standings"))
 local Route = require(BloxKart:WaitForChild("Route"))
@@ -30,6 +31,19 @@ local R = Config.Race
 
 local Race = {}
 Race.__index = Race
+
+-- Kept on MatchState rather than Config because a developer can change the
+-- target for the current server from F4. The folder may not exist while a
+-- client is still loading (or in a non-race test), in which case the authored
+-- config remains the truthful fallback.
+function Race:LapTarget(): number
+	local state = BloxKart:FindFirstChild(Match.FOLDER)
+	local live = state and state:GetAttribute(Match.LAPS)
+	if type(live) == "number" and live % 1 == 0 and live >= 1 then
+		return live
+	end
+	return R.TotalLaps
+end
 
 -- Shared with the server, which needs the identical answer for missile
 -- route-following. Two copies of this is how the two ends start
@@ -131,7 +145,15 @@ function Race.new()
 
 		wrongFor = 0, -- seconds spent pointing back up the track
 
-		cpPassed = 0, -- how many checkpoints banked this lap
+		cpPassed = 0, -- banked this lap. RESPAWN ANCHORS ONLY now — they
+		-- no longer gate a lap; see the lap rule.
+		-- Route distance driven this lap, in node units. This is what
+		-- actually proves a lap.
+		lapU = 0,
+		lastU = nil,
+		-- Furthest checkpoint Order banked this lap, so an earlier gate
+		-- cannot drag the respawn point backwards.
+		cpBest = -1,
 		lastCheckpoint = nil, -- CFrame. Ready for a "reset to track"
 		-- button whenever you want one.
 
@@ -294,6 +316,9 @@ function Race:Reset()
 	self.finished = false
 	self.lapsDone = 0
 	self.cpPassed = 0
+	self.lapU = 0
+	self.lastU = nil
+	self.cpBest = -1
 	self.raceStart = 0
 	self.lapStart = 0
 	self.lastCheckpoint = nil
@@ -346,16 +371,59 @@ function Race:Update(sim): { [string]: any }
 	-- — so the per-part cooldown adds nothing here and actively hurts
 	-- when overlaps are continuous, as they are when the road segments
 	-- themselves are the checkpoints.
-	local orders = self:_orders()
-	if self.cpPassed < #orders then
-		local expected = orders[self.cpPassed + 1]
-		for _, part in self.checkZone:Overlapping(cf, size) do
-			if orderOf(part) == expected then
-				self.cpPassed += 1
-				self.lastCheckpoint = part.CFrame
-				events.checkpoint = self.cpPassed
-				break
+	----------------------------------------------------------------
+	-- HOW MUCH OF THE ROUTE HAS ACTUALLY BEEN DRIVEN THIS LAP.
+	--
+	-- Checkpoints no longer gate a lap — they are respawn anchors now —
+	-- so something else has to stop the line being farmed by reversing
+	-- back and forth over it. This is that something: forward movement
+	-- along the path, accumulated.
+	--
+	-- ONLY SMALL FORWARD STEPS COUNT. A big jump is a respawn, a
+	-- teleport, or the wrap at the start line, and none of those are
+	-- distance driven. Backward movement is ignored rather than
+	-- subtracted: reversing should not bank progress, but neither should
+	-- it punish someone who was spun round and recovered.
+	----------------------------------------------------------------
+	local path = Route.path()
+	local nodes = #path
+	if nodes > 0 then
+		local u = Route.nearestU(sim.pos, path, self.lastU)
+		if self.lastU then
+			local step = u - self.lastU
+			-- Unwrap: crossing node 0 reads as a huge negative jump.
+			if step < -nodes * 0.5 then
+				step += nodes
 			end
+			if step > 0 and step < nodes * R.LapStepMax then
+				self.lapU = (self.lapU or 0) + step
+			end
+		end
+		self.lastU = u
+	end
+
+	----------------------------------------------------------------
+	-- BANK WHICHEVER ONE YOU TOUCH. No order requirement.
+	--
+	-- This used to demand them strictly in sequence, because it WAS the
+	-- lap validation. It is not any more — a checkpoint is only "put me
+	-- back here if I fall off" — and under the old rule missing one
+	-- stalled the sequence, so a player who was knocked wide got no
+	-- further respawn anchors for the rest of the lap. They would fall
+	-- off at the far end of the track and be sent back to wherever they
+	-- last managed to bank, which is the worst possible moment for the
+	-- anchor to be stale.
+	--
+	-- The FURTHEST one wins, so driving back through an earlier gate
+	-- cannot drag your respawn point backwards.
+	----------------------------------------------------------------
+	for _, part in self.checkZone:Overlapping(cf, size) do
+		local o = orderOf(part)
+		if o >= (self.cpBest or -1) then
+			self.cpBest = o
+			self.cpPassed = math.max(self.cpPassed, o + 1)
+			self.lastCheckpoint = part.CFrame
+			events.checkpoint = self.cpPassed
 		end
 	end
 
@@ -363,12 +431,30 @@ function Race:Update(sim): { [string]: any }
 	-- Bank a lap
 	----------------------------------------------------------------
 	if hitEnd then
+		--------------------------------------------------------------
+		-- A LAP IS THE LINE PLUS THE DISTANCE, NOT THE GATES.
+		--
+		-- Checkpoints used to have to be banked in order before the line
+		-- counted. That made every gate a way to invalidate a lap you
+		-- had genuinely driven — miss one because you were knocked wide,
+		-- because it streamed in late, or because it was placed somewhere
+		-- awkward, and the lap silently did not count.
+		--
+		-- Now they are respawn anchors and nothing else. What proves a
+		-- lap is that you covered the route: cross the line having driven
+		-- `LapNeed` of it since the last one.
+		--
+		-- Lenient where the gates were strict — a shortcut still counts,
+		-- because a kart game is not a rally scrutineer — and strict
+		-- exactly where it matters, because reversing over the line banks
+		-- no forward distance at all.
+		--------------------------------------------------------------
 		local valid
-		if #orders > 0 then
-			-- Checkpoints are the validation. Time doesn't come into it.
-			valid = self.cpPassed >= #orders
+		local pathNodes = #Route.path()
+		if pathNodes > 0 then
+			valid = (self.lapU or 0) >= pathNodes * R.LapNeed
 		else
-			-- Bare track: elapsed time is all we have to go on.
+			-- No route at all: elapsed time is the only thing left.
 			valid = now - self.lapStart >= R.MinLapTime
 		end
 
@@ -385,9 +471,13 @@ function Race:Update(sim): { [string]: any }
 			end
 			self.lapStart = now
 			self.cpPassed = 0
+			-- The distance counter restarts with the lap, or lap two is
+			-- banked the instant the line is crossed again.
+			self.lapU = 0
+			self.cpBest = -1
 			events.lapDone = self.lapsDone
 
-			if self.lapsDone >= R.TotalLaps then
+			if self.lapsDone >= self:LapTarget() then
 				self.finished = true
 				events.finished = true
 			end
@@ -411,7 +501,7 @@ end
 
 -- 1-based lap currently being driven, clamped so it never shows 4/3.
 function Race:CurrentLap(): number
-	return math.clamp(self.lapsDone + 1, 1, R.TotalLaps)
+	return math.clamp(self.lapsDone + 1, 1, self:LapTarget())
 end
 
 --=====================================================================
@@ -496,6 +586,20 @@ function Race:CheckpointProgress(): (number, number)
 	return self.cpPassed, #self:_orders()
 end
 
+-- HOW MUCH OF THIS LAP HAS BEEN DRIVEN, 0..1.
+--
+-- Replaces "CP 3 of 24" on the HUD, which described a rule that no
+-- longer exists — checkpoints do not gate a lap, so a count of them was
+-- telling the player to worry about something that cannot hurt them.
+-- This is the thing that actually decides whether the line will count.
+function Race:LapProgress(): number
+	local nodes = #Route.path()
+	if nodes == 0 then
+		return 0
+	end
+	return math.clamp((self.lapU or 0) / (nodes * R.LapNeed), 0, 1)
+end
+
 function Race:LapElapsed(): number
 	if not self.running or self.finished then
 		return self.lapTimes[#self.lapTimes] or 0
@@ -544,8 +648,16 @@ function Race:ProgressScore(sim): number
 	-- The integer half still comes from cpPassed, which is the VALIDATED
 	-- count: nearestU says where you are, cpPassed says what you have
 	-- actually banked, and a shortcut should not promote you.
-	local u = Route.nearestU(sim.pos)
-	return Standings.score(self.lapsDone, self.cpPassed, u % 1)
+	-- THE SAME QUANTITY THE BOTS SEND, which it was not before.
+	--
+	-- Players packed `cpPassed` (0..number of gates) into the middle band
+	-- while bots packed `floor(u)` (0..number of path nodes). Two
+	-- different quantities sorted against each other — and once the path
+	-- became denser than the checkpoints, bots out-ranked players simply
+	-- for being measured on a longer ruler.
+	local path = Route.path()
+	local u = Route.nearestU(sim.pos, path, self.lastU)
+	return Standings.routeScore(self.lapsDone, u, path)
 end
 
 -- Our place in the field, from the replicated progress attributes.
@@ -554,11 +666,27 @@ function Race:Place(sim): number
 	if not kart then
 		return 0
 	end
+	local authoritative = kart:GetAttribute(Standings.PLACE_ATTRIBUTE)
+	if type(authoritative) == "number" and authoritative >= 1 then
+		return authoritative
+	end
+	-- Loading fallback only. Once RaceService has published a rank, never
+	-- rebuild it from the streamed-in subset of the field.
 	local place = Standings.placeOf(Standings.order(Standings.allKarts()), kart)
 	return place
 end
 
-function Race:FieldSize(): number
+function Race:FieldSize(sim): number
+	local kart = sim and sim.model
+	local authoritative = kart and kart:GetAttribute(Standings.FIELD_ATTRIBUTE)
+	if type(authoritative) == "number" and authoritative >= 1 then
+		return authoritative
+	end
+	local state = BloxKart:FindFirstChild(Match.FOLDER)
+	local racers = state and state:GetAttribute(Match.RACERS)
+	if type(racers) == "number" and racers >= 1 then
+		return racers
+	end
 	return #Standings.order(Standings.allKarts())
 end
 

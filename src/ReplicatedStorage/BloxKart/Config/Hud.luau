@@ -22,6 +22,36 @@ return {
 	RaceLapSize = 40,
 	RaceSmallSize = 15,
 
+	--== RIVAL SPOTLIGHT ===============================================
+	-- Below the instruments: a rival should be noticed, never cover the
+	-- road or compete with the time/lap readout.
+	RivalPosition = UDim2.new(1, -22, 0, 158),
+	RivalHold = 1.65,
+	RivalFade = 0.35,
+	RivalWidth = 290,
+	RivalHeight = 74,
+	-- Phone card sits in the narrow gap between the timer and live order.
+	-- It is an acknowledgement of a pass, not a panel that takes over play.
+	MobileRivalPosition = UDim2.new(1, -14, 0, 126),
+	MobileRivalWidth = 176,
+	MobileRivalHeight = 48,
+
+	--== LIVE STANDINGS ================================================
+	-- Server-fed top five. It begins below the rival card so instruments,
+	-- encounter feedback, and the running order each own a clean band.
+	StandingsPosition = UDim2.new(1, -22, 0, 246),
+	StandingsAnchor = Vector2.new(1, 0),
+	StandingsWidth = 238,
+	StandingsRowHeight = 27,
+	StandingsRows = 5,
+	StandingsTitleSize = 13,
+	StandingsNameSize = 15,
+	MobileStandingsPosition = UDim2.new(1, -14, 0, 210),
+	MobileStandingsWidth = 144,
+	MobileStandingsRowHeight = 21,
+	MobileStandingsTitleSize = 10,
+	MobileStandingsNameSize = 11,
+
 	--== WRONG WAY =====================================================
 	-- The loudest thing on screen, and the only red. Everything else in
 	-- this HUD is monochrome specifically so that this reads as an alarm
@@ -117,7 +147,10 @@ return {
 	-- list is clutter once you know them; a toggle brings it back.
 	ControlsShowSeconds = 8,
 	ControlsFadeTime = 0.6,
-	ControlsToggleKey = Enum.KeyCode.H,
+	-- H is the horn. Keep the controls overlay on an otherwise unused key
+	-- so ContextActionService never has to decide which of two actions wins.
+	ControlsToggleKey = Enum.KeyCode.F1,
+	ControlsToggleGamepadKey = Enum.KeyCode.DPadUp,
 
 	--== ITEM SLOTS ====================================================
 	-- MOVED OUT OF THE CORNER 2026-08-06. The old note here argued for
@@ -324,19 +357,31 @@ return {
 	-- bottom 32px on every layout.
 	MobileSpeedPosition = UDim2.new(0.5, 0, 1, -38),
 	MobileSpeedAnchor = Vector2.new(0.5, 1),
-	MobileSpeedWidth = 210,
-	MobileSpeedHeight = 66,
+	MobileSpeedWidth = 142,
+	MobileSpeedHeight = 54,
 
 	-- Directly above the number, still centred.
-	MobileNitroPosition = UDim2.new(0.5, 0, 1, -108),
+	MobileNitroPosition = UDim2.new(0.5, 0, 1, -96),
 	MobileNitroAnchor = Vector2.new(0.5, 1),
 	-- Narrower than the desktop bar: it has to fit between two thumbs
 	-- rather than hug a corner.
-	MobileNitroSize = Vector2.new(168, 18),
+	MobileNitroSize = Vector2.new(132, 14),
 
-	-- Left of the centred speed/nitro stack, on the same baseline.
-	MobileItemPosition = UDim2.new(0.5, -115, 1, -38),
-	MobileItemAnchor = Vector2.new(1, 1),
+	-- Under the compact minimap, not across the kart/road. Item use buttons
+	-- already live under the right thumb; this is only a small inventory read.
+	MobileItemPosition = UDim2.new(0, 14, 0, 220),
+	MobileItemAnchor = Vector2.new(0, 0),
+	MobileItemSlotSize = 40,
+	MobileItemSlotGap = 5,
+
+	-- Race timing is compressed into the unused upper-right safe area. The
+	-- desktop values are deliberately too large for a phone's road view.
+	MobileRacePosition = UDim2.new(1, -14, 0, 94),
+	MobileRaceAnchor = Vector2.new(1, 0),
+	MobileRaceWidth = 142,
+	MobileRaceTimeSize = 24,
+	MobileRaceLapSize = 27,
+	MobileRaceSmallSize = 11,
 
 	--== THE REAR THREAT STRIP =========================================
 	-- Who is behind you, as a strip of segments along the very bottom

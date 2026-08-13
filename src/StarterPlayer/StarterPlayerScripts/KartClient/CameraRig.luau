@@ -10,6 +10,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local BloxKart = ReplicatedStorage:WaitForChild("BloxKart")
 local Config = require(BloxKart:WaitForChild("Config"))
+local Names = require(BloxKart:WaitForChild("Names"))
 local Util = require(BloxKart:WaitForChild("Util"))
 
 local CAM = Config.Camera
@@ -44,8 +45,14 @@ function CameraRig.new(sim)
 		impact = 0,
 		drop = 0,
 		dropTo = 0,
+		kick = 0,
+		kickTo = 0,
 		flip = 0,
 		glide = 0,
+		hopFollow = 0,
+		sway = 0,
+		bikeCam = nil,
+		camRoll = 0,
 	}, CameraRig)
 end
 
@@ -122,6 +129,12 @@ function CameraRig:Land(impact: number)
 	-- A TARGET, not the value. The camera eases onto it below rather than
 	-- being placed, or the landing frame teleports the eye.
 	self.dropTo = math.max(self.dropTo or 0, CAM.LandDrop * (amt / CAM.LandShakeMax))
+	-- AND THE FRAME OPENS BACK UP. Flips and glides now pull the camera
+	-- IN, so a landing is the moment that tight framing is released —
+	-- kicking outwards past neutral and settling gives that release a
+	-- beat instead of just easing away. Same `amt` as the drop, so it is
+	-- already scaled by how hard the landing was.
+	self.kickTo = math.max(self.kickTo or 0, CAM.LandKick * (amt / CAM.LandShakeMax))
 end
 
 function CameraRig:WallHit()
@@ -165,7 +178,27 @@ function CameraRig:Update(dt: number, sim, input)
 	-- than the camera just turning with you.
 	local camLook = Util.orthonormal(Util.rotateAbout(sim.forward, sim.up, sim.driftAngle * CAM.DriftFollow), camUp)
 
+	--=================================================================
+	--  THE BIKE CAMERA IS CLOSER, LOWER AND LOOKS FURTHER AHEAD.
+	--
+	--  More intimate and more aggressive than the kart's, because a bike
+	--  is a smaller thing and the same framing makes it look lost.
+	--
+	--  Resolved once and cached: this is a per-vehicle constant, and
+	--  reading an attribute plus a config table every frame to learn
+	--  something that cannot change is work for nothing.
+	--=================================================================
+	if self.bikeCam == nil then
+		local kart = sim.model
+		local kind = kart and kart:GetAttribute(Names.VEHICLE_KIND)
+		self.bikeCam = kind == "bike"
+	end
+	local BK = Config.Bike
+
 	local pull = CAM.Distance + CAM.SpeedPull * sim.speedFrac + (if sim.boosting then CAM.BoostPull else 0)
+	if self.bikeCam then
+		pull += BK.CamDistance
+	end
 
 	local anchor = sim.pos + camUp * CAM.LookHeight
 
@@ -181,7 +214,65 @@ function CameraRig:Update(dt: number, sim, input)
 	self.boostBack = Util.approach(self.boostBack, pick(CAM.BoostPullBack, stage), CAM.FovRiseRate, dt)
 	self.boostDrop = Util.approach(self.boostDrop, pick(CAM.BoostDrop, stage), CAM.FovRiseRate, dt)
 
-	local offset = -camLook * (pull + self.boostBack) + camUp * (CAM.Height - self.boostDrop)
+	--=================================================================
+	--  RISE OVER A WHEELIE, so the bike does not eat the corner.
+	--
+	--  A 30-degree nose-up puts the front of the machine across a good
+	--  part of the screen — exactly the part you are steering into. That
+	--  is the one way a purely visual effect can still cost a race, and
+	--  the fix is not to shrink the wheelie but to look over it.
+	--
+	--  Tied to the wheelie's own value, so it arrives and leaves with it
+	--  and there is nothing to keep in step.
+	--=================================================================
+	local height = CAM.Height - self.boostDrop + (if self.bikeCam then BK.CamHeight else 0)
+	if self.bikeCam then
+		local up = (sim.wheelie or 0) / math.max(BK.WheelieCamAt, 1e-3)
+		height += math.clamp(up, 0, 1) * BK.WheelieCamRise
+	end
+	local offset = -camLook * (pull + self.boostBack) + camUp * height
+	--=================================================================
+	--  SWIM SWAY — the camera gets thrown to the outside of the turn.
+	--
+	--  Turn left and the eye slides RIGHT; turn right and it slides
+	--  LEFT. It is the camera behaving like it has mass and is being
+	--  swung wide, and it is the cheapest way to make a boat feel heavy
+	--  — a hull takes a moment to come round, and the camera being
+	--  thrown while it does sells the wait.
+	--
+	--  A SLIDE, NOT AN ORBIT. Orbiting the eye around the kart swings
+	--  the whole view and reads as steering the camera. Sliding it
+	--  sideways keeps the view pointing the same way and lets the kart
+	--  drift across the frame, which is what being thrown wide looks
+	--  like from inside the car.
+	--
+	--  WHY THIS IS NOT NAUSEATING, WHICH IS THE ONLY REASON IT IS SAFE:
+	--  motion sickness lives in FREQUENCY, not amplitude, and it is far
+	--  more sensitive to ROTATION than to translation. This is pure
+	--  translation, driven by STEERING — which in water takes 0.93s to
+	--  reach full lock (SteerRateScale 0.35) and is smoothed again at
+	--  SwayRate. It lands near 0.5 Hz against the hop's 2.4, a 4.5x
+	--  separation, and it never tilts the horizon at all.
+	--
+	--  SIGN, DERIVED SO NOBODY HAS TO AGAIN:
+	--    `steerTurn = -steer * turn`, so POSITIVE steer turns RIGHT.
+	--    The eye is thrown to the OUTSIDE of the turn, so a right turn
+	--    slides it LEFT — hence the minus.
+	--  Flip it to swing inside the turn instead.
+	local swim = sim.swim or 0
+	if swim > 0.001 or (self.sway or 0) ~= 0 then
+		local steer = math.clamp(sim.steer or 0, -1, 1)
+		self.sway = Util.approach(self.sway or 0, -steer * CAM.SwimSwaySlide * swim, CAM.SwimSwayRate, dt)
+		if math.abs(self.sway) > 1e-4 then
+			-- SIDEWAYS, NOT AROUND. A slide keeps the camera pointing the
+			-- same way and just moves it, so the kart drifts across the
+			-- frame — which is what "thrown to the outside" looks like.
+			-- Orbiting instead would swing the whole view and read as
+			-- steering the camera rather than as the camera having mass.
+			offset += camLook:Cross(camUp).Unit * self.sway
+		end
+	end
+
 	if input.lookYaw ~= 0 or input.lookPitch ~= 0 then
 		offset = Util.rotateAbout(offset, camUp, input.lookYaw)
 		local pitchAxis = offset:Cross(camUp)
@@ -249,8 +340,52 @@ function CameraRig:Update(dt: number, sim, input)
 
 	-- Drop the look-ahead as you orbit away, so looking back frames the
 	-- kart rather than a point out in front of it.
-	local ahead = CAM.LookAhead * (1 - math.min(math.abs(input.lookYaw) / math.pi, 1))
+	local ahead = (CAM.LookAhead + (if self.bikeCam then BK.CamLookAhead else 0))
+		* (1 - math.min(math.abs(input.lookYaw) / math.pi, 1))
 	local aim = sim.pos + camLook * ahead + camUp * CAM.LookHeight
+
+	-- THE WATER HOP — LAG, NOT SHAKE.
+	--
+	-- The camera takes a FRACTION of the hop and takes it LATE. The kart
+	-- is drawn at `pos + swimHop`, this aims at `pos + swimHop * Follow`
+	-- smoothed, so the kart genuinely rises in frame by the difference
+	-- and the camera hauls itself after it. That difference is the whole
+	-- effect: perfectly tracked motion is no motion at all.
+	--
+	-- Applied to the EYE AND THE AIM TOGETHER, so the view translates
+	-- rather than tilts. Moving only the eye would swing the look
+	-- direction two to three times a second, which is a nodding camera
+	-- and genuinely unpleasant.
+	--
+	-- `sim.swimHop` is nil on a kart that has never touched water, and
+	-- zero the rest of the time — this costs nothing on dry land.
+	-- A SPRING, NOT A LERP, and that is the difference between a camera
+	-- you notice and one you do not.
+	--
+	-- A lerp only ever chases: it is always somewhere between where it
+	-- was and where the kart is, so it can only ever SUBTRACT from the
+	-- motion on screen. Raising its gain to feel it more just cancels
+	-- more of the hop — the two are the same dial pulling opposite ways,
+	-- which is why the first version could not be felt at any setting.
+	--
+	-- A spring has its own phase. Under-damped it overshoots, so at the
+	-- moment the kart starts falling the camera is still rising: the two
+	-- are briefly moving APART, and that is the part the eye reads as
+	-- weight. It can be felt without eating the hop, because it is not
+	-- merely a delayed copy of it.
+	--
+	-- Damping is a RATE tied to stiffness, `2*sqrt(k)*zeta`, the same
+	-- form the suspension and the heave use.
+	local hop = sim.swimHop or 0
+	if hop ~= 0 or (self.hopFollow or 0) ~= 0 or (self.hopFollowV or 0) ~= 0 then
+		local target = hop * CAM.SwimHopFollow
+		self.hopFollowV = (self.hopFollowV or 0)
+			+ (-CAM.SwimHopSpring * ((self.hopFollow or 0) - target) - CAM.SwimHopDamp * (self.hopFollowV or 0)) * dt
+		self.hopFollow = (self.hopFollow or 0) + self.hopFollowV * dt
+		local lift = camUp * self.hopFollow
+		eye += lift
+		aim += lift
+	end
 
 	-- LAG. Held back along the view direction and reeled in, so the kart
 	-- pulls away from the camera for a moment when a stage fires.
@@ -272,20 +407,37 @@ function CameraRig:Update(dt: number, sim, input)
 	-- without taking the world away.
 	local flipping = if (sim.trickAngle or 0) ~= 0 then 1 else 0
 	self.flip = Util.approach(self.flip, flipping, CAM.GlideRate, dt)
-	if self.flip > 0.01 then
-		camera.FieldOfView += CAM.FlipFov * self.flip
-		eye -= camLook * (CAM.FlipPull * self.flip)
-		self:Impact(CAM.FlipShake * self.flip * dt * 6)
-	end
 
-	-- Gliding pulls back and rises. A glide is about where you are GOING
-	-- — the gap, the landing zone — and the ground game's tight framing
-	-- puts all of that off the bottom of the screen.
 	local gliding = if sim.state == "glide" then 1 else 0
 	self.glide = Util.approach(self.glide, gliding, CAM.GlideRate, dt)
+
+	--=================================================================
+	--  ONE AIR FRAMING, NOT TWO THAT STACK.
+	--
+	--  Both of these now pull the camera IN, and a trick thrown during
+	--  a glide sets both at once. Summing them put the eye 4.6 studs off
+	--  the kart — through the MinChase floor, which is applied above and
+	--  therefore cannot defend against anything down here — and made the
+	--  kart nearly four times its normal size. That is not a close-up,
+	--  it is a shot of the seat.
+	--
+	--  They describe the SAME situation from two directions, so the
+	--  stronger one wins outright instead of both being spent. `min`
+	--  because an inward pull is negative.
+	--=================================================================
+	local airPull = math.min(CAM.FlipPull * self.flip, CAM.GlidePull * self.glide)
+	local airFov = math.min(CAM.FlipFov * self.flip, CAM.GlideFov * self.glide)
+	if self.flip > 0.01 or self.glide > 0.01 then
+		camera.FieldOfView += airFov
+		eye -= camLook * airPull
+	end
+	if self.flip > 0.01 then
+		self:Impact(CAM.FlipShake * self.flip * dt * 6)
+	end
+	-- The rise is glide-only and does not compete with anything, so it
+	-- stays additive. Height is what shows the ground going past
+	-- underneath, which is what sells the SPEED of a glide.
 	if self.glide > 0.01 then
-		camera.FieldOfView += CAM.GlideFov * self.glide
-		eye -= camLook * (CAM.GlidePull * self.glide)
 		eye += camUp * (CAM.GlideRise * self.glide)
 	end
 
@@ -295,6 +447,35 @@ function CameraRig:Update(dt: number, sim, input)
 	local dropRate = if (self.dropTo or 0) > (self.drop or 0) then CAM.LandDropFall else CAM.LandDropRecover
 	self.drop = Util.approach(self.drop or 0, self.dropTo or 0, dropRate, dt)
 	self.dropTo = math.max((self.dropTo or 0) - CAM.LandDropRecover * dt, 0)
+
+	-- The landing kick, decaying exactly as the drop does. Applied along
+	-- the look axis rather than the up axis, so it opens the frame out
+	-- instead of lifting it.
+	local kickRate = if (self.kickTo or 0) > (self.kick or 0) then CAM.LandKickFall else CAM.LandKickRecover
+	self.kick = Util.approach(self.kick or 0, self.kickTo or 0, kickRate, dt)
+	self.kickTo = math.max((self.kickTo or 0) - CAM.LandKickRecover * dt, 0)
+	if (self.kick or 0) > 0.01 then
+		eye -= camLook * self.kick
+	end
+
+	--=================================================================
+	--  THE FLOOR, AGAIN, AND THIS TIME ACTUALLY LAST.
+	--
+	--  There is a MinChase clamp further up whose comment claims to be
+	--  applied last so nothing downstream can undo it. That was true
+	--  when everything below it moved the eye BACKWARD; the flip and
+	--  glide framings now pull it in, which makes the earlier clamp a
+	--  floor with code underneath it.
+	--
+	--  Cheap, and it removes a whole class of "the camera ended up
+	--  inside the kart" that would otherwise have to be re-derived
+	--  every time something new nudges the eye.
+	--=================================================================
+	local finalSpan = eye - anchor
+	if finalSpan.Magnitude < CAM.MinChase then
+		local dir = if finalSpan.Magnitude > 1e-3 then finalSpan.Unit else -camLook
+		eye = anchor + dir * CAM.MinChase
+	end
 	if self.drop > 0.001 then
 		eye -= camUp * self.drop
 	end
@@ -317,6 +498,38 @@ function CameraRig:Update(dt: number, sim, input)
 	local blurOn = self.blur.Size > 0.05
 	if self.blur.Enabled ~= blurOn then
 		self.blur.Enabled = blurOn
+	end
+
+	--=================================================================
+	--  A HINT OF THE LEAN, AND NO MORE.
+	--
+	--  The bike can be laid over at forty degrees; the camera takes about
+	--  four. WATCHING a bike lean is exciting — being ROLLED with it is
+	--  nauseating, and the world stops being readable exactly when the
+	--  player most needs to read it.
+	--
+	--  Taken from the body motor's angle rather than from steering, so
+	--  the camera answers to what is actually on screen. Smoothed, so a
+	--  flick through a chicane does not snap the horizon.
+	--=================================================================
+	if self.bikeCam then
+		-- STRAIGHT OFF THE SIMULATION, which owns the lean.
+		--
+		-- This used to dig the roll back out of the body motor's
+		-- Transform. That worked only while the body motor WAS the lean;
+		-- now the whole assembly rolls at the render write and the motor
+		-- carries just wobble and shiver, so reading it there would have
+		-- given a camera that ignored a 60-degree corner and twitched at
+		-- a pothole instead.
+		--
+		-- It is also three lookups and a matrix decomposition cheaper,
+		-- and it cannot be broken by renaming a part.
+		local lean = math.deg(sim.lean or 0)
+		local want = math.clamp(lean * BK.CamRollShare, -BK.CamRollMax, BK.CamRollMax)
+		self.camRoll = Util.approach(self.camRoll or 0, want, BK.CamRollRate, dt)
+		if math.abs(self.camRoll) > 0.01 then
+			self.up = Util.rotateAbout(self.up, camLook, math.rad(self.camRoll))
+		end
 	end
 
 	-- lookAt fails if up is parallel to the view direction.

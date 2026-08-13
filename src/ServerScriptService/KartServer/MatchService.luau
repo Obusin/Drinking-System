@@ -19,6 +19,7 @@
 
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
+local ReplicatedFirst = game:GetService("ReplicatedFirst")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local BloxKart = ReplicatedStorage:WaitForChild("BloxKart")
@@ -43,11 +44,13 @@ local MatchService = {}
 local state: Folder
 local finishRemote: RemoteEvent
 local readyRemote: RemoteEvent
+local gridReadyRemote: RemoteEvent
 
 local phase = P.Waiting
 local endsAt = 0
 local round = 0
 local finishers = 0 -- how many have crossed the line this round
+local totalLaps = Config.Race.TotalLaps
 
 -- THE ROUND'S RESULTS, kept here rather than read off the karts.
 --
@@ -71,6 +74,19 @@ type Result = {
 local results: { Result } = {}
 local racingStartedAt = 0 -- server clock when the lights went out
 local ready: { [Player]: boolean } = {}
+-- A player marks this once its ReplicatedFirst splash has genuinely uncovered.
+-- It persists for the session; later rounds do not need to pretend the same
+-- client is loading again.
+local splashVisible: { [Player]: boolean } = {}
+local intermissionExpected: { [Player]: boolean } = {}
+local intermissionVisibleDeadline = 0
+-- A grid is not ready merely because the server assigned its CFrames. The
+-- owner must have received them and placed their locally-owned simulation.
+-- Snapshot the expected people at grid entry so a late join cannot move the
+-- finish line while everyone else is already waiting.
+local gridExpected: { [Player]: boolean } = {}
+local gridReady: { [Player]: boolean } = {}
+local gridReadyDeadline = 0
 
 --=====================================================================
 --  PUBLISHING
@@ -134,6 +150,77 @@ local function readyCount(): number
 	return n
 end
 
+local function gridExpectedCount(): number
+	local n = 0
+	for player in gridExpected do
+		if player.Parent == Players then
+			n += 1
+		end
+	end
+	return n
+end
+
+local function gridReadyCount(): number
+	local n = 0
+	for player in gridReady do
+		if player.Parent == Players and gridExpected[player] then
+			n += 1
+		end
+	end
+	return n
+end
+
+local function intermissionExpectedCount(): number
+	local n = 0
+	for player in intermissionExpected do
+		if player.Parent == Players then
+			n += 1
+		end
+	end
+	return n
+end
+
+local function intermissionVisibleCount(): number
+	local n = 0
+	for player in intermissionExpected do
+		if player.Parent == Players and splashVisible[player] then
+			n += 1
+		end
+	end
+	return n
+end
+
+local function intermissionDuration(): number
+	local camera = M.IntermissionCamera
+	if not camera.Enabled then
+		return M.IntermissionTime
+	end
+	local root = ReplicatedFirst:FindFirstChild(camera.FolderName)
+	local scenes, transitions = 0, 0
+	if root then
+		-- Each direct child folder is a camera scene. Only markers inside
+		-- that scene tween together; the boundary to the next folder is a cut.
+		for _, scene in root:GetChildren() do
+			local markers = if scene:IsA("BasePart") then 1 else 0
+			if not scene:IsA("BasePart") then
+				for _, inst in scene:GetDescendants() do
+					if inst:IsA("BasePart") then
+						markers += 1
+					end
+				end
+			end
+			if markers > 0 then
+				scenes += 1
+				transitions += math.max(markers - 1, 0)
+			end
+		end
+	end
+	-- A scene cuts the instant its last in-scene movement completes. Only the
+	-- global final shot has a hold before Grid; holding every scene endpoint
+	-- made the cinematic visibly stall between otherwise clean cuts.
+	return math.max(M.IntermissionTime, transitions * camera.SegmentTime + camera.FinalHold)
+end
+
 local function publish()
 	local racers = racerCount()
 	local readied = readyCount()
@@ -156,6 +243,9 @@ local function publish()
 	end
 	if state:GetAttribute(Match.ROUND) ~= round then
 		state:SetAttribute(Match.ROUND, round)
+	end
+	if state:GetAttribute(Match.LAPS) ~= totalLaps then
+		state:SetAttribute(Match.LAPS, totalLaps)
 	end
 end
 
@@ -241,6 +331,11 @@ local function enter(next: string, duration: number?)
 			Progress.mark(player)
 		end
 	elseif next == P.Results then
+		-- One end-of-round learning flush, before results-side handoff.
+		-- BindToClose remains the backup if a server closes mid-round.
+		if MatchService.onRoundLearned then
+			MatchService.onRoundLearned()
+		end
 		-- Hand every remaining kart to the AI before the board goes up.
 		-- Nobody needs to be driving once the race is decided, and a
 		-- player steering blind behind a results panel is the opposite of
@@ -249,6 +344,14 @@ local function enter(next: string, duration: number?)
 			MatchService.onResults()
 		end
 		sendRewards()
+	elseif next == P.Intermission then
+		table.clear(intermissionExpected)
+		for _, player in Players:GetPlayers() do
+			if KartService.kartFor(player) then
+				intermissionExpected[player] = true
+			end
+		end
+		intermissionVisibleDeadline = workspace:GetServerTimeNow() + M.IntermissionLoadTimeout
 	end
 	log("→ %s%s", next, if duration then (" (%.1fs)"):format(duration) else "")
 
@@ -291,6 +394,8 @@ local function clearFinishes()
 	for _, kart in KartService.allKarts() do
 		kart:SetAttribute(Match.FINISH_PLACE, nil)
 		kart:SetAttribute(Match.FINISH_TIME, nil)
+		kart:SetAttribute(Standings.PLACE_ATTRIBUTE, nil)
+		kart:SetAttribute(Standings.FIELD_ATTRIBUTE, nil)
 		-- AND THE PROGRESS SCORE, which used to be left behind.
 		--
 		-- It was harmless while progress reports overwrote whatever was
@@ -339,11 +444,21 @@ local function startGrid()
 	clearFinishes()
 	clearHazards()
 	table.clear(ready)
+	table.clear(gridExpected)
+	table.clear(gridReady)
 	-- Stamps every kart with where it starts. The client applies it —
 	-- the hitbox is network-owned by the driver, so the server moving it
 	-- would just be overwritten on the next client frame.
 	KartService.assignGrid()
-	enter(P.Grid, M.GridTime)
+	for _, player in Players:GetPlayers() do
+		if KartService.kartFor(player) then
+			gridExpected[player] = true
+		end
+	end
+	gridReadyDeadline = workspace:GetServerTimeNow() + M.GridReadyTimeout
+	-- Grid is entered with no deadline. The deadline is installed only
+	-- after every expected client has physically reached its grid spawn.
+	enter(P.Grid)
 end
 
 --=====================================================================
@@ -490,9 +605,22 @@ end
 -- finishKart, which the server calls for bots and trusts.
 local function recordFinish(player: Player, totalTime: number)
 	local kart = KartService.kartFor(player)
-	if kart then
-		finishKart(kart, player.Name, totalTime)
+	if not kart then
+		return
 	end
+	if not MatchService.canFinish or MatchService.canFinish(kart) then
+		finishKart(kart, player.Name, totalTime)
+		return
+	end
+	-- The owner simulates their kart, so its last CFrame can arrive a short
+	-- moment after the finish remote. Keep the server proof requirement but
+	-- give replication one bounded chance to catch up; otherwise a clean local
+	-- finish would be silently rejected and the client will not re-send it.
+	task.delay(0.45, function()
+		if kart.Parent and MatchService.canFinish and MatchService.canFinish(kart) then
+			finishKart(kart, player.Name, totalTime)
+		end
+	end)
 end
 
 -- The server's route in, for racers with nobody at a keyboard.
@@ -505,6 +633,79 @@ end
 -- get wrong.
 function MatchService.racingSince(): number?
 	return if phase == P.Racing then racingStartedAt else nil
+end
+
+-- The one active lap count for the whole field. Player clients read the
+-- replicated attribute; BotService reads this function. Keeping the answer
+-- here prevents a live F4 change from making humans and bots race different
+-- distances.
+function MatchService.laps(): number
+	return totalLaps
+end
+
+-- Deliberately a narrow developer surface, rather than exposing phase entry.
+-- A restart always takes the complete, normal grid path.
+function MatchService.devRestartRound(): (boolean, string)
+	if not state then
+		return false, "MatchService has not started."
+	end
+	if humanRacers() < M.MinRacers then
+		return false, "A player with a kart is needed before a round can restart."
+	end
+	startGrid()
+	return true, "Round restarted at the grid."
+end
+
+-- Test-only terminal action for exercising the real Results → Intermission
+-- path without forging finish times or mutating individual kart progress.
+-- Unfinished racers are correctly recorded as DNF by standings(), exactly as
+-- they would be if the race clock expired naturally.
+function MatchService.devFinishRound(): (boolean, string)
+	if not state then
+		return false, "MatchService has not started."
+	end
+	if phase ~= P.Racing then
+		return false, "A race must be in progress before it can be finished."
+	end
+	-- Give the current route leader a genuine, server-clocked finish before
+	-- flagging the rest as DNF. This makes console testing exercise the same
+	-- winner/time presentation a real finish uses instead of producing an
+	-- intentionally empty timeout board.
+	local leader, leaderScore = nil, -math.huge
+	for _, kart in KartService.allKarts() do
+		if not kart:GetAttribute(Match.FINISH_PLACE) then
+			local score = kart:GetAttribute(Standings.ATTRIBUTE)
+			if type(score) == "number" and score > leaderScore then
+				leader, leaderScore = kart, score
+			end
+		end
+	end
+	if leader then
+		local elapsed = math.max(workspace:GetServerTimeNow() - racingStartedAt, 0)
+		finishKart(leader, leader:GetAttribute(Names.RACER_NAME) or "Racer", elapsed)
+	end
+	enter(P.Results, M.ResultsTime)
+	return true, "Leader finished; opening Results."
+end
+
+function MatchService.devSetLaps(laps: number): (boolean, string)
+	if not state then
+		return false, "MatchService has not started."
+	end
+	totalLaps = laps
+	publish()
+	return true, ("Lap target set to %d for this server."):format(laps)
+end
+
+function MatchService.management(): { [string]: any }
+	return {
+		available = state ~= nil,
+		phase = phase,
+		laps = totalLaps,
+		defaultLaps = Config.Race.TotalLaps,
+		secondsLeft = Match.timeLeft(endsAt),
+		round = round,
+	}
 end
 
 --=====================================================================
@@ -524,7 +725,7 @@ local function tick()
 
 	if phase == P.Waiting then
 		if people >= M.MinRacers then
-			enter(P.Intermission, M.IntermissionTime)
+			enter(P.Intermission)
 		else
 			publish() -- keep the count live so the HUD can say "0 / 1"
 		end
@@ -539,20 +740,40 @@ local function tick()
 	end
 
 	if phase == P.Intermission then
-		-- Ready is compared against the HUMANS, not the field. Bots have
-		-- no way to press ready and are always willing, so counting them
-		-- as unready made the skip impossible to satisfy the moment any
-		-- bot existed — one human in a five-kart lobby could never start
-		-- early, and it looked like the button had stopped working.
-		local waiting = humanRacers()
-		local everyoneReady = M.AllowReadySkip and waiting > 0 and readyCount() >= waiting
-		if everyoneReady or Match.timeLeft(endsAt) <= 0 then
-			startGrid()
+		if endsAt <= 0 then
+			local expected = intermissionExpectedCount()
+			local visible = intermissionVisibleCount()
+			if expected == 0 or visible >= expected or workspace:GetServerTimeNow() >= intermissionVisibleDeadline then
+				if visible < expected then
+					warn(("[MatchService] intermission visibility timed out at %d/%d; playing the rail for the remaining field."):format(visible, expected))
+				end
+				endsAt = workspace:GetServerTimeNow() + intermissionDuration()
+				publish()
+			else
+				publish()
+			end
 		else
-			publish()
+			local waiting = humanRacers()
+			local canSkip = M.AllowReadySkip and not (M.IntermissionCamera.Enabled and M.IntermissionCamera.LockFullSequence)
+			local everyoneReady = canSkip and waiting > 0 and readyCount() >= waiting
+			if everyoneReady or Match.timeLeft(endsAt) <= 0 then
+				startGrid()
+			else
+				publish()
+			end
 		end
 	elseif phase == P.Grid then
-		if Match.timeLeft(endsAt) <= 0 then
+		if endsAt <= 0 then
+			local expected = gridExpectedCount()
+			local loaded = gridReadyCount()
+			if expected == 0 or loaded >= expected or workspace:GetServerTimeNow() >= gridReadyDeadline then
+				if loaded < expected then
+					warn(("[MatchService] grid readiness timed out at %d/%d; beginning countdown so the round cannot stall."):format(loaded, expected))
+				end
+				endsAt = workspace:GetServerTimeNow() + M.GridTime
+				publish()
+			end
+		elseif Match.timeLeft(endsAt) <= 0 then
 			enter(P.Racing, M.TimeLimit)
 		end
 	elseif phase == P.Racing then
@@ -562,7 +783,7 @@ local function tick()
 	elseif phase == P.Results then
 		if Match.timeLeft(endsAt) <= 0 then
 			if people >= M.MinRacers then
-				enter(P.Intermission, M.IntermissionTime)
+				enter(P.Intermission)
 			else
 				enter(P.Waiting)
 			end
@@ -585,6 +806,14 @@ function MatchService.start()
 	readyRemote = Instance.new("RemoteEvent")
 	readyRemote.Name = Match.READY_REMOTE
 	readyRemote.Parent = BloxKart
+
+	gridReadyRemote = Instance.new("RemoteEvent")
+	gridReadyRemote.Name = Match.GRID_READY_REMOTE
+	gridReadyRemote.Parent = BloxKart
+
+	local intermissionVisibleRemote = Instance.new("RemoteEvent")
+	intermissionVisibleRemote.Name = Match.INTERMISSION_VISIBLE_REMOTE
+	intermissionVisibleRemote.Parent = BloxKart
 
 	-- Server -> client only. Nothing is listened for on it: the client
 	-- has no business telling the server what it earned.
@@ -620,8 +849,36 @@ function MatchService.start()
 		publish()
 	end)
 
+	gridReadyRemote.OnServerEvent:Connect(function(player)
+		if phase ~= P.Grid or endsAt > 0 or not gridExpected[player] then
+			return
+		end
+		-- The acknowledgement means "I applied the CFrame already", not
+		-- "trust me, I am somewhere". Confirm the server assigned a grid
+		-- CFrame before allowing it to move the shared countdown forward.
+		local kart = KartService.kartFor(player)
+		if kart and typeof(kart:GetAttribute(Match.GRID_CF)) == "CFrame" then
+			gridReady[player] = true
+			publish()
+		end
+	end)
+
+	intermissionVisibleRemote.OnServerEvent:Connect(function(player)
+		-- No phase restriction: a fast client can finish its splash while
+		-- the server is still in Waiting. Keep that acknowledgement for the
+		-- Intermission snapshot instead of throwing it away.
+		splashVisible[player] = true
+		if phase == P.Intermission and endsAt <= 0 then
+			publish()
+		end
+	end)
+
 	Players.PlayerRemoving:Connect(function(player)
 		ready[player] = nil
+		gridExpected[player] = nil
+		gridReady[player] = nil
+		splashVisible[player] = nil
+		intermissionExpected[player] = nil
 	end)
 
 	enter(P.Waiting)
@@ -648,6 +905,13 @@ MatchService.onGrid = nil
 -- init.server, so the contract is visible from the file that calls them.
 MatchService.onFinished = nil
 MatchService.onRelease = nil
+-- Called exactly once when a round enters Results, after race learning
+-- has completed and before results-side handoff.
+MatchService.onRoundLearned = nil :: (() -> ())?
+-- Assigned by RaceService after both services start. Human finishes must have
+-- server-observed route proof; bots enter through botFinished and are already
+-- server-driven.
+MatchService.canFinish = nil :: ((Model) -> boolean)?
 -- Called as the flag drops, before the board is sent.
 MatchService.onResults = nil :: (() -> ())?
 

@@ -34,8 +34,18 @@ return {
 	-- Counts HUMANS TOO, so this is the size of the field and not the
 	-- number of bots. Five means solo practice is you plus four bots, and
 	-- a four-player lobby only gets one.
-	FillTo = 5,
-	MaxBots = 7, -- never more than the grid has slots for
+	-- 20. Learning is COLLECTIVE, so twenty bots gather twenty times the
+	-- evidence per minute — which is the whole reason to run a big field
+	-- while a map is being built.
+	--
+	-- KNOW THE TRADE: a track built for eight, run with twenty, produces
+	-- contact that is an artifact of crowding rather than a property of
+	-- the corner. `wall` is what vetoes drifting, so an over-full field
+	-- teaches "never drift" from evidence that only exists at this
+	-- density. Drop it back to 5 before trusting the brain for a real
+	-- race, or wipe and relearn.
+	FillTo = 8,
+	MaxBots = 7, -- one short of FillTo, so a human always fits
 
 	-- When a player crosses the line, the AI takes their kart over for
 	-- the rest of the round.
@@ -211,6 +221,22 @@ return {
 		"Blitz",
 	},
 
+	-- Optional Roblox avatar identities for bot drivers. Stored as userIds
+	-- instead of profile URLs so the server can cache names/descriptions and
+	-- keep bots visually fresh without treating them as real player owners.
+	AvatarPool = {
+		3253778082,
+		2988378774,
+		7134957573,
+		1019721411,
+		1956621921,
+		7140682164,
+		2026738888,
+		5342501124,
+		7347494394,
+		2287968408,
+	},
+
 	--== DRIVING =======================================================
 	-- How far up the racing line it aims. THE most important number
 	-- here: too short and it saws at the wheel chasing a point it's
@@ -384,6 +410,25 @@ return {
 	-- its lookahead point, and lifts off proportionally.
 	CornerLookahead = 2.2, -- nodes ahead to measure the bend over
 	CornerBrake = 0.85, -- how much of a sharp bend translates to lifting
+	-- THE CORNER'S ACTUAL SPEED LIMIT, derived from the kart's own
+	-- steering model rather than guessed. See the note in BotService:
+	-- full lock at speed v gives yaw rate turn(v), so the tightest
+	-- curvature holdable is turn(v)/v, and inverting that gives the
+	-- fastest a given corner can be taken at.
+	--
+	-- CornerBrake above lifts by how SHARP the bend is and never asks how
+	-- FAST the bot is — so a kart at 95 and one at 40 got the same lift
+	-- into the same corner, and the fast one understeered into the wall.
+	-- This only bites when genuinely over the limit, and then bites hard.
+	CornerMargin = 0.88, -- fraction of the physical limit a NAIVE bot uses
+	-- What a fully confident one uses. Not 1.0: even a driver who knows a
+	-- corner perfectly leaves something for the kart being nudged, and a
+	-- bot at exactly the limit understeers the first time anything
+	-- touches it.
+	CornerMarginLearned = 0.99,
+	CornerMarginSkill = 0.85, -- what the WORST bot gets of that margin
+	CornerBrakeHard = 1.6, -- lift per unit over the limit
+
 	MinCornerSpeed = 0.42, -- never lifts below this fraction of top speed
 
 	--== LINE ==========================================================
@@ -403,6 +448,20 @@ return {
 	--
 	-- Under 1 so the outermost bot still has margin to the edge; the
 	-- clamp is a backstop, not the thing choosing the line.
+	--== THE RACING LINE ==============================================
+	-- OUTSIDE IN, APEX, RUN WIDE OUT. Read straight off the road's own
+	-- signed curvature rather than chosen per bot, because a line that
+	-- ignores where the corners are is not a line — it is a habit, and it
+	-- is what made them look like they were guessing.
+	--
+	-- `Route.curvatureAt` is signed and the convention lands correctly
+	-- with no fixing up: negative is a left turn, so `sign(k)` is already
+	-- "which side is the inside of this corner".
+	ApexLook = 1.2, -- node units ahead to spot the corner being set up for
+	ApexFullCurve = 0.02, -- 1/studs treated as a full-commitment corner
+	ApexWide = 0.75, -- fraction of the road used on entry, on the outside
+	ApexTight = 0.85, -- and at the apex, on the inside
+
 	LineSpread = 0.75,
 	LineWander = 0.35, -- and the wander on top, same units
 
@@ -451,6 +510,20 @@ return {
 	-- catches a slow floater that never comes down; height above the
 	-- racing line catches one launched hard, which can be back on the
 	-- ground quickly and a very long way up in between.
+	-- A DELIBERATE JUMP GETS A LONGER LEASH, not an infinite one.
+	--
+	-- These limits were written when the only way off the ground was a
+	-- hop. A glide already gets excused outright; an ordinary launch
+	-- across a gap the route crosses did not, so a landing far enough
+	-- away exceeded MaxAirTime MID-FLIGHT and the bot was teleported back
+	-- — the same failure the glider had, from the same stale assumption.
+	--
+	-- Raised rather than removed: a bot that genuinely ends up flying
+	-- forever is still recovered, it just is not interrupted for doing
+	-- the thing the track asked it to do.
+	MaxAirTimeJumping = 12,
+	MaxAboveRouteJumping = 220,
+
 	MaxAirTime = 4, -- seconds off the ground before it is put back
 	MaxAboveRoute = 60, -- studs above the racing line, same
 
@@ -464,6 +537,92 @@ return {
 	-- Raise it if bots still clip the edge; the room they're clamped to is
 	-- the checkpoint volume's half-width minus this.
 	EdgeMargin = 4,
+
+	--== THE LAUNCH ===================================================
+	-- STRAIGHT OFF THE LINE, THEN FIND YOUR LINE.
+	--
+	-- `lineBias` and the wander are live from frame one, so the instant
+	-- the lights go out every bot sets off toward its own randomly-chosen
+	-- side of a road it has not looked at yet. Eight doing that at once is
+	-- the weaving at the start — not a bug in any one behaviour, but every
+	-- behaviour arriving at full strength before there is any information.
+	--
+	-- A real grid launches straight and sorts itself out over the first
+	-- few seconds. The personality ramps in over this, smoothstepped so it
+	-- does not arrive as a step.
+	--== RAMPS ========================================================
+	-- Bots had NO awareness of ramps at all — not one mention of
+	-- GlideRamp or FlipRamp anywhere in BotService — so they hit one only
+	-- by accident. A ramp the field never uses is track that may as well
+	-- not be built.
+	--
+	-- A GLIDE ramp is taken every time: it is a shortcut across a gap,
+	-- and declining it is not a personality, it is a mistake. A FLIP ramp
+	-- is a boost rather than a route, so whether a given bot bothers is
+	-- rolled once at spawn.
+	--
+	-- Applied as a PULL ON THE LATERAL OFFSET, not as a new aim point, so
+	-- everything downstream still applies — the soft edge, traffic, and
+	-- the road-width clamp. A ramp hanging over the void therefore cannot
+	-- drag a bot off the road, which a hard aim point absolutely would.
+	SeekRamps = true,
+	RampSeekRange = 140, -- studs ahead a ramp starts pulling
+	RampSeekPull = 0.75, -- how much of the way it commits at closest
+
+	-- KEEP THE THROTTLE ON INTO A RAMP. A launcher needs speed to fire —
+	-- a FlipRamp refuses under Trick.MinSpeed — and the corner braking
+	-- has no idea a ramp is there. `jumping` does not cover it: that
+	-- means "the route crosses a gap", and a flip ramp is usually a bump
+	-- on solid road, so bots lifted for it as if it were a bend, arrived
+	-- too slow, and drove over a launcher that did nothing.
+	--
+	-- Expressed as how committed the seek already is, so it only holds
+	-- throttle once the ramp is genuinely close and lined up.
+	RampCommitAt = 0.45, -- how much of the way it commits at closest
+
+	--== GOING NOWHERE FAST ===========================================
+	-- Every other recovery asks "is it off the track" or "is it in the
+	-- air". None of them ask the question a rounded section actually
+	-- poses: the bot is ON the road, at speed, upright, and making NO
+	-- PROGRESS ALONG IT.
+	--
+	-- In a tube the lateral axis curves around the barrel, so a bot that
+	-- drifts off the centreline can drive round the circumference instead
+	-- of down the length. Nothing is wrong by any existing test — it is
+	-- orbiting, and it will do it until the round ends.
+	--
+	-- Speed is part of the test on purpose: a bot sat at the lights is
+	-- not lost, and one pinned against a wall is already covered by the
+	-- stuck check.
+	LostStep = 0.002, -- node units per frame that counts as progress
+	LostMinSpeed = 25, -- below this it is stopped, not lost
+	LostTime = 2.5, -- seconds of no progress before acting
+
+	-- STEER HOME FIRST, teleport last. A revive is jarring and visible;
+	-- overriding the line back to dead centre is neither, and in a tube it
+	-- is usually all that is needed. Only if that keeps failing is the bot
+	-- actually put back.
+	LostSteerHome = 3, -- seconds of driving the centreline
+	LostTriesBeforeRevive = 2,
+
+	SettleTime = 3.5, -- seconds after the lights before full personality
+
+	-- THE SOFT EDGE. `EdgeMargin` is a hard clamp, and a clamp is a wall
+	-- a bot is perfectly happy to lean on — every steering term can push
+	-- past it, and clamping parks the bot exactly AT the limit. That is
+	-- why they tracked the outer edge all race, which on most corners is
+	-- the barrier.
+	--
+	-- A clamp says "you may not go further". It never says "you are
+	-- already too far". This is the second instruction: inside `EdgeSoft`
+	-- studs of the limit the offset is pushed back toward the middle,
+	-- squared so it is gentle where it begins and firm where it matters.
+	--
+	-- The bot still uses the whole road when it has a reason to — a
+	-- dodge or a wide entry can overcome it — it just does not LIVE
+	-- there.
+	EdgeSoft = 7, -- studs of road treated as the shoulder
+	EdgePush = 0.85, -- how hard it is shoved back, as a fraction of EdgeSoft
 
 	--== NOT DRIVING OFF THE EDGE ======================================
 	-- The cached road widths describe the centreline, which is right
@@ -516,6 +675,143 @@ return {
 	-- Not clever, and doesn't need to be: a bot doesn't go off "in
 	-- general", it goes off at turn four the same way every lap. One
 	-- number attached to turn four fixes turn four.
+	--== LEARNING ACROSS RUNS =========================================
+	-- Three numbers per path node — off / wall / clean — saved per PLACE
+	-- so every map is learned separately. About 2.5 KB for a 61-node
+	-- track against a 4 MB DataStore limit; it is a lookup table, not a
+	-- model, and there is no runtime cost beyond a table index.
+	--
+	-- Collective rather than per bot: eight bots learn eight times faster
+	-- than one, and a lesson only one of them remembers is one the field
+	-- does not act on. The per-bot `caution` below stays — that is a
+	-- driver's nerves within a race; this is the circuit's reputation.
+	LearnEnabled = true,
+
+	-- STUDIO LEARNS INTO ITS OWN KEY. A build session is not a race: you
+	-- drive bots into walls on purpose, half the track does not exist
+	-- yet, and you restart mid-lap twenty times an hour. All of that is
+	-- evidence and all of it is wrong — writing it where live servers
+	-- read would teach the real field habits learned from a track that
+	-- was never finished.
+	--
+	-- Turn off only to deliberately train the live brain from Studio.
+	LearnStudioSeparate = true,
+
+	--== LEARNING FROM PLAYERS ========================================
+	-- A person carrying speed cleanly through a corner is PROOF it
+	-- works. Bots spend ninety laps discovering what a good driver
+	-- demonstrates on their second, so a clean player pass is worth
+	-- several bot ones.
+	--
+	-- OBSERVED ON THE SERVER, never reported by the client. The kart's
+	-- position replicates anyway, so the server computes the player's
+	-- route position itself — there is no message to forge and nothing
+	-- to trust. That matters because this feeds persisted behaviour: a
+	-- client-reported version would let one modified player teach every
+	-- bot on the server to drive into a wall, and it would be saved.
+	--
+	-- Credited into the SAME counter as bot experience rather than a
+	-- parallel channel. A second channel needs its own ceiling, decay
+	-- and collapse rule, and the two can then disagree about one corner.
+	-- HOW OFTEN THE LEARNING BAR PRINTS ITSELF, seconds. It only speaks
+	-- when the percentage has actually MOVED — a line every thirty
+	-- seconds saying the same thing trains you to stop reading it, and
+	-- the whole value is that a change catches your eye.
+	--
+	-- The point of this is the unattended case: start twenty bots, walk
+	-- away, glance at Output. Having to type a command to find out
+	-- whether waiting is working rather defeats the waiting.
+	--== RESPAWN LOOPS ================================================
+	-- A bot that comes back, fails immediately, and repeats is not
+	-- driving a difficult corner — something is wrong with where it is
+	-- being PUT BACK. Every cycle reports the same node, so a minute of
+	-- looping puts fifty incidents against one stretch and the brain
+	-- concludes it is lethal, from evidence that describes a bug.
+	--
+	-- That poisoned node then vetoes drifting and tames the line for
+	-- every bot, permanently. Worth catching for that alone.
+	ReviveLoopCount = 3, -- failures at one node before it counts as a loop
+	ReviveLoopWindow = 12, -- seconds within which they must happen
+	ReviveLoopSkip = 1.5, -- nodes further along to put it back instead
+
+	LearnReportEvery = 20,
+
+	LearnFromPlayers = true,
+	LearnPlayerWorth = 4, -- clean bot passes a clean player pass is worth
+	LearnMax = 120, -- room for `clean` to reach LearnConfidenceRuns -- ceiling per counter, so one awful session cannot dominate
+	LearnMinSamples = 4, -- evidence needed before a node has an opinion at all
+
+	-- FORGETTING IS THE POINT, because you will edit the map. A corner
+	-- that was lethal before you widened it would otherwise stay lethal
+	-- forever. Every incident ages the whole node, so new evidence beats
+	-- old without anything having to notice the track changed.
+	LearnDecay = 0.98,
+
+	-- WALL HITS VETO DRIFTING AT A NODE, and this is the fix for "a bot
+	-- that does not drift is faster than one that does". It is not the
+	-- drift that is slow, it is drifting INTO things — and those were
+	-- previously the same number. A corner that keeps producing wall hits
+	-- stops being drifted; everywhere else keeps the advantage.
+	LearnDriftVeto = 0.35, -- wall rate above which the drift is refused
+
+	-- TOO SLOW THROUGH A NODE. Timed per crossing against how long the
+	-- segment SHOULD take, so a long straight is not flagged for being
+	-- long. Above this multiple of the expected time it counts as an
+	-- incident.
+	LearnSlowFactor = 3.0,
+	-- What "should" means: a fraction of top speed that is unremarkable
+	-- even through a corner. Nothing here is trying to be a lap record.
+	LearnSlowPace = 0.45,
+
+	-- An item can spin, stun, shove or scramble a bot into an otherwise
+	-- clean corner. The effect duration is added by BotService; this is
+	-- only the short recovery window after it ends.
+	--
+	-- Deliberately narrow: ordinary close racing is still evidence. This
+	-- applies only after a confirmed item or hazard effect lands.
+	LearnExternalGrace = 1.25,
+
+	-- DRIVE IT STRAIGHT. Above this slow-rate a node stops getting the
+	-- bias, the wander and the drift, and bots simply follow the centre
+	-- of the path through it. The personality is what got them stuck.
+	LearnTameAt = 0.4, -- wall rate above which the drift is refused
+
+	-- THE ONLY THING THAT MAKES BOTS FASTER THAN STOCK, and the whole
+	-- reason they stay beatable is the shape of it rather than the value:
+	-- confidence is slow to earn, capped hard, and collapses to zero the
+	-- moment a node has a meaningful incident rate.
+	--
+	-- A bot that has run your track five hundred times is 12% quicker
+	-- through a corner it has never once got wrong. That is the ceiling
+	-- by construction — nothing can climb past it.
+	-- CONFIDENCE RUNS TO 90%, and what it buys is how much of the kart's
+	-- PHYSICAL corner limit the bot is willing to use.
+	--
+	-- It is not a speed multiplier, and it deliberately cannot be one.
+	-- A 0.9 multiplier would ask a 50-stud corner to be taken at 161
+	-- studs/s when the kart tops out at 85 there — the bot would simply
+	-- understeer into the wall, faster than before. The limit is physics
+	-- and no amount of learning moves it.
+	--
+	-- What learning CAN move is the margin. A naive bot aims at 88% of
+	-- the limit because it needs steering left over to correct with; a
+	-- bot that has never once got this corner wrong does not need as
+	-- much, and can run to 99%.
+	--
+	--     radius   limit   naive 0.88   learned 0.99
+	--        200     173          152            171
+	--         80     114          100            113
+	--         50      85           75             84
+	--
+	-- 12.5% more corner speed everywhere, worth seconds a lap, and still
+	-- inside what the kart can actually turn.
+	LearnConfidenceMax = 0.9,
+	-- Slower to earn than it was, because it is worth more now. Ninety
+	-- clean passes at a corner is a genuine apprenticeship rather than a
+	-- couple of laps.
+	LearnConfidenceRuns = 90,
+	LearnConfidenceSpoil = 0.1, -- incident rate that zeroes it outright
+
 	CautionMax = 4, -- ceiling, or a bad stretch eventually stops it dead
 	CautionDecay = 0.5, -- shed per clean lap past that checkpoint
 	CautionPull = 0.22, -- how much of the road width it gives up per point
@@ -534,6 +830,9 @@ return {
 	-- always initiates a beat late and spends the exit straightening up,
 	-- where a driver is already sideways on the way in.
 	DriftScanAhead = 2.4, -- nodes to look for a corner worth drifting
+	-- Separate from braking lookahead. Reusing CornerLookahead made the
+	-- drift scan see a bend well beyond its own range and commit early.
+	DriftBendLookahead = 0.85,
 	DriftEntry = 0.55, -- nodes BEFORE the corner to start, scaled by
 	-- skill — a good driver commits earlier and carries more through
 	DriftHold = 0.8, -- nodes past it to stay committed, so it doesn't
@@ -541,6 +840,22 @@ return {
 
 	DriftBend = 0.32, -- bend required before it considers a drift
 	DriftMinSpeed = 55,
+
+	-- ROOM TO SLIDE INTO. A drift is a controlled slide OUTWARD, and
+	-- nothing used to ask whether there was road out there to slide onto.
+	-- A bot already near the edge would commit to one and leave the track
+	-- every single time — the most common way they got off the grid.
+	--
+	-- Measured on the side it is about to slide toward, against the
+	-- offset it has already chosen for this frame.
+	DriftNeedRoom = 9, -- studs of road that must remain on the outside
+	DriftSafetySamples = 4, -- entry -> apex -> exit checks per plan
+
+	-- NO DRIFTING OFF THE LINE. Sliding before the field has spread out
+	-- is most of the opening-corner chaos, and a bot that simply drives
+	-- the first corner cleanly beats one that slides into the wall.
+	-- Expressed against the launch settle, so it shares SettleTime.
+	DriftAfterSettle = 0.6, -- fraction of the settle before drifts are allowed
 	DriftChance = 0.85, -- rolled per corner, scaled by skill. A bot that
 	-- takes every drift perfectly is one you can't out-drive
 
@@ -612,5 +927,7 @@ return {
 	-- Cheap enough to leave on while testing; TURN IT OFF BEFORE ANYONE
 	-- ELSE PLAYS, because everything it draws is a real part — every
 	-- viewer sees them, and they are drawn on the server.
-	Debug = true,
+	-- Release default: server-side guide parts and periodic bot telemetry are
+	-- useful while tuning, but make a live race unreadable.
+	Debug = false,
 }

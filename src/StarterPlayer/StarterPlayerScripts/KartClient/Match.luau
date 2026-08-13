@@ -65,7 +65,7 @@ local function checkBindings()
 	claim(Config.Items.UseKeys, "use item forward")
 	claim(Config.Items.UseBackKeys, "use item backward")
 	claim(Config.Respawn.ResetKeys, "reset to checkpoint")
-	claim({ Config.Hud.ControlsToggleKey }, "controls toggle")
+	claim({ Config.Hud.ControlsToggleKey, Config.Hud.ControlsToggleGamepadKey }, "controls toggle")
 	claim({ M.ReadyKey }, "ready up")
 	-- Only bound in test mode, so it's the one that collides quietly.
 	if Config.Input.AllowExit then
@@ -86,6 +86,8 @@ function Match.new()
 	local state = if lobby then nil else BloxKart:WaitForChild(Shared.FOLDER, 10)
 	local finishRemote = if lobby then nil else BloxKart:WaitForChild(Shared.FINISH_REMOTE, 10)
 	local readyRemote = if lobby then nil else BloxKart:WaitForChild(Shared.READY_REMOTE, 10)
+	local gridReadyRemote = if lobby then nil else BloxKart:WaitForChild(Shared.GRID_READY_REMOTE, 10)
+	local intermissionVisibleRemote = if lobby then nil else BloxKart:WaitForChild(Shared.INTERMISSION_VISIBLE_REMOTE, 10)
 
 	if not state and not lobby then
 		warn("[Match] no MatchState folder — is MatchService running?")
@@ -96,12 +98,15 @@ function Match.new()
 		state = state,
 		finishRemote = finishRemote,
 		readyRemote = readyRemote,
+		gridReadyRemote = gridReadyRemote,
+		intermissionVisibleRemote = intermissionVisibleRemote,
 
 		phase = P.Waiting,
 		round = -1,
 		lastWhole = -1, -- last countdown integer announced
 
 		gridApplied = false,
+		gridReadySent = false,
 		reported = false,
 		isReady = false,
 	}, Match)
@@ -176,6 +181,15 @@ function Match:SetReady()
 	end
 end
 
+-- Called once the ReplicatedFirst splash has completely uncovered. This is a
+-- readiness acknowledgement only; the server still decides the intermission
+-- duration from the authored camera rail.
+function Match:ConfirmIntermissionVisible()
+	if self.intermissionVisibleRemote then
+		self.intermissionVisibleRemote:FireServer()
+	end
+end
+
 --=====================================================================
 --  FRAME
 --
@@ -194,6 +208,7 @@ function Match:Update(_dt: number, sim, race): { [string]: any }
 		-- when the next one begins.
 		self.round = round
 		self.gridApplied = false
+		self.gridReadySent = false
 		self.reported = false
 		self.isReady = false
 		race:Reset()
@@ -222,6 +237,13 @@ function Match:Update(_dt: number, sim, race): { [string]: any }
 			if typeof(cf) == "CFrame" then
 				sim:RespawnAt(cf)
 				self.gridApplied = true
+				if not self.gridReadySent and self.gridReadyRemote then
+					-- No position is sent back. The server already authored GridCF;
+					-- this is only the final acknowledgement that our local
+					-- simulation has actually consumed it before lights begin.
+					self.gridReadySent = true
+					self.gridReadyRemote:FireServer()
+				end
 				-- The kart just teleported across the map. The camera has to
 				-- cut rather than sweep, or the countdown is spent watching
 				-- it fly in from wherever the last round ended.

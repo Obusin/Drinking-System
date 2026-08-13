@@ -41,7 +41,12 @@ return {
 	MinSpeed = 30,
 
 	-- Studs/s of upward kick, along the RAMP's up.
-	LaunchUp = 62,
+	--
+	-- 62 -> 78. The flip was not only badly shaped, it was RUSHED: one
+	-- full turn crammed into 0.68s. More airtime is the half of the fix
+	-- that no curve can supply — 1.04s of arc, 0.85s of flip, and the
+	-- peak drops from 3.2 revs/sec to 2.1.
+	LaunchUp = 78,
 
 	-- OFF THE GROUND, SAID OUT LOUD. A kick alone does not clear
 	-- GroundSnap within a frame, so without this the next probe still
@@ -71,23 +76,31 @@ return {
 	-- the kart settled before the wheels arrive.
 	Window = 0.82,
 
-	-- SLOW OFF THE RAMP, FAST INTO THE LANDING. This is an ease-IN, and
-	-- it is the opposite of what was here.
+	-- HOW LATE THE FAST PART LANDS. This is a bias INTO an S-curve, not
+	-- a power curve on its own — see the render write, which does
+	-- `smoothstep(t ^ Ease)`.
 	--
-	-- `1 - (1-t)^n` is an ease-OUT: most of the rotation is spent in the
-	-- first moments and it crawls to a stop. That reads as the kart being
-	-- flicked and then hanging there, which is why it looked like several
-	-- fast flips rather than one deliberate one.
+	-- THREE SHAPES HAVE BEEN WRONG HERE, AND ONLY THE LAST IS ABOUT A
+	-- NUMBER:
 	--
-	-- `t^n` puts the speed at the END. The kart leaves the ramp with a
-	-- lazy hang, winds up through the arc, and whips through the last
-	-- part just as the ground arrives — so the fastest moment and the
-	-- landing coincide, which is what makes it feel earned rather than
-	-- merely completed.
+	--   1 - (1-t)^n   ease-OUT. Spends the rotation in the first
+	--                 moments and crawls to a stop — the kart looked
+	--                 flicked, then hung there.
+	--   t^n           ease-IN. Right idea, fatal shape: peak angular
+	--                 velocity sits AT t=1, so the flip span fastest in
+	--                 the exact frame it stopped dead. 3.2 revs/sec to
+	--                 zero in one frame. THAT is why it never felt
+	--                 satisfying, and no value of n could fix it.
+	--   smoothstep    zero velocity at both ends, but symmetric — the
+	--                 fast part sits in the middle and it reads limp.
 	--
-	-- Higher is lazier at the start and more violent at the end. Past
-	-- about 3 the first half looks like nothing is happening.
-	Ease = 2.2,
+	-- `smoothstep(t^Ease)` is the combination: eases out of the ramp,
+	-- peaks around t=0.69 so it still winds up INTO the landing, and
+	-- settles to a stop rather than being switched off mid-spin.
+	--
+	-- Higher is lazier at the start and later-peaking. 1 is a plain
+	-- symmetric smoothstep; past about 2.5 the first half looks dead.
+	Ease = 1.5,
 
 	--== THE REWARD ===================================================
 	-- Reported as `boostFired`, the same event a drift release uses — so

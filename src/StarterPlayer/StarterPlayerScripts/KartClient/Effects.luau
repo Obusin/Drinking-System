@@ -9,6 +9,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local BloxKart = ReplicatedStorage:WaitForChild("BloxKart")
 local Config = require(BloxKart:WaitForChild("Config"))
+local Names = require(BloxKart:WaitForChild("Names"))
 local Util = require(BloxKart:WaitForChild("Util"))
 
 local FX = Config.Effects
@@ -29,6 +30,23 @@ function Effects.new(hitbox: BasePart, model: Model?)
 		return inst
 	end
 
+	--=================================================================
+	--  ONE RIBBON PER REAR TYRE, AND THE VEHICLE SAYS HOW MANY.
+	--
+	--  A kart lays two, 2 studs out each side. A motorcycle has a single
+	--  rear wheel, and the default pair drew two parallel marks four
+	--  studs apart with the one tyre between them touching neither.
+	--
+	--  Read from Config.Vehicles rather than branched on here, the same
+	--  way handling, slots and the steering wheel are — Effects should
+	--  not have to know that motorcycles exist, only that a vehicle can
+	--  describe its own trails.
+	--=================================================================
+	local kind = model and model:GetAttribute(Names.VEHICLE_KIND)
+	local vehicle = Config.Vehicles.Kinds[kind or Config.Vehicles.Default] or Config.Vehicles.Kinds.kart
+	local layout = vehicle.trails
+	local back = if layout and layout.Back then layout.Back else FX.TrailBack
+
 	-- A Trail draws a ribbon between two attachments, so the gap between
 	-- them IS the width. Sitting them just above the ground at each rear
 	-- corner gives a tyre-mark ribbon that curves with the slide.
@@ -37,11 +55,11 @@ function Effects.new(hitbox: BasePart, model: Model?)
 		local low = -H.RideHeight + 0.06
 		local a0 = make("Attachment", {
 			Name = "_TrailLow",
-			Position = Vector3.new(x, low, FX.TrailBack),
+			Position = Vector3.new(x, low, back),
 		})
 		local a1 = make("Attachment", {
 			Name = "_TrailHigh",
-			Position = Vector3.new(x, low + FX.TrailWidth, FX.TrailBack),
+			Position = Vector3.new(x, low + FX.TrailWidth, back),
 		})
 		return make("Trail", {
 			Name = "_DriftTrail",
@@ -90,7 +108,13 @@ function Effects.new(hitbox: BasePart, model: Model?)
 
 	local self = setmetatable({
 		created = created,
-		trails = { driftTrail(-1), driftTrail(1) },
+		trails = (function()
+			local out = {}
+			for _, xSign in (layout and layout.Xs or { -1, 1 }) do
+				table.insert(out, driftTrail(xSign))
+			end
+			return out
+		end)(),
 		speedLines = speedLines,
 		shieldParts = {},
 		shieldAlpha = 1,

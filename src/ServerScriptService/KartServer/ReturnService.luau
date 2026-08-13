@@ -23,17 +23,49 @@ local TeleportService = game:GetService("TeleportService")
 local BloxKart = ReplicatedStorage:WaitForChild("BloxKart")
 local Config = require(BloxKart:WaitForChild("Config"))
 local Names = require(BloxKart:WaitForChild("Names"))
+local MatchService = require(script.Parent.MatchService)
+local Match = require(BloxKart:WaitForChild("Match"))
 
 local PL = Config.Places
 
 local ReturnService = {}
 local transitionRemote: RemoteEvent
+local returnRemote: RemoteEvent
 
 -- Rounds completed since the last trip home, or since server start.
 local sinceReturn = 0
 -- Guards the window between "we decided to go" and "the teleport
 -- fired" — onResults could in principle fire again inside that gap.
 local returning = false
+local returningPlayers: { [Player]: boolean } = {}
+
+-- A player-selected return uses the same cover and failure handling as
+-- the end-of-session return, but never accepts a client supplied place id.
+local function returnPlayer(player: Player)
+	if PL.LobbyPlaceId == 0
+		or player.Parent ~= Players
+		or returningPlayers[player]
+		or MatchService.phase() ~= Match.Phase.Results
+	then
+		return
+	end
+	returningPlayers[player] = true
+	transitionRemote:FireClient(player, "teleportOut", "lobby")
+	task.delay(Config.Rewards.WipeTime + Config.Rewards.WipeImageHold, function()
+		if player.Parent ~= Players then
+			returningPlayers[player] = nil
+			return
+		end
+		local ok, err = pcall(function()
+			TeleportService:TeleportAsync(PL.LobbyPlaceId, { player })
+		end)
+		if not ok then
+			returningPlayers[player] = nil
+			transitionRemote:FireClient(player, "release")
+			warn("[Return] player return failed for " .. player.Name .. ": " .. tostring(err))
+		end
+	end)
+end
 
 -- Called from MatchService.onResults, composed with BotService's own
 -- subscriber in init.server.
@@ -42,12 +74,16 @@ function ReturnService.onResults()
 	-- being 0 is the same "not set up yet" fallback every other Places
 	-- read uses — silent, because it is the normal state until a lobby
 	-- exists, not a misconfiguration.
-	if PL.LobbyPlaceId == 0 or PL.ReturnAfterRounds <= 0 or returning then
+	-- `nil` has historically meant "not configured" in place settings. Treat
+	-- it exactly like zero; comparing it directly to zero throws during the
+	-- Results transition and prevents the phase from ever replicating.
+	local afterRounds = PL.ReturnAfterRounds
+	if PL.LobbyPlaceId == 0 or type(afterRounds) ~= "number" or afterRounds <= 0 or returning then
 		return
 	end
 
 	sinceReturn += 1
-	if sinceReturn < PL.ReturnAfterRounds then
+	if sinceReturn < afterRounds then
 		return
 	end
 
@@ -91,12 +127,20 @@ function ReturnService.start()
 	transitionRemote.Name = Names.TRANSITION_REMOTE
 	transitionRemote.Parent = BloxKart
 
+	returnRemote = Instance.new("RemoteEvent")
+	returnRemote.Name = Names.RETURN_REMOTE
+	returnRemote.Parent = BloxKart
+	returnRemote.OnServerEvent:Connect(function(player)
+		returnPlayer(player)
+	end)
+
 	-- The async half of the same failure TeleportInitFailed exists for
 	-- everywhere else in this codebase: TeleportAsync can return cleanly
 	-- and still fail moments later. QueueService has its own connection
 	-- to the same signal — Roblox signals are multi-subscriber, so the
 	-- two do not conflict or overwrite each other.
 	TeleportService.TeleportInitFailed:Connect(function(player, result, message)
+		returningPlayers[player] = nil
 		if player.Parent == Players then
 			transitionRemote:FireClient(player, "release")
 		end

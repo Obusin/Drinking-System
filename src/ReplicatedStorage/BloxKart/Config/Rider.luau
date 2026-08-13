@@ -65,6 +65,46 @@ return {
 	-- principles — it was tested.
 	ElbowPole = Vector3.new(1.15, 1.35, 1.0),
 
+	--== PROCEDURAL REACTIONS ==========================================
+	-- These are deliberately small IK offsets, not replacement character
+	-- animations. They make ordinary driving readable while preserving the
+	-- seated pose and the hands' relationship with the wheel.
+	PoseEnabled = true,
+	PoseSmoothing = 12,
+	TurnHandLean = 0.18,
+	DriftHandBrace = 0.28,
+	BoostHandBrace = 0.16,
+	AirHandTuck = 0.24,
+	LandHandBounce = 0.18,
+	AirVerticalSpeed = 9,
+	LandRecoverTime = 0.22,
+
+	-- Head uses a separate LookAt IK chain, so it can look into a turn or
+	-- down the road without competing with either arm chain.
+	HeadLookEnabled = true,
+	HeadLookWeight = 0.42,
+	HeadTurnLook = 3.2,
+	HeadDriftLook = 2.2,
+	HeadTargetForward = 12,
+	HeadTargetHeight = 3,
+
+	-- Forward item use: right hand leaves the wheel, traces this short arc,
+	-- then returns. It is deliberately quicker than a real throw so it never
+	-- makes steering look abandoned in a combat corner.
+	ThrowDuration = 0.48,
+	ThrowSide = 1.05,
+	ThrowForward = 1.3,
+	ThrowLift = 0.48,
+
 	Debug = false, -- report in Output why the IK is idle. Turn off once
 	-- the hands are on the wheel.
+
+	--== MOTORCYCLE ====================================================
+	-- Drift angle at touchdown above which a landing counts as CROOKED
+	-- and earns a short fishtail. Radians, matching KartDrift.
+	--
+	-- Deliberately generous: a bike that fishtails on every slightly
+	-- imperfect landing is a bike that punishes you for jumping, and
+	-- jumping is the fun part.
+	BikeBadLandDrift = 0.28,
 }

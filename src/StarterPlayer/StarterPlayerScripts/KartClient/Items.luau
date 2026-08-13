@@ -23,6 +23,15 @@ local Standings = require(BloxKart:WaitForChild("Standings"))
 
 local IT = Config.Items
 
+-- Only things that visibly leave the kart deserve the hand-throw pose.
+-- Lightning, shield, turbo, refill, and Rainbow are activations, not throws.
+local FORWARD_THROW_ITEMS = {
+	Missile = true,
+	Mine = true,
+	FakeBox = true,
+	OilSpill = true,
+}
+
 local Items = {}
 Items.__index = Items
 
@@ -82,9 +91,27 @@ function Items.new(kart: Model)
 		pending = {},
 		hazardRemote = BloxKart:WaitForChild("KartHazard"),
 		projectileRemote = BloxKart:WaitForChild("KartProjectile"),
+		rainbowRemote = BloxKart:WaitForChild("KartRainbow"),
 		conns = {},
 		gained = 0,
+		rainbowPending = false,
+		rainbowRequest = 0,
 	}, Items)
+
+	table.insert(self.conns, self.rainbowRemote.OnClientEvent:Connect(function(ok)
+		self.rainbowPending = false
+		if ok ~= true then
+			return
+		end
+		-- Remove the confirmed Rainbow, rather than whatever item happens
+		-- to be at the front by the time the round trip arrives.
+		for i, slot in self.held do
+			if slot.item and slot.item.Id == "Rainbow" then
+				table.remove(self.held, i)
+				break
+			end
+		end
+	end))
 
 	table.insert(
 		self.conns,
@@ -199,6 +226,7 @@ end
 -- ticks = n, landed = id }
 function Items:Update(sim, input): { [string]: any }
 	local events = {}
+	local rainbowProtected = self.kart:GetAttribute(Names.RAINBOW_ACTIVE) == true
 	self:_spin(events)
 
 	if self.gained > 0 then
@@ -291,6 +319,23 @@ function Items:Update(sim, input): { [string]: any }
 			fireProjectile = function(itemId)
 				self.projectileRemote:FireServer(itemId, nil, back)
 			end,
+			requestRainbow = function()
+				if self.rainbowPending then
+					return false
+				end
+				self.rainbowPending = true
+				self.rainbowRequest += 1
+				local request = self.rainbowRequest
+				self.rainbowRemote:FireServer()
+				-- A server that is restarting or otherwise never answers must
+				-- not leave this slot unusable for the rest of the round.
+				task.delay(1.5, function()
+					if self.rainbowPending and self.rainbowRequest == request then
+						self.rainbowPending = false
+					end
+				end)
+				return false
+			end,
 			fire = function(target, payload)
 				-- Stamped here, so no item module has to remember to include
 				-- it and none of them can disagree about their own name. The
@@ -305,6 +350,7 @@ function Items:Update(sim, input): { [string]: any }
 		if ok ~= false then
 			table.remove(self.held, readyIndex)
 			events.used = item.Id
+			events.throwForward = not back and FORWARD_THROW_ITEMS[item.Id] == true
 		else
 			events.failed = reason
 		end
@@ -333,7 +379,7 @@ function Items:Update(sim, input): { [string]: any }
 				not IT.HazardOwnerImmune
 				and not (typeof(armAt) == "number" and workspace:GetServerTimeNow() < armAt)
 			)
-		if live then
+		if live and not rainbowProtected then
 			-- Which hazard this is comes off the part, so one code path
 			-- serves mines, oil and anything added later.
 			local item = Registry.byId(hz:GetAttribute(Names.HAZARD_ITEM) or "Mine")
@@ -370,6 +416,10 @@ function Items:Update(sim, input): { [string]: any }
 			return events
 		end
 
+		if rainbowProtected then
+			events.blocked = { item = "Rainbow" }
+			return events
+		end
 		local landed = sim:Spinout(payload.spin, payload.keep, payload.stun)
 		-- Scramble carries no spin, so Spinout reports nothing landed and
 		-- the shield check has to be asked separately — otherwise a

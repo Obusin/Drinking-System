@@ -80,6 +80,87 @@ local function triangle(a: Vector3, b: Vector3, c: Vector3, thickness: number, s
 	}
 end
 
+--=====================================================================
+--  BRIDGING — THE PREDICTIVE HALF.
+--
+--  Picking three corners by hand is fine for one hole and useless for a
+--  track. A curve laid out with Arc leaves a wedge-shaped gap between
+--  EVERY consecutive pair of segments, and there may be sixty of them.
+--
+--  So this works out the corners itself: given two parts, it takes the
+--  face on each that points at the other and lofts one to the other.
+--  Nothing is clicked, and it is right for any orientation because the
+--  faces are chosen by direction rather than by name.
+--=====================================================================
+
+-- The four world-space corners of the face whose outward normal is most
+-- aligned with `dir`. Six candidates — three axes, two signs.
+local function faceCorners(part: BasePart, dir: Vector3): { Vector3 }
+	local cf = part.CFrame
+	local axis = { cf.RightVector, cf.UpVector, cf.LookVector }
+	local half = { part.Size.X * 0.5, part.Size.Y * 0.5, part.Size.Z * 0.5 }
+
+	local bestAxis, bestSign, bestDot = 1, 1, -math.huge
+	for i = 1, 3 do
+		for _, sign in { 1, -1 } do
+			local d = axis[i]:Dot(dir) * sign
+			if d > bestDot then
+				bestDot, bestAxis, bestSign = d, i, sign
+			end
+		end
+	end
+
+	-- The other two axes span the face.
+	local ui = bestAxis % 3 + 1
+	local vi = (bestAxis + 1) % 3 + 1
+	local n = axis[bestAxis] * bestSign
+	local u, v = axis[ui] * half[ui], axis[vi] * half[vi]
+	local centre = part.Position + n * half[bestAxis]
+	return { centre + u + v, centre + u - v, centre - u - v, centre - u + v }
+end
+
+-- NEAREST-NEIGHBOUR CHAIN, so selection ORDER DOES NOT MATTER. Dragging
+-- a box over a curved run gives you the parts in whatever order Studio
+-- felt like, and asking a level designer to click sixty segments in
+-- sequence is not a tool, it is a punishment.
+--
+-- Starts from the part furthest from the centroid, which on any open run
+-- is an end. A closed loop has no end, so it starts somewhere arbitrary
+-- and simply leaves the last gap — press again with those two selected.
+local function chain(parts: { BasePart }): { BasePart }
+	if #parts < 3 then
+		return parts
+	end
+	local centre = Vector3.zero
+	for _, p in parts do
+		centre += p.Position
+	end
+	centre /= #parts
+
+	local startIdx, far = 1, -1
+	for i, p in parts do
+		local d = (p.Position - centre).Magnitude
+		if d > far then
+			far, startIdx = d, i
+		end
+	end
+
+	local left = table.clone(parts)
+	local out = { table.remove(left, startIdx) :: BasePart }
+	while #left > 0 do
+		local last = out[#out]
+		local bestIdx, bestD = 1, math.huge
+		for i, p in left do
+			local d = (p.Position - last.Position).Magnitude
+			if d < bestD then
+				bestD, bestIdx = d, i
+			end
+		end
+		table.insert(out, table.remove(left, bestIdx) :: BasePart)
+	end
+	return out
+end
+
 function GapFill.build(page: Instance, ctx)
 	local thickness = 0.2
 	local ghost = Ghost.new("GapFill")
@@ -184,6 +265,143 @@ function GapFill.build(page: Instance, ctx)
 	-- appear as you pick them rather than after a button press.
 	Sel.changed(function()
 		task.defer(preview)
+	end)
+
+	--== BRIDGE ========================================================
+	local bridgeSec = Ui.section(page, "Bridge", "gap2")
+	Ui.label(
+		bridgeSec,
+		"Select a run of parts and it fills every gap between them. Order does not matter. Built for curves laid out with Arc.",
+		true
+	)
+
+	-- TOP ONLY IS THE DEFAULT, and the reason is arithmetic. Lofting all
+	-- four sides is 8 triangles and therefore 16 WEDGES per gap; a
+	-- sixty-segment corner would be 960 parts. The drivable surface is 2
+	-- triangles and 4 wedges, which is what a kart actually touches.
+	local mode = "Top only"
+	Ui.choice(bridgeSec, { "Top only", "All sides" }, mode, function(v)
+		mode = v
+	end)
+
+	local function buildBridge(): { WedgePart }?
+		local picked = Sel.parts(false)
+		if #picked < 2 then
+			ctx.status(("Select 2 or more parts — you have %d."):format(#picked))
+			return nil
+		end
+
+		local run = chain(picked)
+		local created = {}
+		local function emit(a, b, c)
+			local wedges = triangle(a, b, c, thickness, picked[1])
+			if wedges then
+				for _, w in wedges do
+					w.Name = "Bridge"
+					table.insert(created, w)
+				end
+			end
+		end
+
+		for i = 1, #run - 1 do
+			local a, b = run[i], run[i + 1]
+			local delta = b.Position - a.Position
+			if delta.Magnitude > 1e-4 then
+				local dir = delta.Unit
+				local fa = faceCorners(a, dir)
+				local fb = faceCorners(b, -dir)
+
+				-- PAIRED BY PROXIMITY, not by index. The two faces point at
+				-- each other, so their winding is opposite and matching
+				-- 1-to-1 would cross the quad into a bowtie. Nearest corner
+				-- is right however either part happens to be rotated.
+				local mate = {}
+				for j, pa in fa do
+					local best, bestD = 1, math.huge
+					for k, pb in fb do
+						local d = (pa - pb).Magnitude
+						if d < bestD then
+							bestD, best = d, k
+						end
+					end
+					mate[j] = fb[best]
+				end
+
+				if mode == "Top only" then
+					-- The face edge highest along world up is the one the
+					-- kart drives on. Found rather than assumed, so a banked
+					-- or inverted section still fills the surface you meant.
+					local topJ, topY = 1, -math.huge
+					for j = 1, 4 do
+						local y = (fa[j] + fa[j % 4 + 1]).Y * 0.5
+						if y > topY then
+							topY, topJ = y, j
+						end
+					end
+					local j = topJ % 4 + 1
+					emit(fa[topJ], fa[j], mate[j])
+					emit(fa[topJ], mate[j], mate[topJ])
+				else
+					for j = 1, 4 do
+						local k = j % 4 + 1
+						emit(fa[j], fa[k], mate[k])
+						emit(fa[j], mate[k], mate[j])
+					end
+				end
+			end
+		end
+
+		if #created == 0 then
+			ctx.status("Nothing to bridge — the parts may be touching already.")
+			return nil
+		end
+		return created
+	end
+
+	local function previewBridge()
+		if not ctx.visible() then
+			return
+		end
+		local wedges = buildBridge()
+		if wedges then
+			ghost:showRaw(wedges)
+			ctx.status(("Preview: %d gap(s), %d wedge(s)."):format(#Sel.parts(false) - 1, #wedges))
+		else
+			ghost:clear()
+		end
+	end
+
+	Ui.button(bridgeSec, "Bridge the run", function()
+		local picked = Sel.parts(false)
+		local made = History.run("Bridge gaps", function()
+			local wedges = buildBridge()
+			if not wedges then
+				return nil
+			end
+			for _, w in wedges do
+				w.Parent = picked[1].Parent
+			end
+			return wedges
+		end)
+		if made then
+			ghost:clear()
+			Sel.set(made)
+			ctx.status(("Bridged with %d wedge(s)."):format(#made), "ok")
+		end
+	end, nil, "primary")
+
+	-- ONE PREVIEW HOOK FOR BOTH SECTIONS. Which one draws depends on how
+	-- many parts are selected: 3 or 4 is ambiguous, so the corner fill
+	-- wins there and the bridge takes everything else.
+	Sel.changed(function()
+		task.defer(function()
+			local n = #Sel.parts(false)
+			if n >= 3 and n <= 4 then
+				preview()
+			else
+				previewBridge()
+			end
+		end)
 	end)
 
 	ctx.onHide(function()

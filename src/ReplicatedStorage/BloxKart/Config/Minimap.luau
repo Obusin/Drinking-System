@@ -31,6 +31,14 @@ return {
 	Position = UDim2.new(0, 24, 1, -24),
 	Anchor = Vector2.new(0, 1),
 	Size = Vector2.new(210, 210),
+	-- Phone: a route reminder, not a second quarter-screen display. It sits
+	-- beneath the Roblox top bar and leaves the lower corners to driving.
+	MobilePosition = UDim2.new(0, 14, 0, 96),
+	MobileAnchor = Vector2.new(0, 0),
+	MobileSize = Vector2.new(116, 116),
+	MobileTrackThickness = 3,
+	MobileSelfSize = 8,
+	MobileRacerSize = 5,
 	-- Fraction of the map's half-size left empty at the edges, so a
 	-- track that touches the bounding box does not touch the frame.
 	Padding = 0.12,

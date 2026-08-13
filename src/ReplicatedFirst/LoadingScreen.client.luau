@@ -69,7 +69,7 @@ title.Position = UDim2.fromScale(0.5, 0.5)
 title.Size = UDim2.fromScale(0.5, 0.14)
 title.BackgroundTransparency = 1
 title.Font = Enum.Font.GothamBlack
-title.Text = "GO KARTS GO"
+title.Text = ""
 title.TextColor3 = GOLD
 title.TextScaled = true
 title.ZIndex = 2
@@ -86,6 +86,25 @@ icon.ImageTransparency = 1 -- hidden until a real image loads
 icon.ZIndex = 2
 icon.Parent = cover
 
+-- Lifecycle text is deliberately just outlined type — the same language as
+-- the race HUD — rather than a second card/modal layered onto the splash.
+-- It answers the only useful loading question: whether we are preparing the
+-- client, the kart, or are about to hand control over.
+local status = Instance.new("TextLabel")
+status.Name = "Status"
+status.AnchorPoint = Vector2.new(0.5, 0.5)
+status.Position = UDim2.fromScale(0.5, 0.73)
+status.Size = UDim2.fromScale(0.7, 0.05)
+status.BackgroundTransparency = 1
+status.Font = Enum.Font.GothamBold
+status.Text = "INITIALIZING"
+status.TextSize = 16
+status.TextColor3 = Color3.fromRGB(150, 200, 245)
+status.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+status.TextStrokeTransparency = 0.45
+status.ZIndex = 2
+status.Parent = cover
+
 -- Gentle breathing pulse so a black screen doesn't read as frozen.
 local pulseConn: RBXScriptConnection?
 pulseConn = RunService.RenderStepped:Connect(function()
@@ -97,12 +116,24 @@ end)
 --  Pull the shared wipe look (and icon) once BloxKart replicates
 --=====================================================================
 local R: any = nil
+local HUD: any = nil
 local bloxKart = ReplicatedStorage:WaitForChild("BloxKart", 20)
 if bloxKart then
 	pcall(function()
 		local Config = require(bloxKart:WaitForChild("Config"))
 		R = Config.Rewards
+		HUD = Config.Hud
 	end)
+end
+
+if HUD then
+	-- Match the in-race type when the custom family is installed. ReplicatedFirst
+	-- cannot afford a bad font name taking down the splash, so retain the
+	-- Gotham fallback created above if the configured family is unavailable.
+	pcall(function()
+		status.FontFace = Font.fromName(HUD.FontName, HUD.FontWeight)
+	end)
+	status.TextStrokeTransparency = HUD.StrokeTransparency
 end
 
 -- Try the brand image, but KEEP the text stand-in visible behind it: the
@@ -129,6 +160,12 @@ local WIPE_BAND_T = (R and R.WipeBandTransparency) or 0
 -- If Names.PREVIEW_READY is ever renamed, rename it here too.
 local READY_ATTR = "BloxKartPreviewReady"
 local PREVIEW_WAIT = 6 -- seconds, then uncover regardless
+-- Keep literals here for the same reason as READY_ATTR: ReplicatedFirst must
+-- remain able to reveal even while shared modules are still replicating.
+local SERVER_READY_ATTR = "BloxKartServerReady"
+local PLAYER_STATE_ATTR = "BloxKartState"
+local RACE_DRIVING = "RaceDriving"
+local RACE_WAIT = 20
 
 local shownAt = os.clock()
 
@@ -146,6 +183,7 @@ if bloxKart then
 	end)
 end
 if isLobby then
+	status.Text = "PREPARING GARAGE"
 	playerGui:WaitForChild("BloxKartMainMenu", 6)
 
 	-- AND WAIT FOR THE KART TO BE WEARING THE RIGHT THING.
@@ -170,6 +208,28 @@ if isLobby then
 			task.wait(0.05)
 		end
 	end
+	status.Text = "READY"
+else
+	-- A race reveal is held until the server is fully booted and this exact
+	-- player has a client-attached kart. The server owns both signals; this UI
+	-- merely presents their lifecycle, so it cannot accidentally unlock play.
+	local waitUntil = os.clock() + RACE_WAIT
+	while os.clock() < waitUntil do
+		local serverReady = bloxKart and bloxKart:GetAttribute(SERVER_READY_ATTR)
+		local playerState = player:GetAttribute(PLAYER_STATE_ATTR)
+		if serverReady and playerState == RACE_DRIVING then
+			break
+		end
+		if not serverReady then
+			status.Text = "CONNECTING TO RACE"
+		elseif playerState == "RaceLoading" or playerState == "CharacterLoading" then
+			status.Text = "PREPARING KART"
+		else
+			status.Text = "SETTING THE GRID"
+		end
+		task.wait(0.05)
+	end
+	status.Text = "READY"
 end
 
 local elapsed = os.clock() - shownAt
@@ -203,6 +263,10 @@ TweenService:Create(icon, TweenInfo.new(WIPE_TIME * 0.6, Enum.EasingStyle.Quad, 
 TweenService:Create(title, TweenInfo.new(WIPE_TIME * 0.6, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
 	TextTransparency = 1,
 }):Play()
+TweenService:Create(status, TweenInfo.new(WIPE_TIME * 0.6, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+	TextTransparency = 1,
+	TextStrokeTransparency = 1,
+}):Play()
 
 -- Sweep in to full cover…
 local inTween = TweenService:Create(
@@ -217,6 +281,7 @@ inTween.Completed:Wait()
 cover.BackgroundTransparency = 1
 icon.Visible = false
 title.Visible = false
+status.Visible = false
 
 -- …then sweep out, revealing the menu, and clean up.
 local outTween = TweenService:Create(
@@ -227,4 +292,9 @@ local outTween = TweenService:Create(
 outTween:Play()
 outTween.Completed:Wait()
 
+-- The normal client may already be simulating its intermission camera behind
+-- this opaque splash. Mark the actual reveal, rather than merely "assets are
+-- loaded", so that cinematic starts on its first authored shot when it can be
+-- seen rather than midway through the rail.
+player:SetAttribute("BloxKartSplashDismissed", true)
 gui:Destroy()

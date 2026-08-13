@@ -54,9 +54,16 @@ function Inspect.server(): { [string]: any }
 	local bots = tryRequire("BotService")
 
 	local phase = "unavailable"
+	local matchInfo: { [string]: any }? = nil
 	if match and type(match.phase) == "function" then
 		local ok, value = pcall(match.phase)
 		phase = if ok then tostring(value) else "unavailable"
+	end
+	if match and type(match.management) == "function" then
+		local ok, value = pcall(match.management)
+		if ok and type(value) == "table" then
+			matchInfo = value
+		end
 	end
 
 	local botCount: any = "unavailable"
@@ -90,6 +97,9 @@ function Inspect.server(): { [string]: any }
 		devAiCount = DevRegistry.count("ai"),
 		devPickupCount = DevRegistry.count("pickup"),
 		matchPhase = phase,
+		matchLaps = if matchInfo then matchInfo.laps else "unavailable",
+		matchSecondsLeft = if matchInfo then matchInfo.secondsLeft else "unavailable",
+		matchRound = if matchInfo then matchInfo.round else "unavailable",
 	}
 end
 

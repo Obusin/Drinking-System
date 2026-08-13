@@ -53,6 +53,7 @@ local RunService = game:GetService("RunService")
 
 local BloxKart = ReplicatedStorage:WaitForChild("BloxKart")
 local Items = require(BloxKart:WaitForChild("Items"))
+local Match = require(BloxKart:WaitForChild("Match"))
 local Names = require(BloxKart:WaitForChild("Names"))
 local Route = require(BloxKart:WaitForChild("Route"))
 local Triggers = require(BloxKart:WaitForChild("Triggers"))
@@ -451,9 +452,9 @@ function ProjectileService.fire(from: Model, owner: Player?, item, back: boolean
 	-- integer drops the missile back at the checkpoint behind the
 	-- shooter, so it appears at the kart and is instantly somewhere
 	-- else — which reads as it spawning and vanishing.
-	local nodes = Route.nodes()
-	local startU = if #nodes > 0 then Route.nearestU(pos) else 0
-	local startLateral = if #nodes > 0 then Route.lateralAt(startU, pos, up) else 0
+	local path = Route.path()
+	local startU = if #path > 0 then Route.nearestU(pos, path) else 0
+	local startLateral = if #path > 0 then Route.lateralAt(startU, pos, up, path) else 0
 
 	nextUid += 1
 	local p = {
@@ -488,7 +489,7 @@ function ProjectileService.fire(from: Model, owner: Player?, item, back: boolean
 			("[Missile] #%d launched by %s — %d route nodes, entering at u %.2f (lat %.1f)%s"):format(
 				nextUid,
 				(if owner then owner.Name else "a bot"),
-				#nodes,
+				#path,
 				p.u,
 				p.lateral,
 				if way < 0 then " BACKWARDS" else ""
@@ -525,6 +526,10 @@ function ProjectileService.start()
 		-- shoot: a missile fired during the countdown would arrive while
 		-- the field is still pinned on the grid and unable to dodge.
 		if not MatchService.itemsLive() then
+			return
+		end
+		local finishedKart = KartService.kartFor(player)
+		if finishedKart and finishedKart:GetAttribute(Match.FINISH_PLACE) then
 			return
 		end
 		if typeof(itemId) ~= "string" then

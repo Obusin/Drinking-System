@@ -31,13 +31,21 @@
 
 return {
 	--== PLAYLISTS =====================================================
+	-- The one track heard during the visible authored Intermission rail. It
+	-- intentionally stays silent behind the loading splash, then crossfades
+	-- into Race music at Grid.
+	Loading = "rbxassetid://103563701741842",
+
 	-- Played during the countdown and the race itself. The countdown is
 	-- included deliberately: the music should already be going when the
 	-- lights go out, or the start feels like the music missed its cue.
 	--
-	-- Set 2026-08-02.
+	-- Sunset Circuit themes, set 2026-08-12. The Music controller shuffles
+	-- this list once per pass, so the same theme never deliberately repeats
+	-- at the boundary between two races.
 	Race = {
-		"rbxassetid://115138058496886", -- Sunday Morning Groove
+		"rbxassetid://131369342434371",
+		"rbxassetid://80299136876604",
 	},
 
 	-- The lobby, and everywhere that isn't Grid/Racing on a race place —
@@ -79,7 +87,11 @@ return {
 	-- the mix here, not the middle of it — a racing game where you can't
 	-- hear your own kart over the soundtrack is one where you cannot hear
 	-- when you're losing grip.
-	Volume = 0.35,
+	-- 0.35 -> 0.2, once the crowd bed and the always-on wind arrived. The
+	-- mix has two more continuous layers in it than it did, and the music
+	-- is the one that should give way — it is the only one of the three
+	-- that tells the player nothing.
+	Volume = 0.2,
 
 	-- How fast it fades between playlists, per second. A crossfade rather
 	-- than a cut, because a hard switch on a phase change draws attention

@@ -44,6 +44,16 @@ local function tagList(): { string }
 		Config.Race.StartTag,
 		Config.Race.EndTag,
 		Config.Race.CheckpointTag,
+		-- THE BOT PATH. Purely a line to drive — nothing ever touches one,
+		-- and unlike a checkpoint there is no reason to place it sparsely,
+		-- so a dense path would otherwise litter the road with invisible
+		-- walls the karts would grind along.
+		--
+		-- Excluded from the movement SWEEP here. It stays queryable, like
+		-- the glide ramps below, because Route finds these with an
+		-- explicit include-filter tag query — which is a different thing
+		-- from being solid.
+		Config.Race.BotPathTag,
 		Config.Respawn.VoidTag,
 
 		-- GLIDE RAMPS AND LANDING ZONES. Both are markers, not geometry:

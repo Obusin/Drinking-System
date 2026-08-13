@@ -17,6 +17,7 @@ local Config = require(ReplicatedStorage.BloxKart.Config)
 local Util = require(ReplicatedStorage.BloxKart.Util)
 local Names = require(ReplicatedStorage.BloxKart.Names)
 local PlaceholderVisual = require(script.Parent.PlaceholderVisual)
+local BikeVisual = require(script.Parent.BikeVisual)
 local SteeringWheel = require(script.Parent.SteeringWheel)
 
 local RIG = Config.Rig
@@ -53,16 +54,26 @@ end
 
 -- `visualName` overrides which ServerStorage model is used as the art.
 -- Nil means RIG.VisualName, which is what everyone gets.
-function KartFactory.build(color: Color3?, visualName: string?): Model
+--=====================================================================
+--  `kind` NAMES A ROW IN Config.Vehicles. Nil is the kart, which is the
+--  existing behaviour spelled out — every current caller keeps working
+--  without knowing vehicles exist.
+--=====================================================================
+function KartFactory.build(color: Color3?, visualName: string?, kind: string?): Model
 	local kart = Instance.new("Model")
 	kart.Name = "Kart"
 
 	-- The one part that matters. Non-colliding: the controller does its
 	-- own swept collision, so Roblox's solver never gets a vote. That is
 	-- what makes handling identical on every machine and frame rate.
+	local vehicle = Config.Vehicles.Kinds[kind or Config.Vehicles.Default] or Config.Vehicles.Kinds.kart
+
 	local hitbox = Instance.new("Part")
 	hitbox.Name = "Hitbox"
-	hitbox.Size = RIG.HitboxSize
+	-- THE ONE VISUAL-SOUNDING NUMBER THAT IS NOT COSMETIC. A bike is
+	-- narrower and the controller collides with THIS, not with the art —
+	-- so it is the vehicle's to set and nothing else's.
+	hitbox.Size = vehicle.hitboxSize or RIG.HitboxSize
 	hitbox.Transparency = 1
 	hitbox.CanCollide = false
 	hitbox.CanQuery = false
@@ -74,7 +85,7 @@ function KartFactory.build(color: Color3?, visualName: string?): Model
 	local seat = Instance.new("VehicleSeat")
 	seat.Name = "Seat"
 	seat.Size = Vector3.new(2, 0.4, 2)
-	seat.CFrame = CFrame.new(0, 0.5, 0.6)
+	seat.CFrame = CFrame.new(RIG.SeatOffset)
 	seat.Transparency = 1
 	seat.CanCollide = false
 	-- Another racer's seat must not register as a wall in our sweep.
@@ -90,18 +101,45 @@ function KartFactory.build(color: Color3?, visualName: string?): Model
 	seat.HeadsUpDisplay = false
 	seat.Parent = kart
 
-	local seatWeld = Instance.new("WeldConstraint")
-	seatWeld.Part0, seatWeld.Part1 = hitbox, seat
-	seatWeld.Parent = hitbox
+	-- The seat needs its own visual joint rather than a WeldConstraint.
+	--
+	-- A WeldConstraint would keep the driver fixed to the invisible
+	-- hitbox while BodyMotor rolls the bodywork, which makes a motorcycle
+	-- bank underneath an upright rider.  Rider mirrors BodyMotor's
+	-- cosmetic pose onto this joint, so the seat, occupant and chassis
+	-- read as one motorcycle while the hitbox (and its handling) remains
+	-- completely level.
+	local seatMotor = Instance.new("Motor6D")
+	seatMotor.Name = "SeatMotor"
+	seatMotor.Part0, seatMotor.Part1 = hitbox, seat
+	seatMotor.C0, seatMotor.C1 = Util.pivotJoint(hitbox, seat)
+	seatMotor.Parent = seat
 
 	-- Visual: yours if you supplied one, otherwise the placeholder.
 	local wanted = visualName or RIG.VisualName
 	-- RECURSIVE, because art gets filed. The rocket was found only after
 	-- this same lookup was widened; a kart tidied into a folder would
 	-- otherwise fall silently back to the placeholder.
+	-- A VEHICLE MAY NAME ITS OWN ART, and fall back to a code-built
+	-- placeholder when that art does not exist yet. That ordering is
+	-- deliberate: drop a real Model in with the right name and it wins,
+	-- with no code change and no flag to remember to flip.
+	if vehicle.visual then
+		wanted = vehicle.visual
+	end
 	local template = if wanted ~= "" then ServerStorage:FindFirstChild(wanted, true) else nil
 	local visual: Model
-	if template and template:IsA("Model") then
+	if not template and vehicle.build then
+		local builder = BikeVisual.builders[vehicle.build]
+		if builder then
+			visual = builder()
+			visual.Name = "Visual"
+			log("no %s model in ServerStorage — built the %s placeholder", tostring(wanted), vehicle.build)
+		end
+	end
+	if visual then
+		-- already built
+	elseif template and template:IsA("Model") then
 		visual = template:Clone()
 		visual.Name = "Visual"
 		log("using %s as the kart visual", template:GetFullName())
@@ -428,6 +466,33 @@ function KartFactory.build(color: Color3?, visualName: string?): Model
 	end
 
 
+	--=================================================================
+	--  PARTS THAT GET THEIR OWN MOTOR LATER MUST NOT BE WELDED NOW.
+	--
+	--  The weld pass below attaches every non-wheel part to the body
+	--  root, and the handlebars and fork are motorised further down. A
+	--  part carrying BOTH a WeldConstraint and a Motor6D is a cycle in
+	--  the assembly graph, and Roblox resolves those by dropping one of
+	--  the joints — WHICH one is not something to build a feature on.
+	--
+	--  The bars have been in exactly this state since they were
+	--  motorised. They happen to work, which is worse than not working:
+	--  it is the same construction either way, and the next part to hit
+	--  it may lose the coin toss instead.
+	--
+	--  Matched by name, so art that simply has no fork skips it here as
+	--  well as at the motor.
+	--=================================================================
+	local motorisedLater: { [Instance]: true } = {}
+	if vehicle.steeringWheel == false then
+		for _, name in { RIG.HandlebarName, RIG.ForkName } do
+			local p = kart:FindFirstChild(name, true)
+			if p and p:IsA("BasePart") then
+				motorisedLater[p] = true
+			end
+		end
+	end
+
 	for _, desc in visual:GetDescendants() do
 		if desc:IsA("BasePart") then
 			desc.Anchored = false
@@ -520,7 +585,7 @@ function KartFactory.build(color: Color3?, visualName: string?): Model
 				motor:SetAttribute(Names.ROLL_AXIS, motor.C0.Rotation:VectorToObjectSpace(Vector3.xAxis))
 				motor.Parent = desc
 				log("%s -> %s", desc.Name, joint)
-			elseif desc ~= suppliedWheel then
+			elseif desc ~= suppliedWheel and not motorisedLater[desc] then
 				-- WELDED TO THE HUB IF IT BELONGS TO A WHEEL.
 				--
 				-- The old comment above claimed this already happened. It
@@ -572,7 +637,50 @@ function KartFactory.build(color: Color3?, visualName: string?): Model
 	if suppliedWheel then
 		SteeringWheel.motorise(hitbox, suppliedWheel)
 		log("using the SteeringWheel from the supplied visual")
+	elseif vehicle.steeringWheel == false then
+		-- HANDLEBARS TURN, they do not just sit there.
+		--
+		-- Without a joint the bars weld to the bodywork, so steering
+		-- moves nothing and — because the hand grips live ON the bars —
+		-- the rider's arms stay locked forward however hard you turn.
+		-- The same motor the steering wheel gets, on a different part.
+		local bars = kart:FindFirstChild(RIG.HandlebarName, true)
+		if bars and bars:IsA("BasePart") then
+			-- Unlike a kart steering wheel, the bars are part of the bike
+			-- assembly: their steering joint hangs from the chassis so the
+			-- entire front end banks with the shell.
+			SteeringWheel.motorise(bodyRoot or hitbox, bars)
+			log("%s -> handlebars", bars.Name)
+		end
+
+		-- THE FORK SLIDES. Same reasoning as the bars: without a joint it
+		-- welds solid to the bodywork and `Bike.ForkDive` — which
+		-- BikeVisuals has been computing all along — has nothing to move.
+		--
+		-- Its own motor rather than the wheel's, because the fork
+		-- TRANSLATES along its rake while the front wheel keeps spinning
+		-- and steering underneath. One joint cannot do both without the
+		-- dive being carried round by the spin.
+		--
+		-- Optional. Art with no `Fork` part loses the dive and keeps
+		-- everything else, so this is never a reason a bike fails to build.
+		local fork = kart:FindFirstChild(RIG.ForkName, true)
+		if fork and fork:IsA("BasePart") then
+			local fm = Instance.new("Motor6D")
+			fm.Name = "ForkMotor"
+			-- The fork dives relative to the chassis, not the level hitbox,
+			-- so it follows the same bank as the bars and bodywork.
+			local anchor = bodyRoot or hitbox
+			fm.Part0, fm.Part1 = anchor, fork
+			fm.C0, fm.C1 = Util.pivotJoint(anchor, fork)
+			fm.Parent = fork
+			log("%s -> fork slider", fork.Name)
+		end
 	else
+		-- A BIKE HAS HANDLEBARS. Without this the factory helpfully
+		-- builds a steering wheel for it — the fallback is right for a
+		-- kart and absurd for anything else, and it would have been
+		-- floating in the rider's lap.
 		SteeringWheel.build(kart, hitbox)
 	end
 
@@ -627,6 +735,11 @@ function KartFactory.build(color: Color3?, visualName: string?): Model
 			end
 		end
 	end
+
+	-- Stamped so the client can build its Simulation with the right
+	-- handling. It owns the controller for its own kart, so this is the
+	-- only way the kind reaches it.
+	kart:SetAttribute(Names.VEHICLE_KIND, kind or Config.Vehicles.Default)
 
 	CollectionService:AddTag(kart, KartFactory.TAG)
 	return kart

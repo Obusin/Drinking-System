@@ -17,15 +17,17 @@ local RIG = Config.Rig
 
 local SteeringWheel = {}
 
--- Attach a Motor6D to an existing wheel part supplied by the artist.
-function SteeringWheel.motorise(hitbox: BasePart, hub: BasePart)
+-- Attach a Motor6D to an existing steering part supplied by the artist.
+-- `anchor` is normally the hitbox; bike handlebars use the chassis root
+-- so they inherit its bank before their own steering angle is applied.
+function SteeringWheel.motorise(anchor: BasePart, hub: BasePart)
 	local motor = Instance.new("Motor6D")
 	motor.Name = "WheelMotor"
-	motor.Part0 = hitbox
+	motor.Part0 = anchor
 	motor.Part1 = hub
 	-- About the hub's own pivot, so an imported wheel spins on its centre
 	-- instead of swinging around wherever Blender left its origin.
-	motor.C0, motor.C1 = Util.pivotJoint(hitbox, hub)
+	motor.C0, motor.C1 = Util.pivotJoint(anchor, hub)
 	motor.Parent = hub
 	return motor
 end

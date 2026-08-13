@@ -510,7 +510,7 @@ function RewardHud.new()
 	go.FontFace = FONT
 	go.TextSize = 40
 	go.TextColor3 = Color3.fromRGB(18, 18, 18)
-	go.Text = "DRIVE!  ▶"
+	go.Text = "BACK TO LOBBY"
 	go.AutoButtonColor = true
 	go.Parent = gui
 
@@ -573,16 +573,29 @@ function RewardHud.new()
 		watch = watch,
 		tweens = {},
 		showing = false,
+		generation = 0,
+		onReturn = nil,
+		onSpectate = nil,
 	}, RewardHud)
 
 	go.Activated:Connect(function()
-		self:Hide()
+		if self.onReturn then
+			self.onReturn()
+		end
 	end)
 	watch.Activated:Connect(function()
 		self:Hide()
+		if self.onSpectate then
+			self.onSpectate()
+		end
 	end)
 
 	return self
+end
+
+function RewardHud:SetActions(onReturn: (() -> ())?, onSpectate: (() -> ())?)
+	self.onReturn = onReturn
+	self.onSpectate = onSpectate
 end
 
 --=====================================================================
@@ -704,6 +717,8 @@ function RewardHud:Show(payload)
 		return
 	end
 	self.showing = true
+	self.generation += 1
+	local generation = self.generation
 	payload = payload or {}
 
 	----------------------------------------------------------------
@@ -752,7 +767,7 @@ function RewardHud:Show(payload)
 		local to = math.clamp(lv.progress or 0, 0, 1)
 		self.barFill.Size = UDim2.fromScale(0, 1)
 		task.delay(R.WipeTime, function()
-			if self.showing then
+			if self.showing and self.generation == generation then
 				TweenService
 					:Create(
 						self.barFill,
@@ -852,14 +867,14 @@ function RewardHud:Show(payload)
 		if gained > 0 then
 			table.insert(self.tweens, countUp(self.xpGain, gained, "+", " XP"))
 		end
-	end)
+	end, generation)
 end
 
 -- The panels landing. The screen-wide band is NOT here — `Transition`
 -- owns that, and owns it for the grid teleport and the return to racing
 -- too, so the wipe is one gesture in one place rather than a look each
 -- screen reimplements. This is what happens behind it.
-function RewardHud:_wipe(after: () -> ())
+function RewardHud:_wipe(after: () -> (), generation: number)
 	TweenService
 		:Create(
 			self.dim,
@@ -873,7 +888,7 @@ function RewardHud:_wipe(after: () -> ())
 		p.Position = home - UDim2.fromScale(R.PanelSlide, 0)
 		p.Visible = true
 		task.delay(R.PanelStagger * (i - 1), function()
-			if not self.showing then
+			if not self.showing or self.generation ~= generation then
 				return
 			end
 			TweenService
@@ -887,7 +902,7 @@ function RewardHud:_wipe(after: () -> ())
 	end
 
 	task.delay(R.WipeTime, function()
-		if self.showing then
+		if self.showing and self.generation == generation then
 			after()
 		end
 	end)
@@ -898,6 +913,7 @@ function RewardHud:Hide()
 		return
 	end
 	self.showing = false
+	self.generation += 1
 	for _, c in self.tweens do
 		if c.Connected then
 			c:Disconnect()

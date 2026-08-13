@@ -258,7 +258,27 @@ return {
 	DeployVolume = 0.7,
 
 	WindSoundId = "rbxassetid://96481249",
-	WindVolume = 0.55, -- at full speed
+	-- NON-POSITIONAL, ON SoundService, AND LOCAL-KART ONLY.
+	--
+	-- It used to live on the hitbox with a 220-stud rolloff and was
+	-- nearly inaudible for a reason unrelated to its volume: Roblox puts
+	-- the LISTENER AT THE CAMERA, which sits 13.5 studs back and pulls a
+	-- further GlidePull the instant the wings deploy. The one situation
+	-- the sound exists for was the one where the listener was furthest
+	-- from it, and raising the volume would only have made everyone
+	-- else's wind loud.
+	--
+	-- Wind is the sound of YOU moving, so it belongs to the listener
+	-- rather than to a point in the world — same as the music and crowd.
+	-- Local kart only, because a non-positional sound has no falloff and
+	-- eight of them would simply stack.
+	WindVolume = 0.55, -- at full speed, GLIDING
+
+	-- AND ON THE GROUND, subtle. Keeps the drive from going dead quiet
+	-- between events without competing with the engine. Gliding is the
+	-- loud case of one sound rather than a different sound, and both run
+	-- off the same speed curve so they cannot disagree about pace.
+	WindGroundVolume = 0.12,
 	WindMinSpeed = 30, -- below this you hear nothing; a stall is quiet
 	WindPitchMin = 0.85,
 	WindPitchMax = 1.25,

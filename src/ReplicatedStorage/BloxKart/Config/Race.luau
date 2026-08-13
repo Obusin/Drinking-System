@@ -39,7 +39,78 @@
 return {
 	StartTag = "RaceStart",
 	EndTag = "RaceEnd",
+	-- CHECKPOINTS ARE RESPAWN ANCHORS. That is all they do.
+	--
+	-- They used to gate a lap: every gate had to be banked in order
+	-- before the finish line counted. That made each one a way to
+	-- invalidate a lap you had genuinely driven — miss one because you
+	-- were knocked wide, or because it was placed somewhere awkward, and
+	-- the lap silently did not count.
+	--
+	-- Now they only record where to put you back when you fall off. A lap
+	-- is proved by distance along the route instead; see LapNeed.
 	CheckpointTag = "Checkpoint",
+
+	-- HOW MUCH OF THE ROUTE MUST BE DRIVEN for a line crossing to bank a
+	-- lap, as a fraction of the path.
+	--
+	-- Lenient where the gates were strict — a shortcut still counts,
+	-- because a kart game is not a rally scrutineer — and strict exactly
+	-- where it matters: reversing back over the line banks no forward
+	-- distance at all, so it cannot be farmed.
+	LapNeed = 0.8,
+
+	-- HOW CLOSE A LAUNCHER HAS TO BE for a gap in the road to count as a
+	-- JUMP rather than a hole.
+	--
+	-- Without this every jump on the track reports as a fault, and a
+	-- check that cries wolf six times is a check you learn to scroll
+	-- past. Generous on purpose: a ramp sits at the START of a gap, and
+	-- the line can leave the ground a fair way past it.
+	RouteJumpLookout = 90,
+
+	-- Biggest single-frame step counted as distance driven, as a fraction
+	-- of the path. Anything larger is a respawn, a teleport or the wrap at
+	-- the start line — none of which is distance you drove.
+	LapStepMax = 0.05,
+
+	-- THE LINE BOTS DRIVE, separate from the gates that prove a lap.
+	--
+	-- Checkpoints are VALIDATION geometry: placed to be impossible to
+	-- miss, so they are wide, sparse, and routinely hang over the edge of
+	-- the road. That makes them a poor driving line, and it is most of
+	-- why bots looked stupid — they were following the officiating rather
+	-- than the road.
+	--
+	-- Tag parts with this to describe where to actually drive. Ordered by
+	-- the same `Order` attribute, with the same trailing-digits fallback,
+	-- and it supports forks the same way: two parts sharing an Order is a
+	-- split, and each bot commits to one side.
+	--
+	-- Put down as many as you like — more nodes is a smoother line, and
+	-- unlike a checkpoint there is no cost to a dense one.
+	--
+	-- Leave none tagged and bots fall back to the checkpoints, so an
+	-- existing track keeps working untouched.
+	-- NOTE: this is the authoritative route now — progress, standings and
+	-- the bots all read it, not just bots. The name is kept because the
+	-- map is already tagged with it; it is referenced from exactly this
+	-- one place, so renaming it later is a one-line change here.
+	BotPathTag = "BotPath",
+
+	-- HOW FAR EITHER SIDE OF THE LAST KNOWN POSITION `nearestU` LOOKS,
+	-- in node units. Only used when a caller passes a hint.
+	--
+	-- A global search takes the nearest point on the WHOLE lap, and on a
+	-- big track the line passes near itself — a hairpin, a bridge, two
+	-- straights side by side. The winner flips to a distant stretch, `u`
+	-- jumps, the bot turns to chase it, the flip reverses, and it goes in
+	-- circles. It was never orbiting a node; it was oscillating between
+	-- two equally valid answers.
+	--
+	-- 1.5 nodes is comfortably more than anything can travel in a frame
+	-- and far less than the distance to a different part of the circuit.
+	RouteSearchSpan = 1.5,
 	CheckpointOrderAttribute = "Order",
 
 	-- Which of a race trigger's own axes points DOWN THE TRACK, named
@@ -57,7 +128,7 @@ return {
 	-- which is what Roblox itself calls LookVector.
 	CheckpointFacing = "X",
 
-	TotalLaps = 3,
+	TotalLaps = 2,
 
 	-- With no checkpoints tagged anywhere, this is the only thing
 	-- stopping a finish line double-counting, so it's enforced. Once

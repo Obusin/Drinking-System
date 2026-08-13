@@ -37,12 +37,14 @@ local localHooks: any = {}
 local started = false
 local visible = false
 local role = "viewer"
+local windowOpen: any = nil
 
 -- Selection lives here, not on the server: it is UI state, and the
 -- server is told which player to inspect on every request anyway.
 local selected = { userId = nil :: number?, name = "" }
 local chosenItem = 1
 local tab = "Server"
+local lastMatchLaps: number? = nil
 
 local TABS = { "Server", "Players", "Power-Ups", "AI", "World", "Tune", "Moderate", "Logs" }
 
@@ -177,6 +179,41 @@ local function drawServer()
 	field("Players", ("%d / %d"):format(s.playerCount, s.maxPlayers))
 	field("Karts", s.kartCount)
 	field("Match phase", s.matchPhase)
+	field("Round", s.matchRound)
+	field("Time left", if type(s.matchSecondsLeft) == "number" then ("%0.1fs"):format(s.matchSecondsLeft) else s.matchSecondsLeft)
+	field("Lap target", s.matchLaps)
+
+	if may("owner") then
+		Iris.Separator()
+		Iris.Text({ "Match management (server-wide)" })
+		local lapInput = Iris.InputNum({ "Total laps", 1, 1, 20, "%d" })
+		if type(s.matchLaps) == "number" and s.matchLaps ~= lastMatchLaps then
+			lapInput.state.number:set(s.matchLaps)
+			lastMatchLaps = s.matchLaps
+		end
+		Iris.SameLine()
+		if Iris.Button({ "Apply laps" }).clicked() then
+			Client.send("match_set_laps", { laps = math.floor(lapInput.state.number.value) })
+		end
+		Iris.End()
+		Iris.Text({ "Applies immediately to every racer in this server." })
+
+		local restartLabel = if armed.action == "match_restart" and armed.forUserId == 0 then "Confirm restart round" else "Restart round"
+		if Iris.Button({ restartLabel }).clicked() then
+			armOrFire("match_restart", 0, function()
+				Client.send("match_restart", {})
+			end)
+		end
+		Iris.Text({ "Restart returns everyone to the normal grid countdown." })
+
+		local finishLabel = if armed.action == "match_finish" and armed.forUserId == 0 then "Confirm finish race" else "Finish race now"
+		if Iris.Button({ finishLabel }).clicked() then
+			armOrFire("match_finish", 0, function()
+				Client.send("match_finish", {})
+			end)
+		end
+		Iris.Text({ "Ends the active race through the normal Results → Intermission flow." })
+	end
 	Iris.Separator()
 	field("AI (all)", s.aiCount)
 	field("AI (developer)", s.devAiCount)
@@ -731,6 +768,16 @@ end
 
 function DevConsoleController.toggle()
 	visible = not visible
+	if windowOpen then
+		windowOpen:set(visible)
+	end
+	local focused = UserInputService:GetFocusedTextBox()
+	if focused then
+		focused:ReleaseFocus()
+	end
+	if visible then
+		Client.refreshSnapshot(0)
+	end
 end
 
 function DevConsoleController.isOpen(): boolean
@@ -744,11 +791,12 @@ function DevConsoleController.start(grantedRole: string, hotkey: Enum.KeyCode, h
 	if started then
 		return
 	end
-	started = true
 	role = grantedRole
 	localHooks = hooks or {}
 
 	Iris.Init()
+	windowOpen = Iris.State(false)
+	started = true
 
 	Iris:Connect(function()
 		if not visible then
@@ -764,7 +812,10 @@ function DevConsoleController.start(grantedRole: string, hotkey: Enum.KeyCode, h
 			Client.refreshLogs()
 		end
 
-		Iris.Window({ ("Go Karts GO! — Dev Console  [%s]"):format(role) }, { size = Iris.State(Vector2.new(520, 460)) })
+		local window = Iris.Window({ ("Go Karts GO! — Dev Console  [%s]"):format(role) }, {
+			size = Iris.State(Vector2.new(520, 460)),
+			isOpened = windowOpen,
+		})
 
 		Iris.SameLine()
 		for _, name in TABS do
@@ -800,16 +851,19 @@ function DevConsoleController.start(grantedRole: string, hotkey: Enum.KeyCode, h
 		end
 
 		Iris.End()
+		-- The Iris close button owns isOpened. Mirror it after the window
+		-- has processed input so the next F4 always reopens in one press.
+		visible = window.state.isOpened.value
 	end)
 
 	-- BOUND HERE, NOT THROUGH KartClient's Input MODULE. Input releases
 	-- its bindings whenever you stop driving, and a console you cannot
 	-- open while out of a kart is the opposite of useful.
 	--
-	-- `gameProcessed` is respected so the hotkey does nothing while a
-	-- text box has focus.
 	UserInputService.InputBegan:Connect(function(input, typing)
-		if not typing and input.KeyCode == hotkey then
+		-- F4 is a developer-global toggle. Text focus should not make the
+		-- console appear dead; toggle() releases focus when closing.
+		if input.KeyCode == hotkey then
 			DevConsoleController.toggle()
 		end
 	end)

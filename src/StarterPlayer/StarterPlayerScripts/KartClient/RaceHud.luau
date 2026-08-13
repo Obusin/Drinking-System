@@ -10,8 +10,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local BloxKart = ReplicatedStorage:WaitForChild("BloxKart")
 
 local Config = require(BloxKart:WaitForChild("Config"))
+local Device = require(BloxKart:WaitForChild("Device"))
 local Util = require(BloxKart:WaitForChild("Util"))
-local R = Config.Race
 local H = Config.Hud
 
 local RaceHud = {}
@@ -61,26 +61,31 @@ function RaceHud.new()
 
 	-- Top right, mirroring the reference: a small blue caption above a
 	-- big white value, twice — time, then laps.
+	local mobile = Device.touchLayout()
 	local panel = Instance.new("Frame")
 	panel.Name = "Race"
-	panel.AnchorPoint = H.RaceAnchor
-	panel.Position = H.RacePosition
-	panel.Size = UDim2.fromOffset(230, 132)
+	panel.AnchorPoint = if mobile then H.MobileRaceAnchor else H.RaceAnchor
+	panel.Position = if mobile then H.MobileRacePosition else H.RacePosition
+	panel.Size = UDim2.fromOffset(if mobile then H.MobileRaceWidth else 230, if mobile then 106 else 132)
 	-- Text only. Kept as a Frame purely to anchor and lay out the labels.
 	panel.BackgroundTransparency = 1
 	panel.BorderSizePixel = 0
 	panel.Parent = gui
 
-	local caption = label(panel, "TimeCaption", UDim2.new(1, 0, 0, 17), UDim2.fromOffset(0, 0), H.RaceSmallSize, H.RaceLabelColor)
+	local small = if mobile then H.MobileRaceSmallSize else H.RaceSmallSize
+	local timeSize = if mobile then H.MobileRaceTimeSize else H.RaceTimeSize
+	local lapSize = if mobile then H.MobileRaceLapSize else H.RaceLapSize
+	local caption = label(panel, "TimeCaption", UDim2.new(1, 0, 0, 17), UDim2.fromOffset(0, 0), small, H.RaceLabelColor)
 	caption.Text = "TIME"
 
-	local time = label(panel, "Time", UDim2.new(1, 0, 0, 38), UDim2.fromOffset(0, 16), H.RaceTimeSize, H.RaceValueColor)
-	local lap = label(panel, "Lap", UDim2.new(1, 0, 0, 44), UDim2.fromOffset(0, 54), H.RaceLapSize, H.RaceValueColor)
+	local time = label(panel, "Time", UDim2.new(1, 0, 0, 32), UDim2.fromOffset(0, 15), timeSize, H.RaceValueColor)
+	local lap = label(panel, "Lap", UDim2.new(1, 0, 0, 34), UDim2.fromOffset(0, if mobile then 45 else 54), lapSize, H.RaceValueColor)
 
-	-- Best-lap and checkpoint progress are ours, not the reference's,
-	-- but they're the two things worth knowing mid-lap.
-	local total = label(panel, "Total", UDim2.new(1, 0, 0, 18), UDim2.fromOffset(0, 98), 14, Color3.fromRGB(150, 158, 178))
-	local checks = label(panel, "Checks", UDim2.new(1, 0, 0, 18), UDim2.fromOffset(0, 114), 14, Color3.fromRGB(130, 138, 158))
+	-- Total/best time sits under the lap count. Route completion is kept
+	-- off the race HUD: it was redundant with the lap counter and created
+	-- a distracting "LAP 100%" line in the top-right instrument stack.
+	local totalY = if mobile then 77 else 98
+	local total = label(panel, "Total", UDim2.new(1, 0, 0, 16), UDim2.fromOffset(0, totalY), if mobile then 10 else 14, Color3.fromRGB(150, 158, 178))
 
 	----------------------------------------------------------------
 	-- WRONG WAY
@@ -129,10 +134,8 @@ function RaceHud.new()
 		lap = lap,
 		time = time,
 		total = total,
-		checks = checks,
 		wrong = wrong,
 		wrongPhase = 0,
-		rejectUntil = 0,
 	}, RaceHud)
 end
 
@@ -203,15 +206,9 @@ function RaceHud:SetAlert(text: string?, colour: Color3?, dt: number, urgency: n
 	self.alertIcon.ImageTransparency = pulse * H.WrongWayFade
 end
 
--- Flash the checkpoint line when a lap is refused, so a rejected lap
--- reads as "you missed a checkpoint" rather than "the timer is broken".
-function RaceHud:FlashRejected()
-	self.rejectUntil = os.clock() + 1.5
-end
-
 function RaceHud:Update(race)
 	-- "2/3 LAP", matching the reference's ordering.
-	self.lap.Text = ("%d/%d LAP"):format(race:CurrentLap(), R.TotalLaps)
+	self.lap.Text = ("%d/%d LAP"):format(race:CurrentLap(), race:LapTarget())
 	self.time.Text = formatTime(race:LapElapsed())
 
 	if race.finished then
@@ -225,23 +222,11 @@ function RaceHud:Update(race)
 		self.total.Text = "TOTAL " .. formatTime(race:TotalElapsed())
 	end
 
-	local passed, count = race:CheckpointProgress()
-	if count == 0 then
-		self.checks.Text = ""
-	elseif os.clock() < self.rejectUntil then
-		self.checks.Text = ("MISSED — CP %d/%d"):format(passed, count)
-		self.checks.TextColor3 = Color3.fromRGB(240, 110, 110)
-	else
-		self.checks.Text = ("CP %d/%d"):format(passed, count)
-		self.checks.TextColor3 = if passed >= count
-			then Color3.fromRGB(120, 230, 140)
-			else Color3.fromRGB(120, 128, 148)
-	end
 end
 
 -- Off in a lobby — but only the READOUTS.
 --
--- Time, lap and checkpoint progress all describe a round, and a hub
+-- Time and lap count describe a round, and a hub
 -- reporting "LAP 0/3" reads as a broken game. The alert slot and the
 -- wrong-way warning are NOT round readings: items are live in the
 -- lobby, so an incoming missile still has to be able to shout.

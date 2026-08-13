@@ -103,7 +103,11 @@ function Ballistics.step(p: State, dt: number, target: Target?, rayParams: Rayca
 	local targetPos = target and target.pos
 	local step = item.Speed * dt
 
-	local centre = if p.u then Route.pointAt(p.u) else nil
+	-- Projectiles follow the authored BotPath when one exists, just like
+	-- the bots and standings. Checkpoints are officiating geometry and
+	-- can sit above or beside the road.
+	local path = Route.path()
+	local centre = if p.u then Route.pointAt(p.u, nil, path) else nil
 
 	----------------------------------------------------------------
 	-- No route. Free flight, so a bare test map still works.
@@ -163,9 +167,9 @@ function Ballistics.step(p: State, dt: number, target: Target?, rayParams: Rayca
 	-- -1 for an item thrown backwards, which rides the same rails in the
 	-- opposite direction.
 	local way = p.way or 1
-	p.u += way * step / Route.segmentLength(p.u)
-	centre = Route.pointAt(p.u) or centre
-	local tangent = (Route.tangentAt(p.u) or p.dir) * way
+	p.u += way * step / Route.segmentLength(p.u, path)
+	centre = Route.pointAt(p.u, nil, path) or centre
+	local tangent = (Route.tangentAt(p.u, nil, path) or p.dir) * way
 
 	-- The surface under the racing line, and its normal — which becomes
 	-- our up, so a banked or inverted section carries the missile round
@@ -210,7 +214,7 @@ function Ballistics.step(p: State, dt: number, target: Target?, rayParams: Rayca
 	p.dir = if moved.Magnitude > 1e-3 then moved.Unit else tangent
 
 	-- Debug line runs a node ahead: that's the road it's committed to.
-	p.dbgAim = Route.pointAt(p.u + 1)
+	p.dbgAim = Route.pointAt(p.u + 1, nil, path)
 	return nil
 end
 

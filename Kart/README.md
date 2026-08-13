@@ -64,6 +64,8 @@ Press Play. You spawn already seated; the match starts on its own.
 | [`SPEC-glide.md`](SPEC-glide.md) | the glider: ramps, wings, and why there is no landing guarantee |
 | [`SPEC-swim.md`](SPEC-swim.md) | swim mode: a floor at the waterline, and the sea drawn on top |
 | [`SPEC-trick.md`](SPEC-trick.md) | flip ramps: visual rotation, and why the root turns rather than a list |
+| [`SPEC-packaging.md`](SPEC-packaging.md) | running the kart in more than one place: code via git, art via Packages |
+| [`SPEC-bike.md`](SPEC-bike.md) | the motorcycle: one controller two vehicles, and which layer a visual belongs to |
 
 ---
 

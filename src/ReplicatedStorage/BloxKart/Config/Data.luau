@@ -1,11 +1,9 @@
 --[[
 	Data — persistence.
 
-	OFF BY DEFAULT. Turning this on makes the profile the source of
-	truth, and the client is still authoritative on finish time and on
-	upward progress. Currency saved from numbers a modified client can
-	choose is an exploit with a database behind it, so the order is:
-	close those two seams, THEN set Enabled.
+	Profiles are authoritative server data. Finish time, route progress and
+	lap banking are server-observed before rewards are issued; never add a
+	client-reported reward path without equivalent server proof.
 
 	The plan is in the vault at "BloxKart Data Security and Drops".
 --]]
@@ -15,10 +13,7 @@ return {
 	--
 	-- ON as of 2026-08-01. Safe in Studio, which forces ProfileStore's
 	-- mock store regardless of this flag, so nothing here can touch a
-	-- real profile. The caution above applies the moment this runs on a
-	-- PUBLISHED server: the client is still authoritative on finish time
-	-- and upward progress, so a saved balance is only as honest as the
-	-- client that produced it.
+	-- real profile.
 	Enabled = true,
 
 	-- Store name. The `_v1` is a HARD RESET marker, not a migration

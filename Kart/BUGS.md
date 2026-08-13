@@ -77,6 +77,22 @@ Expected at `swim=1`: `wheelLay` 82°, `bob` ±0.7, `pitch`/`roll` ±7,
 
 ---
 
+### #35 FIXED — flip ramp boost fired on the wrong frame
+
+Reported as "it works like the ramp but sometimes it doesn't boost".
+
+The reward was tested on the single frame the ROTATION ended, requiring
+`grounded` — but `Window` is 0.82, so the flip finishes nine frames
+before touchdown by design. The test therefore failed on every clean
+jump, and succeeded only when the kart landed EARLY, which is the case
+`RequireLanding` exists to refuse. Exactly inverted.
+
+Now held as a pending flag and spent on the next grounded frame, with
+the bail-out caught during the spin where it can still be told apart
+from a clean landing. See `SPEC-trick.md`.
+
+---
+
 ### #34 WATCH — flip ramps are new and untested in game
 
 `FlipRamp` tag, added 2026-08-08 and not yet driven over. The flip is
@@ -1566,6 +1582,23 @@ the wrong table errored every frame. **`scripts/check.sh` now runs
 `config-keys.py`, which walks every alias and every direct read.**
 
 ---
+
+---
+
+## TESTING FLAGS CURRENTLY ON  — set 2026-08-14
+
+Not bugs. Deliberate switches that will ship as bugs if nobody turns
+them off, so they live here rather than in a comment nobody greps.
+
+| Flag | Value | Ships as |
+|---|---|---|
+| `Vehicles.ForceForPlayers` | `"bike"` | every human on a motorcycle, garage choice ignored |
+| `Match.IntermissionTime` | `3` (was 8) | no time to read the results board |
+| `Bots.FillTo` | `20` | a full grid of AI in every lobby |
+| `Audio.CrowdEverywhere` | `true` | crowd noise off-track |
+| `Garage.UnlockedForTesting` | `true` | every cosmetic free |
+| `Debug` in Bots / Garage / Props / Swim | `true` | console spam |
+
 
 # ORDER OF ATTACK
 

@@ -47,6 +47,22 @@ export type Node = {
 	leftWidth: number,
 	rightWidth: number,
 	halfWidth: number,
+	-- ONE ENTRY PER GATE AT THIS ORDER. Two checkpoints sharing an order
+	-- is how a FORK is authored — left way and right way, same progress —
+	-- and the centroid of those two is the wall between them. Anything
+	-- that has to drive the road picks a branch; anything that only needs
+	-- one reference per order keeps using `position`.
+	branches: { Vector3 },
+	-- {left, right} per branch, measured from that gate rather than from
+	-- the centroid, which on a fork is not on the road at all.
+	branchWidths: { { number } },
+	-- THE DIRECTION THE WIDTHS WERE MEASURED ALONG. Stored rather than
+	-- recomputed, because anything that recomputes it gets a slightly
+	-- different answer — a CENTRED tangent (next minus prev) is not the
+	-- forward one, and the part's own up is not world up on a banked
+	-- corner. Two places deriving this independently is how the debug
+	-- markers ended up beside the road instead of on its edges.
+	across: Vector3,
 }
 
 -- Order attribute first, trailing digits in the name as a fallback, so
@@ -121,13 +137,34 @@ end
 --  it means a tag query plus two tables. Invalidated on tagged-part
 --  count, which is the only realistic runtime change.
 --=====================================================================
-local cache: { Node }? = nil
-local cachedCount = -1
+local cache: { [string]: { Node } } = {}
+local cachedCount: { [string]: number } = {}
+-- Arc-length data is read by every bot tick and every standings refresh. It
+-- belongs to the authored, cached node table, so build it once per route
+-- table instead of allocating a length/prefix pair for every racer.
+local distanceCache = setmetatable({}, { __mode = "k" }) :: { [any]: any }
 
-function Route.nodes(): { Node }
-	local parts = CollectionService:GetTagged(R.CheckpointTag)
-	if cache and cachedCount == #parts then
-		return cache
+--=====================================================================
+--  ONE BUILDER, TWO TAGS.
+--
+--  CHECKPOINTS ARE VALIDATION GEOMETRY. They are where a lap is proven,
+--  so they get placed to be impossible to miss — wide, sparse, and often
+--  hanging over the edge of the road. That makes them a poor DRIVING
+--  line, and it is why bots looked stupid: they were following the
+--  officiating, not the road.
+--
+--  So a second tag describes the line to drive. Same node structure,
+--  same `Order` attribute, same everything downstream — it is only a
+--  different set of parts. Put down as many as you like, wherever the
+--  road actually goes.
+--
+--  Falls back to the checkpoints when nothing is tagged, so a track that
+--  has not been given a path still works exactly as before.
+--=====================================================================
+local function buildNodes(tag: string): { Node }
+	local parts = CollectionService:GetTagged(tag)
+	if cache[tag] and cachedCount[tag] == #parts then
+		return cache[tag]
 	end
 
 	local byOrder: { [number]: { BasePart } } = {}
@@ -151,9 +188,32 @@ function Route.nodes(): { Node }
 		for _, part in group do
 			sum += part.Position
 		end
+		--==========================================================
+		--  A FORK, NOT A WIDE GATE.
+		--
+		--  Two checkpoints sharing an order is how you author a
+		--  split — left way and right way, same progress. The
+		--  centroid of those two is the point BETWEEN them, which on
+		--  a real fork is the wall or the void dividing them, and
+		--  bots drove straight at it because that is what the route
+		--  told them to do.
+		--
+		--  `position` stays the centroid, because progress scoring
+		--  and anything that wants ONE reference per order still
+		--  needs one. `branches` keeps the real gates, and anything
+		--  that has to DRIVE through them asks for a branch.
+		--==========================================================
+		local branches = {}
+		for _, part in group do
+			table.insert(branches, dropToRoad(part.Position, part))
+		end
+
 		table.insert(nodes, {
 			order = o,
 			position = dropToRoad(sum / #group, group[1]),
+			branches = branches,
+			branchWidths = {},
+			across = Vector3.zero,
 			parts = group,
 			halfWidth = R.RouteDefaultHalfWidth,
 			leftWidth = R.RouteDefaultHalfWidth,
@@ -198,13 +258,45 @@ function Route.nodes(): { Node }
 		end
 		across = across.Unit
 
+		-- Kept so nothing has to derive it a second time and get a
+		-- different answer.
+		node.across = across
 		node.leftWidth = edgeDistance(node.position, -across, up)
 		node.rightWidth = edgeDistance(node.position, across, up)
 		node.halfWidth = math.min(node.leftWidth, node.rightWidth)
+
+		-- MEASURED FROM EACH GATE, not from the centroid. On a fork the
+		-- centroid sits off the road entirely, so its widths describe a
+		-- piece of track that does not exist — and it is the generous
+		-- side of a wrong answer that kills bots.
+		if #node.branches > 1 then
+			for k, at in node.branches do
+				node.branchWidths[k] = {
+					edgeDistance(at, -across, up),
+					edgeDistance(at, across, up),
+				}
+			end
+		end
 	end
 
-	cache = nodes
-	cachedCount = #parts
+	cache[tag] = nodes
+	cachedCount[tag] = #parts
+	return nodes
+end
+
+-- The CHECKPOINTS. Progress, missiles, respawn and lap validation all
+-- still mean these — nothing about officiating has changed.
+function Route.nodes(): { Node }
+	return buildNodes(R.CheckpointTag)
+end
+
+-- THE LINE TO DRIVE. What bots follow. Falls back to the checkpoints so
+-- an untagged track behaves exactly as it did before.
+function Route.path(): { Node }
+	local nodes = buildNodes(R.BotPathTag)
+	if #nodes == 0 then
+		return Route.nodes()
+	end
 	return nodes
 end
 
@@ -213,8 +305,8 @@ end
 --
 -- Signed like lateralAt: right is positive. A bot's chosen offset is
 -- clamped between these, which is the whole reason they exist.
-function Route.roomAt(u: number): (number, number)
-	local nodes = Route.nodes()
+function Route.roomAt(u: number, branch: number?, src: { Node }?): (number, number)
+	local nodes = src or Route.nodes()
 	local n = #nodes
 	if n == 0 then
 		return R.RouteDefaultHalfWidth, R.RouteDefaultHalfWidth
@@ -227,7 +319,18 @@ function Route.roomAt(u: number): (number, number)
 		local q = y or R.RouteDefaultHalfWidth
 		return p + (q - p) * t
 	end
-	return mix(a.leftWidth, b.leftWidth), mix(a.rightWidth, b.rightWidth)
+	-- At a fork, the room is the chosen GATE's room. The centroid's
+	-- widths describe track between the two ways, which is not road.
+	local function side(node): (number, number)
+		local w = node.branchWidths and node.branchWidths[((branch or 1) - 1) % math.max(#node.branches, 1) + 1]
+		if branch and w then
+			return w[1], w[2]
+		end
+		return node.leftWidth, node.rightWidth
+	end
+	local al, ar = side(a)
+	local bl, br = side(b)
+	return mix(al, bl), mix(ar, br)
 end
 
 -- The narrower of the two. Kept because plenty of callers only want "how
@@ -305,8 +408,16 @@ end
 --  lap so laps stay comparable.
 --=====================================================================
 
-local function wrapNode(nodes: { Node }, i: number): Vector3
-	return nodes[((i - 1) % #nodes) + 1].position
+-- `branch` is optional and only matters at a fork. Nil keeps the old
+-- behaviour exactly — the centroid — so every existing caller is
+-- unchanged and only the things that must DRIVE the road pass one.
+local function wrapNode(nodes: { Node }, i: number, branch: number?): Vector3
+	local node = nodes[((i - 1) % #nodes) + 1]
+	local list = node.branches
+	if branch and list and #list > 1 then
+		return list[((branch - 1) % #list) + 1]
+	end
+	return node.position
 end
 
 -- Position on the racing line at `u`.
@@ -324,8 +435,8 @@ end
 -- and stays much closer to the control polygon. The cost is the four
 -- knot values below; the benefit is that checkpoint spacing stops being
 -- something you have to be careful about.
-function Route.pointAt(u: number): Vector3?
-	local nodes = Route.nodes()
+function Route.pointAt(u: number, branch: number?, src: { Node }?): Vector3?
+	local nodes = src or Route.nodes()
 	local n = #nodes
 	if n == 0 then
 		return nil
@@ -333,8 +444,8 @@ function Route.pointAt(u: number): Vector3?
 
 	local i = math.floor(u)
 	local s = u - i
-	local p0, p1 = wrapNode(nodes, i - 1), wrapNode(nodes, i)
-	local p2, p3 = wrapNode(nodes, i + 1), wrapNode(nodes, i + 2)
+	local p0, p1 = wrapNode(nodes, i - 1, branch), wrapNode(nodes, i, branch)
+	local p2, p3 = wrapNode(nodes, i + 1, branch), wrapNode(nodes, i + 2, branch)
 
 	-- Knots spaced by the SQUARE ROOT of the distance between points.
 	-- Guarded against coincident checkpoints, which would otherwise
@@ -371,16 +482,16 @@ end
 
 -- Which way the road runs at `u`. Sampled rather than differentiated —
 -- the exact derivative buys nothing here and this can't divide by zero.
-function Route.tangentAt(u: number): Vector3?
-	local nodes = Route.nodes()
+function Route.tangentAt(u: number, branch: number?, src: { Node }?): Vector3?
+	local nodes = src or Route.nodes()
 	local n = #nodes
 	if n == 0 then
 		return nil
 	end
 
 	local i = math.floor(u)
-	local a = nodes[((i - 1) % n) + 1].position
-	local b = nodes[(i % n) + 1].position
+	local a = wrapNode(nodes, i, branch)
+	local b = wrapNode(nodes, i + 1, branch)
 	
 	local d = b - a
 
@@ -394,13 +505,61 @@ end
 -- How far apart the two nodes bracketing `u` are, so a speed in studs
 -- can be converted into a step in node units. Without this a missile
 -- crosses a short segment as slowly as a long one.
-function Route.segmentLength(u: number): number
-	local nodes = Route.nodes()
+function Route.segmentLength(u: number, src: { Node }?): number
+	local nodes = src or Route.nodes()
 	if #nodes == 0 then
 		return 0
 	end
 	local i = math.floor(u)
 	return math.max((wrapNode(nodes, i + 1) - wrapNode(nodes, i)).Magnitude, 1)
+end
+
+-- How much authored road lies before `u`, plus the fractional part of its
+-- current segment.  `u` is a convenient steering coordinate but its units
+-- are NODES: treating every segment as one unit made a sparse 100-stud
+-- straight worth the same as a tightly sampled 5-stud corner in standings.
+--
+-- This intentionally measures the authored centreline chords.  It is stable,
+-- cheap, and follows BotPath density without letting path-node spacing decide
+-- who is ahead.
+function Route.distanceAt(u: number, src: { Node }?): (number, number)
+	local nodes = src or Route.nodes()
+	local n = #nodes
+	if n == 0 then
+		return 0, 0
+	end
+
+	local entry = distanceCache[nodes]
+	if not entry or entry.count ~= n then
+		local lengths, prefix = {}, {}
+		local total = 0
+		for i = 0, n - 1 do
+			local a = nodes[i + 1].position
+			local b = nodes[(i + 1) % n + 1].position
+			local length = math.max((b - a).Magnitude, 1e-3)
+			lengths[i + 1] = length
+			prefix[i + 1] = total
+			total += length
+		end
+		entry = { count = n, lengths = lengths, prefix = prefix, total = total }
+		distanceCache[nodes] = entry
+	end
+
+	local wrapped = u % n
+	local index = math.floor(wrapped) % n
+	local fraction = wrapped - math.floor(wrapped)
+	return entry.prefix[index + 1] + entry.lengths[index + 1] * fraction, entry.total
+end
+
+-- A normalised lap fraction based on real route distance rather than an
+-- arbitrary path-node count.  This is the shared standings ruler for bots,
+-- players, the HUD, and item catch-up placement.
+function Route.progressAt(u: number, src: { Node }?): number
+	local distance, total = Route.distanceAt(u, src)
+	if total <= 0 then
+		return 0
+	end
+	return math.clamp(distance / total, 0, 0.999999)
 end
 
 -- Where on the racing line a world position sits, as a `u`.
@@ -413,18 +572,47 @@ end
 --
 -- Coarse sweep then a local refine. Called once per launch, not per
 -- frame, so simple beats clever.
-function Route.nearestU(pos: Vector3): number
-	local nodes = Route.nodes()
+function Route.nearestU(pos: Vector3, src: { Node }?, near: number?): number
+	local nodes = src or Route.nodes()
 	local n = #nodes
 	if n == 0 then
 		return 0
 	end
 
-	local bestU, bestD = 0, math.huge
-	local steps = n * 8
-	for k = 0, steps - 1 do
-		local u = k / 8
-		local pt = Route.pointAt(u)
+	--=================================================================
+	--  SEARCH NEAR WHERE YOU WERE, NOT ACROSS THE WHOLE LAP.
+	--
+	--  This used to take the global minimum over every node, every
+	--  frame. On a big track the racing line passes near itself — a
+	--  hairpin, a bridge, two straights side by side — and the nearest
+	--  point can flip to a completely different part of the lap. `u`
+	--  jumps, the bot turns to chase it, the flip reverses, and it
+	--  circles. That is the "driving in circles around a node" — it was
+	--  never orbiting anything, it was oscillating between two answers.
+	--
+	--  Sparse nodes make it worse, because the spline bulges further
+	--  from the road between them and there is more chance some other
+	--  stretch is closer than the one you are on.
+	--
+	--  With `near` the search is a window around where the caller
+	--  already was, so `u` can only move a little per frame and cannot
+	--  teleport. Leave it nil for a genuinely unknown position — a
+	--  respawn, a grid placement — where a global search is correct.
+	--
+	--  It is also far cheaper. Global was `n * 8` spline evaluations per
+	--  bot per frame: 60 nodes and 8 bots is ~230,000 a second. The
+	--  window is about thirty.
+	--=================================================================
+	local first, last = 0, n * 8 - 1
+	if near then
+		local span = R.RouteSearchSpan * 8
+		first, last = math.floor(near * 8 - span), math.ceil(near * 8 + span)
+	end
+
+	local bestU, bestD = near or 0, math.huge
+	for k = first, last do
+		local u = (k / 8) % n
+		local pt = Route.pointAt(u, nil, nodes)
 		if pt then
 			local d = (pt - pos).Magnitude
 			if d < bestD then
@@ -437,7 +625,13 @@ function Route.nearestU(pos: Vector3): number
 	local window = 1 / 8
 	for _ = 1, 6 do
 		for _, u in { bestU - window, bestU + window } do
-			local pt = Route.pointAt(u % n)
+			-- PASSING `nodes`, which the original did not. Threading a
+			-- second node source through the module left this one call
+			-- reading the CHECKPOINTS while the loop above indexed the
+			-- path — so a bot searched one line and measured against
+			-- another. Silent, and exactly the kind of thing the type
+			-- checker cannot see.
+			local pt = Route.pointAt(u % n, nil, nodes)
 			if pt then
 				local d = (pt - pos).Magnitude
 				if d < bestD then
@@ -469,11 +663,11 @@ end
 -- `tangent:Cross(up)`, matching lateralAt and the bots' steering. For a
 -- path curving that way, v1:Cross(v2) points AGAINST up — hence the
 -- minus. Get this backwards and a bot steers away from every corner.
-function Route.curvatureAt(u: number, up: Vector3): number
+function Route.curvatureAt(u: number, up: Vector3, branch: number?, src: { Node }?): number
 	local span = R.RouteCurvatureSpan
-	local p0 = Route.pointAt(u - span)
-	local p1 = Route.pointAt(u)
-	local p2 = Route.pointAt(u + span)
+	local p0 = Route.pointAt(u - span, branch, src)
+	local p1 = Route.pointAt(u, branch, src)
+	local p2 = Route.pointAt(u + span, branch, src)
 	if not (p0 and p1 and p2) then
 		return 0
 	end
@@ -490,9 +684,9 @@ function Route.curvatureAt(u: number, up: Vector3): number
 	return if cross:Dot(up) > 0 then -kappa else kappa
 end
 
-function Route.lateralAt(u: number, pos: Vector3, up: Vector3): number
-	local centre = Route.pointAt(u)
-	local tangent = Route.tangentAt(u)
+function Route.lateralAt(u: number, pos: Vector3, up: Vector3, src: { Node }?): number
+	local centre = Route.pointAt(u, nil, src)
+	local tangent = Route.tangentAt(u, nil, src)
 	if not (centre and tangent) then
 		return 0
 	end
